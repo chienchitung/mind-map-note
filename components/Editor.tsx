@@ -216,13 +216,13 @@ const Editor: React.FC<EditorProps> = ({
     <div className="h-full w-full editor-wrapper relative">
       <button
         onClick={handleCopy}
-        className="absolute top-3 right-3 z-10 p-2 rounded-md bg-secondary hover:bg-primary transition-colors text-text-secondary"
+        className="absolute top-3 right-8 z-10 p-2 rounded-md bg-secondary hover:bg-primary transition-colors text-text-secondary"
         title={isCopied ? "已複製！" : "複製內容"}
       >
         {isCopied ? (
           <CheckIcon className="w-5 h-5 text-green-400" />
         ) : (
-          <CopyIcon className="w-5 h-5" />
+          <CopyIcon className="w-5 h-f" />
         )}
       </button>
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ViewMode, MindMapNode, SearchResult } from './types';
+import { ViewMode, MindMapNode, SearchResult, MindMapLayout } from './types';
 import { useHistory } from './hooks/useHistory';
 import Header from './components/Header';
 import Editor from './components/Editor';
@@ -10,19 +10,47 @@ import HelpModal from './components/HelpModal';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
 
-const initialMarkdown = `# 思維導讀筆記工具
+const initialMarkdown = `# 歡迎使用思維導圖筆記工具
 
-## 核心功能
-- Markdown 編輯器
-- 自動生成思維導圖
-- 本地實時保存
-- 導入/導出筆記
+## 核心理念
+- **輕鬆寫作，自動成圖**：您只需專注於使用 Markdown 語法（如標題 '#' 和列表 '-'）來撰寫筆記，應用程式會自動將其轉換為結構化的思維導圖。
+- **階層式結構**：透過標題層級和列表縮排，輕鬆建立複雜的思緒層次。
 
-## 如何使用
-1. 在此編輯器中撰寫您的筆記。
-2. 使用 Markdown 的標題語法 (##, ###) 和列表來組織結構。
-3. 點擊上方的 "思維導圖" 圖標切換視圖。
-4. 您的筆記將會被自動轉換為一個可視化的思維導圖。
+## 主要功能
+### 三種檢視模式
+- **編輯器 (⌘1)**
+  - 這是您的主要工作區，一個純粹、無干擾的 Markdown 編輯環境。
+- **預覽 (⌘2)**
+  - 即時查看您的 Markdown 筆記渲染後的樣子。
+- **思維導圖 (⌘3)**
+  - 將您的筆記內容視覺化，一目了然地看到整體結構。
+
+### 互動式思維導圖
+- **節點編輯**
+  - 在圖上雙擊任何節點即可直接修改其內容。
+- **拖放重組**
+  - 想要改變結構？只需拖放節點到新的父節點上即可。
+- **展開與折疊**
+  - 點擊節點旁的 +/- 按鈕，或選中節點後按 \`空白鍵\`，即可專注於特定分支。
+- **鍵盤導航**
+  - 使用 \`↑ ↓ ← →\` 箭頭鍵在節點之間快速移動。
+
+### 實用工具
+- **全文搜尋 (⌘F)**
+  - 快速在您的筆記中找到任何關鍵字。
+- **匯出功能**
+  - 將您的筆記匯出為 \`.md\` 檔案。
+  - 在思維導圖模式下，可以將圖表匯出為 \`.jpg\` 圖片。
+- **復原與重做 (⌘Z / ⌘⇧Z)**
+  - 不用擔心失誤，輕鬆返回上一步或重做。
+
+## 開始使用
+- **試著編輯看看！**
+  - 直接修改這份文件，新增您自己的標題或列表項。
+- **查看快捷鍵**
+  - 按下 \`?\` 鍵可以打開快捷鍵說明，了解更多高效操作。
+
+> 現在，開始您的第一次思維導圖筆記之旅吧！
 `;
 
 const App: React.FC = () => {
@@ -37,6 +65,7 @@ const App: React.FC = () => {
   } = useHistory<string>('mind-map-notes', initialMarkdown);
   
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Editor);
+  const [mindMapLayout, setMindMapLayout] = useState<MindMapLayout>(MindMapLayout.MindMap);
   
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
   const [scrollToMatchIndex, setScrollToMatchIndex] = useState<number | null>(null);
@@ -224,6 +253,8 @@ const App: React.FC = () => {
       <Header
         viewMode={viewMode}
         onViewChange={setViewMode}
+        mindMapLayout={mindMapLayout}
+        onLayoutChange={setMindMapLayout}
         onExport={handleExport}
         onUndo={undo}
         onRedo={redo}
@@ -280,7 +311,8 @@ const App: React.FC = () => {
             {mindMapData ? (
                 <MindMap 
                     ref={mindMapRef}
-                    data={mindMapData} 
+                    data={mindMapData}
+                    layout={mindMapLayout}
                     onNodeUpdate={handleNodeUpdate} 
                     onStructureUpdate={handleStructureUpdate}
                     selectedNodeId={selectedNodeId}

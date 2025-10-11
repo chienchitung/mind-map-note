@@ -1,11 +1,14 @@
 import React, { useRef, useMemo, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import * as d3 from 'd3';
-import { MindMapNode } from '../types';
+import { MindMapNode, MindMapLayout } from '../types';
 import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
 
 const PADDING_X = 24;
 const PADDING_Y = 16;
 const MAX_NODE_WIDTH = 200;
+const HORIZONTAL_GAP = 40;
+const VERTICAL_GAP = 12;
+
 
 const ZoomControls: React.FC<{
   onZoomIn: () => void;
@@ -29,6 +32,7 @@ const ZoomControls: React.FC<{
 
 interface MindMapProps {
   data: MindMapNode;
+  layout: MindMapLayout;
   onNodeUpdate: (nodeId: string, newName: string) => void;
   onStructureUpdate: (newRoot: MindMapNode) => void;
   selectedNodeId: string | null;
@@ -51,32 +55,26 @@ const getNodeStyles = (depth: number) => {
     switch (depth) {
         case 0: // Root
             return {
-                rect: { fill: '#4f46e5', stroke: 'transparent' } as React.CSSProperties,
-                text: { ...baseText, color: 'white' },
+                rect: { fill: '#2563eb', stroke: 'transparent' } as React.CSSProperties,
+                text: { ...baseText, color: 'white', fontWeight: 600 },
                 padding: basePadding,
             };
         case 1: // Level 2
             return {
-                rect: { fill: '#e5e7eb', stroke: 'transparent' } as React.CSSProperties,
-                text: { ...baseText, color: '#1f2937' },
+                rect: { fill: '#71717a', stroke: 'transparent' } as React.CSSProperties,
+                text: { ...baseText, color: 'white' },
                 padding: basePadding,
             };
-        case 2: // Level 3
+        default: // Level 3+
             return {
-                rect: { fill: 'white', stroke: '#d1d5db', strokeWidth: 1 } as React.CSSProperties,
-                text: { ...baseText, color: '#1f2937' },
+                rect: { fill: 'white', stroke: '#a1a1aa', strokeWidth: 1.5 } as React.CSSProperties,
+                text: { ...baseText, color: '#3f3f46' },
                 padding: basePadding,
-            };
-        default: // Level 4+
-            return {
-                rect: { fill: 'transparent', stroke: 'transparent' } as React.CSSProperties,
-                text: { ...baseText, color: '#374151' },
-                padding: `4px 8px`,
             };
     }
 };
 
-const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId }, ref) => {
+const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId }, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -96,14 +94,12 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
         if (!svgRef.current || !gRef.current) return;
 
         const EXPORT_PADDING = 40;
-        // Use a higher scale factor for a sharper image, especially on high-DPI screens.
         const scale = 2; 
         const svgNode = svgRef.current;
         const gNode = gRef.current;
         
         const bbox = gNode.getBBox();
 
-        // Calculate final canvas dimensions with padding and scaling
         const canvasWidth = (bbox.width + EXPORT_PADDING * 2) * scale;
         const canvasHeight = (bbox.height + EXPORT_PADDING * 2) * scale;
 
@@ -125,11 +121,9 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
         if (gClone) {
             const transformX = (-bbox.x + EXPORT_PADDING) * scale;
             const transformY = (-bbox.y + EXPORT_PADDING) * scale;
-            // Scale the group content and translate it to fit within the new canvas
             gClone.setAttribute('transform', `translate(${transformX}, ${transformY}) scale(${scale})`);
         }
 
-        // 1. Embed all CSS styles into the SVG to ensure classes are applied.
         const cssText = Array.from(document.styleSheets)
           .map(sheet => {
             try {
@@ -147,7 +141,6 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
         defsEl.appendChild(styleEl);
         svgClone.insertBefore(defsEl, svgClone.firstChild);
 
-        // 2. Convert to string and create a data URL to prevent canvas tainting.
         const svgString = new XMLSerializer().serializeToString(svgClone);
         const svgDataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgString)))}`;
 
@@ -156,7 +149,6 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
         img.onload = () => {
             ctx.drawImage(img, 0, 0);
             
-            // Use high quality for JPEG export to produce a sharp image
             const jpgUrl = canvas.toDataURL('image/jpeg', 1.0);
             const a = document.createElement('a');
             a.href = jpgUrl;
@@ -197,40 +189,165 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
   const { links, nodes } = useMemo(() => {
     if (!data || nodeSizes.size === 0) return { links: [], nodes: [] };
 
-    const dataCopy = JSON.parse(JSON.stringify(data));
+    const fullRoot = d3.hierarchy(JSON.parse(JSON.stringify(data)));
+    let finalNodes: d3.HierarchyPointNode<MindMapNode>[] = [];
+    let finalLinks: d3.HierarchyLink<MindMapNode>[] = [];
+    
+    const getNodeHeight = (node: d3.HierarchyNode<MindMapNode>) => nodeSizes.get(node.data.id)?.height || 0;
+    const getNodeWidth = (node: d3.HierarchyNode<MindMapNode>) => nodeSizes.get(node.data.id)?.width || 0;
 
-    const recurse = (node: MindMapNode) => {
-        if (collapsedNodes.has(node.id)) {
-            node.children = [];
-        }
-        if (node.children) {
-            for (const child of node.children) {
-                recurse(child);
+    // A two-pass layout function for horizontal trees (Logic, MindMap)
+    const computeHorizontalLayout = (rootNode: d3.HierarchyNode<MindMapNode>) => {
+        // First pass: post-order traversal to calculate subtree spans (heights)
+        rootNode.eachAfter(node => {
+            const isCollapsed = collapsedNodes.has(node.data.id);
+            const nodeHeight = getNodeHeight(node);
+            let childrenSpan = 0;
+            if (node.children && !isCollapsed) {
+                childrenSpan = node.children.reduce((acc, child) => acc + (child as any).subtreeSpan, 0) + (node.children.length - 1) * VERTICAL_GAP;
             }
-        }
+            (node as any).subtreeSpan = Math.max(nodeHeight, childrenSpan);
+        });
+
+        // Second pass: pre-order traversal to set final positions
+        const setPositions = (node: d3.HierarchyNode<MindMapNode>, x: number, y: number) => {
+            const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
+            pointNode.x = x;
+            pointNode.y = y;
+
+            const isCollapsed = collapsedNodes.has(node.data.id);
+            if (node.children && !isCollapsed) {
+                const totalChildrenSpan = (node as any).subtreeSpan;
+                let childXOffset = x - totalChildrenSpan / 2;
+
+                node.children.forEach(child => {
+                    const childSubtreeSpan = (child as any).subtreeSpan;
+                    const childY = y + getNodeWidth(node) / 2 + getNodeWidth(child) / 2 + HORIZONTAL_GAP;
+                    setPositions(child, childXOffset + childSubtreeSpan / 2, childY);
+                    childXOffset += childSubtreeSpan + VERTICAL_GAP;
+                });
+            }
+        };
+        setPositions(rootNode, 0, 0);
     };
-    recurse(dataCopy);
     
-    const root = d3.hierarchy(dataCopy);
+    // A two-pass layout function for vertical trees (Organizational)
+    const computeVerticalLayout = (rootNode: d3.HierarchyNode<MindMapNode>) => {
+        rootNode.eachAfter(node => {
+            const isCollapsed = collapsedNodes.has(node.data.id);
+            const nodeWidth = getNodeWidth(node);
+            let childrenSpan = 0;
+            if (node.children && !isCollapsed) {
+                childrenSpan = node.children.reduce((acc, child) => acc + (child as any).subtreeSpan, 0) + (node.children.length - 1) * HORIZONTAL_GAP;
+            }
+            (node as any).subtreeSpan = Math.max(nodeWidth, childrenSpan);
+        });
+
+        const setPositions = (node: d3.HierarchyNode<MindMapNode>, x: number, y: number) => {
+            const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
+            pointNode.x = x;
+            pointNode.y = y;
+
+            const isCollapsed = collapsedNodes.has(node.data.id);
+            if (node.children && !isCollapsed) {
+                const totalChildrenSpan = (node as any).subtreeSpan;
+                let childXOffset = x - totalChildrenSpan / 2;
+
+                node.children.forEach(child => {
+                    const childSubtreeSpan = (child as any).subtreeSpan;
+                    const childY = y + getNodeHeight(node) + PADDING_Y * 2;
+                    setPositions(child, childXOffset + childSubtreeSpan / 2, childY);
+                    childXOffset += childSubtreeSpan + HORIZONTAL_GAP;
+                });
+            }
+        };
+        setPositions(rootNode, 0, 0);
+    };
+
+    if (layout === MindMapLayout.MindMap) {
+        const rootNode = fullRoot.descendants().find(n => n.depth === 0)! as d3.HierarchyPointNode<MindMapNode>;
+        rootNode.x = 0;
+        rootNode.y = 0;
+        finalNodes.push(rootNode);
+
+        const children = rootNode.children || [];
+        const midIndex = Math.ceil(children.length / 2);
+        const leftChildren = children.slice(0, midIndex);
+        const rightChildren = children.slice(midIndex);
+
+        [leftChildren, rightChildren].forEach((childGroup, groupIndex) => {
+            const isLeftSide = groupIndex === 0;
+            if (childGroup.length === 0) return;
+
+            const dummyRootData: MindMapNode = { id: `dummy-root-${isLeftSide ? 'l' : 'r'}`, name: 'dummy', children: childGroup.map(c => c.data), level: 0, lineNumber: -1, originalLine: '', prefix: '' };
+            const groupRoot = d3.hierarchy(dummyRootData);
+            
+            computeHorizontalLayout(groupRoot);
+
+            groupRoot.descendants().forEach(node => {
+                if (node.depth === 0) return; // Skip the dummy root
+                const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
+                pointNode.y = isLeftSide ? -pointNode.y : pointNode.y;
+                pointNode.data.side = isLeftSide ? 'left' : 'right';
+                // Find the original node from the full hierarchy to preserve animations
+                const originalNode = fullRoot.descendants().find(n => n.data.id === node.data.id) as d3.HierarchyPointNode<MindMapNode>;
+                if (originalNode) {
+                    originalNode.x = pointNode.x;
+                    originalNode.y = pointNode.y;
+                }
+            });
+        });
+        
+    } else if (layout === MindMapLayout.Logic) {
+        computeHorizontalLayout(fullRoot);
+    } else if (layout === MindMapLayout.Organizational) {
+        computeVerticalLayout(fullRoot);
+    }
     
-    let maxWidth = 0;
-    let maxHeight = 0;
-    root.each(node => {
-        const size = nodeSizes.get(node.data.id);
-        if (size) {
-            if (size.width > maxWidth) maxWidth = size.width;
-            if (size.height > maxHeight) maxHeight = size.height;
+    // Populate finalNodes and finalLinks from the full hierarchy, which now has positions
+    const visibleNodes = new Map<string, {x: number, y: number}>();
+    fullRoot.each(node => {
+        const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
+        if (!collapsedNodes.has(pointNode.data.id) && pointNode.parent && collapsedNodes.has(pointNode.parent.data.id)) {
+            // Node is a direct child of a collapsed node, should be hidden
+        } else {
+            visibleNodes.set(pointNode.data.id, {x: pointNode.x, y: pointNode.y});
         }
     });
 
-    const dx = maxHeight + PADDING_Y * 2;
-    const dy = maxWidth + 100;
-    
-    const treeLayout = d3.tree<MindMapNode>().nodeSize([dx, dy]);
-    const treeData = treeLayout(root);
-    
-    return { links: treeData.links(), nodes: treeData.descendants() };
-  }, [data, collapsedNodes, nodeSizes]);
+    finalNodes = fullRoot.descendants().map(node => {
+        const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
+        const visiblePos = visibleNodes.get(pointNode.data.id);
+        
+        if (visiblePos) {
+            pointNode.x = visiblePos.x;
+            pointNode.y = visiblePos.y;
+            (pointNode as any).isCollapsedChild = false;
+        } else {
+            let ancestor = pointNode.parent;
+            let collapseSourcePos = { x: 0, y: 0 };
+            while (ancestor) {
+                const ancestorPos = visibleNodes.get(ancestor.data.id);
+                if (ancestorPos) {
+                    collapseSourcePos = ancestorPos;
+                    break;
+                }
+                ancestor = ancestor.parent;
+            }
+            pointNode.x = collapseSourcePos.x;
+            pointNode.y = collapseSourcePos.y;
+            (pointNode as any).isCollapsedChild = true;
+        }
+        return pointNode;
+    });
+
+    finalLinks = fullRoot.links().map(link => ({
+        source: finalNodes.find(n => n.data.id === link.source.data.id)!,
+        target: finalNodes.find(n => n.data.id === link.target.data.id)!,
+    }));
+
+    return { links: finalLinks, nodes: finalNodes };
+  }, [data, collapsedNodes, nodeSizes, layout]);
 
   const nodeMap = useMemo(() => {
     if (!data) return new Map();
@@ -258,9 +375,21 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
   
   const resetView = useCallback(() => {
     if (!svgRef.current || !zoomRef.current || dimensions.height === 0) return;
-    const initialTransform = d3.zoomIdentity.translate(120, dimensions.height / 2);
+    let initialTransform;
+    switch (layout) {
+        case MindMapLayout.Organizational:
+            initialTransform = d3.zoomIdentity.translate(dimensions.width / 2, 80);
+            break;
+        case MindMapLayout.MindMap:
+            initialTransform = d3.zoomIdentity.translate(dimensions.width / 2, dimensions.height / 2);
+            break;
+        case MindMapLayout.Logic:
+        default:
+            initialTransform = d3.zoomIdentity.translate(80, dimensions.height / 2);
+            break;
+    }
     d3.select(svgRef.current).transition().duration(750).call(zoomRef.current.transform, initialTransform);
-  }, [dimensions.height]);
+  }, [dimensions.width, dimensions.height, layout]);
   
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -354,35 +483,48 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
         
         switch (e.key) {
             case 'ArrowUp': {
-                const parent = currentNode.parent;
-                if (parent && parent.children) {
-                    const currentIndex = parent.children.findIndex(child => child.data.id === selectedNodeId);
-                    if (currentIndex > 0) {
-                        setSelectedNodeId(parent.children[currentIndex - 1].data.id);
+                 if (layout === MindMapLayout.Organizational) {
+                    if (currentNode.parent) setSelectedNodeId(currentNode.parent.data.id);
+                 } else {
+                    const parent = currentNode.parent;
+                    if (parent && parent.children) {
+                        const currentIndex = parent.children.findIndex(child => child.data.id === selectedNodeId);
+                        if (currentIndex > 0) {
+                            setSelectedNodeId(parent.children[currentIndex - 1].data.id);
+                        }
                     }
-                }
+                 }
                 break;
             }
             case 'ArrowDown': {
-                const parent = currentNode.parent;
-                if (parent && parent.children) {
-                    const currentIndex = parent.children.findIndex(child => child.data.id === selectedNodeId);
-                    if (currentIndex < parent.children.length - 1) {
-                        setSelectedNodeId(parent.children[currentIndex + 1].data.id);
+                if (layout === MindMapLayout.Organizational) {
+                    const isCollapsed = collapsedNodes.has(selectedNodeId);
+                     if (currentNode.children && currentNode.children.length > 0 && !isCollapsed) {
+                        setSelectedNodeId(currentNode.children[0].data.id);
+                    }
+                } else {
+                    const parent = currentNode.parent;
+                    if (parent && parent.children) {
+                        const currentIndex = parent.children.findIndex(child => child.data.id === selectedNodeId);
+                        if (currentIndex < parent.children.length - 1) {
+                            setSelectedNodeId(parent.children[currentIndex + 1].data.id);
+                        }
                     }
                 }
                 break;
             }
             case 'ArrowLeft': {
-                if (currentNode.parent) {
+                if (layout !== MindMapLayout.Organizational && currentNode.parent) {
                     setSelectedNodeId(currentNode.parent.data.id);
                 }
                 break;
             }
             case 'ArrowRight': {
-                const isCollapsed = collapsedNodes.has(selectedNodeId);
-                if (currentNode.children && currentNode.children.length > 0 && !isCollapsed) {
-                    setSelectedNodeId(currentNode.children[0].data.id);
+                if (layout !== MindMapLayout.Organizational) {
+                    const isCollapsed = collapsedNodes.has(selectedNodeId);
+                    if (currentNode.children && currentNode.children.length > 0 && !isCollapsed) {
+                        setSelectedNodeId(currentNode.children[0].data.id);
+                    }
                 }
                 break;
             }
@@ -415,7 +557,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
     
     container.addEventListener('keydown', handleKeyDown);
     return () => container.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, setSelectedNodeId, nodeMap, collapsedNodes, editingNodeId, data]);
+  }, [selectedNodeId, setSelectedNodeId, nodeMap, collapsedNodes, editingNodeId, data, layout]);
 
   const handleTextClick = (event: React.MouseEvent, nodeId: string) => { 
       event.stopPropagation(); 
@@ -452,15 +594,24 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
       <svg ref={svgRef} width={dimensions.width} height={dimensions.height} className="cursor-move">
         <g ref={gRef}>
           {links.map((link, i) => {
-             const dy = link.target.y - link.source.y;
-             const d = `M${link.source.y},${link.source.x}C${link.source.y + dy / 2},${link.source.x} ${link.source.y + dy / 2},${link.target.x} ${link.target.y},${link.target.x}`;
-             return <path key={`link-${i}`} className="transition-all duration-500" style={{ fill: 'none', stroke: '#d1d5db', strokeWidth: 1.5 }} d={d} />;
+             if (!link.source || !link.target) return null;
+             const isTargetCollapsed = (link.target as any).isCollapsedChild;
+             let d;
+             if (layout === MindMapLayout.Organizational) {
+                d = d3.linkVertical()({ source: [link.source.x, link.source.y], target: [link.target.x, link.target.y] });
+             } else {
+                 const dx = link.target.y - link.source.y;
+                 const dy = link.target.x - link.source.x;
+                 d = `M${link.source.y},${link.source.x}C${link.source.y + dx / 2},${link.source.x} ${link.source.y + dx / 2},${link.target.x} ${link.target.y},${link.target.x}`;
+             }
+             return <path key={`link-${i}`} style={{ fill: 'none', stroke: '#d1d5db', strokeWidth: 1.5, opacity: isTargetCollapsed ? 0 : 1, transition: 'd 500ms, opacity 500ms' }} d={d!} />;
           })}
           {nodes.map((node) => {
             const isEditing = editingNodeId === node.data.id;
             const isRoot = node.depth === 0;
             const hasChildren = !!node.data.children?.length;
             const isCollapsed = collapsedNodes.has(node.data.id);
+            const isCollapsedChild = (node as any).isCollapsedChild;
             const canToggle = (hasChildren || isCollapsed) && !isRoot;
             const isDropTarget = dropTargetId === node.data.id && draggedNodeId && dropTargetId !== draggedNodeId;
             const isSelected = selectedNodeId === node.data.id;
@@ -471,9 +622,26 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
 
             const { rect: rectStyle, text: textStyle, padding } = getNodeStyles(node.depth);
             
+            let nodeTransform = `translate(${node.y},${node.x})`;
+            if (layout === MindMapLayout.Organizational) {
+                nodeTransform = `translate(${node.x},${node.y})`;
+            }
+
+            let toggleTransform = `translate(${rectWidth / 2}, 0)`;
+            if (layout === MindMapLayout.Organizational) {
+                toggleTransform = `translate(0, ${rectHeight / 2})`;
+            } else if (layout === MindMapLayout.MindMap && node.data.side === 'left') {
+                toggleTransform = `translate(${-rectWidth / 2}, 0)`;
+            }
+
             return (
-              <g key={node.data.id} className={`node group transition-transform duration-500 ${isSelected ? 'selected' : ''}`}
-                 transform={`translate(${node.y},${node.x})`}
+              <g key={node.data.id} className={`node group ${isSelected ? 'selected' : ''}`}
+                 transform={nodeTransform}
+                 style={{
+                     opacity: isCollapsedChild ? 0 : 1,
+                     pointerEvents: isCollapsedChild ? 'none' : 'auto',
+                     transition: 'transform 500ms, opacity 500ms',
+                 }}
                  onClick={() => setSelectedNodeId(node.data.id)}
                  onMouseOver={() => draggedNodeId && setDropTargetId(node.data.id)} onMouseOut={() => draggedNodeId && setDropTargetId(null)}>
                 
@@ -501,7 +669,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, o
 
                 {canToggle && (
                   <g 
-                    transform={`translate(${rectWidth / 2}, 0)`}
+                    transform={toggleTransform}
                     onClick={(e) => handleNodeToggle(e, node.data.id)}
                     className="cursor-pointer"
                   >

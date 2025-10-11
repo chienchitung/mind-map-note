@@ -1,11 +1,13 @@
-import React, { useRef } from 'react';
-import { ViewMode } from '../types';
-import { EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon } from './icons';
+import React, { useState, useRef, useEffect } from 'react';
+import { ViewMode, MindMapLayout } from '../types';
+import { EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon } from './icons';
 import SearchBar from './SearchBar';
 
 interface HeaderProps {
   viewMode: ViewMode;
   onViewChange: (mode: ViewMode) => void;
+  mindMapLayout: MindMapLayout;
+  onLayoutChange: (layout: MindMapLayout) => void;
   onExport: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -22,9 +24,17 @@ interface HeaderProps {
   searchInputRef: React.RefObject<HTMLInputElement>;
 }
 
+const layoutOptions = [
+  { id: MindMapLayout.MindMap, label: '心智圖', Icon: MindMapLayoutIcon },
+  { id: MindMapLayout.Logic, label: '邏輯圖', Icon: LogicDiagramIcon },
+  { id: MindMapLayout.Organizational, label: '組織圖', Icon: OrganizationalChartIcon },
+];
+
 const Header: React.FC<HeaderProps> = ({
   viewMode,
   onViewChange,
+  mindMapLayout,
+  onLayoutChange,
   onExport,
   onUndo,
   onRedo,
@@ -43,6 +53,21 @@ const Header: React.FC<HeaderProps> = ({
   const iconButtonClass = "p-2 rounded-md transition-colors";
   const enabledClass = "hover:bg-secondary text-text-secondary";
   const disabledClass = "text-gray-600 cursor-not-allowed";
+  
+  const [isLayoutDropdownOpen, setIsLayoutDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsLayoutDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const CurrentLayoutIcon = layoutOptions.find(opt => opt.id === mindMapLayout)?.Icon || MindMapLayoutIcon;
 
   return (
     <header className="flex items-center justify-between p-4 bg-primary border-b border-border-color shadow-md flex-wrap gap-4">
@@ -93,6 +118,37 @@ const Header: React.FC<HeaderProps> = ({
             <MindMapIcon className="w-5 h-5" />
           </button>
         </div>
+        
+        {viewMode === ViewMode.MindMap && (
+          <div ref={dropdownRef} className="relative">
+            <button
+              onClick={() => setIsLayoutDropdownOpen(prev => !prev)}
+              className="flex items-center gap-2 p-2 rounded-md bg-secondary hover:bg-gray-700 text-text-secondary transition-colors"
+            >
+              <CurrentLayoutIcon className="w-5 h-5" />
+              <ChevronDownIcon className="w-4 h-4" />
+            </button>
+            {isLayoutDropdownOpen && (
+              <div className="absolute top-full right-0 mt-2 w-40 bg-secondary border border-border-color rounded-md shadow-lg z-20">
+                {layoutOptions.map(({ id, label, Icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => {
+                      onLayoutChange(id);
+                      setIsLayoutDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm text-left transition-colors ${
+                      mindMapLayout === id ? 'bg-accent text-white' : 'text-text-secondary hover:bg-gray-700'
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
              <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原 (⌘Z)">

@@ -5,6 +5,12 @@ export enum ViewMode {
   Preview = 'PREVIEW',
 }
 
+export enum MindMapLayout {
+  MindMap = 'MIND_MAP',           // Two-sided horizontal from the center
+  Logic = 'LOGIC',               // Standard horizontal from left to right
+  Organizational = 'ORGANIZATIONAL', // Vertical from top to bottom
+}
+
 export interface MindMapNode {
   id: string;
   name: string;
@@ -16,6 +22,8 @@ export interface MindMapNode {
   // For D3
   x0?: number;
   y0?: number;
+  // For custom layouts
+  side?: 'left' | 'right';
 }
 
 export interface SearchResult {

@@ -111,3 +111,36 @@ export const HelpIcon: React.FC<IconProps> = ({ className }) => (
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
     </svg>
 );
+
+// Represents a left-to-right logic flow
+export const LogicDiagramIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <rect x="2" y="10" width="4" height="4" rx="1" />
+        <rect x="10" y="4" width="4" height="4" rx="1" />
+        <rect x="10" y="10" width="4" height="4" rx="1" />
+        <rect x="10" y="16" width="4" height="4" rx="1" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 12h4m0 0a2 2 0 002-2V6m-2 2a2 2 0 012 2v0m-2-2a2 2 0 012 2v2" />
+    </svg>
+);
+
+// Represents a top-to-bottom organizational chart
+export const OrganizationalChartIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <rect x="10" y="3" width="4" height="4" rx="1" />
+        <rect x="3" y="17" width="4" height="4" rx="1" />
+        <rect x="10" y="17" width="4" height="4" rx="1" />
+        <rect x="17" y="17" width="4" height="4" rx="1" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v6m0 0a2 2 0 00-2 2v2m2-4a2 2 0 012 2v2M5 17v-2a2 2 0 012-2h10a2 2 0 012 2v2" />
+    </svg>
+);
+
+// Represents a classic two-sided Mind Map
+export const MindMapLayoutIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <rect x="10" y="10" width="4" height="4" rx="1" />
+        <rect x="18" y="4" width="4" height="4" rx="1" />
+        <rect x="18" y="16" width="4" height="4" rx="1" />
+        <rect x="2" y="10" width="4" height="4" rx="1" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M14 12h4m0 0a2 2 0 002-2V6m-2 8a2 2 0 012 2v2M10 12H6" />
+    </svg>
+);

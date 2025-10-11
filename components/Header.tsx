@@ -1,12 +1,11 @@
 import React, { useRef } from 'react';
 import { ViewMode } from '../types';
-import { EditorIcon, MindMapIcon, ImportIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon } from './icons';
+import { EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon } from './icons';
 import SearchBar from './SearchBar';
 
 interface HeaderProps {
   viewMode: ViewMode;
   onViewChange: (mode: ViewMode) => void;
-  onImport: (file: File) => void;
   onExport: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -26,7 +25,6 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({
   viewMode,
   onViewChange,
-  onImport,
   onExport,
   onUndo,
   onRedo,
@@ -42,21 +40,6 @@ const Header: React.FC<HeaderProps> = ({
   onShowHelp,
   searchInputRef,
 }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      onImport(file);
-    }
-    // Reset file input to allow importing the same file again
-    event.target.value = '';
-  };
-  
   const iconButtonClass = "p-2 rounded-md transition-colors";
   const enabledClass = "hover:bg-secondary text-text-secondary";
   const disabledClass = "text-gray-600 cursor-not-allowed";
@@ -112,13 +95,6 @@ const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-            <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                className="hidden"
-                accept=".md, .txt"
-            />
              <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原 (⌘Z)">
                 <UndoIcon className="w-5 h-5" />
             </button>
@@ -126,9 +102,6 @@ const Header: React.FC<HeaderProps> = ({
                 <RedoIcon className="w-5 h-5" />
             </button>
             <div className="w-px h-6 bg-border-color mx-1"></div>
-            <button onClick={handleImportClick} className={`${iconButtonClass} ${enabledClass}`} title="導入筆記">
-                <ImportIcon className="w-5 h-5" />
-            </button>
             <button onClick={onExport} className={`${iconButtonClass} ${enabledClass}`} title="導出筆記">
                 <ExportIcon className="w-5 h-5" />
             </button>

@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useMemo, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import * as d3 from 'd3';
 import { MindMapNode } from '../types';
 import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
@@ -27,7 +27,6 @@ const ZoomControls: React.FC<{
   );
 };
 
-
 interface MindMapProps {
   data: MindMapNode;
   onNodeUpdate: (nodeId: string, newName: string) => void;
@@ -36,7 +35,48 @@ interface MindMapProps {
   setSelectedNodeId: (id: string | null) => void;
 }
 
-const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId }) => {
+export interface MindMapHandle {
+  exportAsJPG: () => void;
+}
+
+const getNodeStyles = (depth: number) => {
+    const baseText: React.CSSProperties = {
+        fontFamily: `ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"`,
+        fontWeight: 500,
+        fontSize: '14px',
+        wordBreak: 'break-word',
+    };
+    const basePadding = `${PADDING_Y / 2}px ${PADDING_X / 2}px`;
+
+    switch (depth) {
+        case 0: // Root
+            return {
+                rect: { fill: '#4f46e5', stroke: 'transparent' } as React.CSSProperties,
+                text: { ...baseText, color: 'white' },
+                padding: basePadding,
+            };
+        case 1: // Level 2
+            return {
+                rect: { fill: '#e5e7eb', stroke: 'transparent' } as React.CSSProperties,
+                text: { ...baseText, color: '#1f2937' },
+                padding: basePadding,
+            };
+        case 2: // Level 3
+            return {
+                rect: { fill: 'white', stroke: '#d1d5db', strokeWidth: 1 } as React.CSSProperties,
+                text: { ...baseText, color: '#1f2937' },
+                padding: basePadding,
+            };
+        default: // Level 4+
+            return {
+                rect: { fill: 'transparent', stroke: 'transparent' } as React.CSSProperties,
+                text: { ...baseText, color: '#374151' },
+                padding: `4px 8px`,
+            };
+    }
+};
+
+const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId }, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -51,6 +91,89 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [nodeSizes, setNodeSizes] = useState<Map<string, { width: number; height: number }>>(new Map());
   
+  useImperativeHandle(ref, () => ({
+    exportAsJPG: () => {
+        if (!svgRef.current || !gRef.current) return;
+
+        const EXPORT_PADDING = 40;
+        // Use a higher scale factor for a sharper image, especially on high-DPI screens.
+        const scale = 2; 
+        const svgNode = svgRef.current;
+        const gNode = gRef.current;
+        
+        const bbox = gNode.getBBox();
+
+        // Calculate final canvas dimensions with padding and scaling
+        const canvasWidth = (bbox.width + EXPORT_PADDING * 2) * scale;
+        const canvasHeight = (bbox.height + EXPORT_PADDING * 2) * scale;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) return;
+        
+        ctx.fillStyle = '#f9fafb'; // bg-gray-50
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
+        svgClone.setAttribute('width', `${canvasWidth}`);
+        svgClone.setAttribute('height', `${canvasHeight}`);
+        
+        const gClone = svgClone.querySelector('g');
+        if (gClone) {
+            const transformX = (-bbox.x + EXPORT_PADDING) * scale;
+            const transformY = (-bbox.y + EXPORT_PADDING) * scale;
+            // Scale the group content and translate it to fit within the new canvas
+            gClone.setAttribute('transform', `translate(${transformX}, ${transformY}) scale(${scale})`);
+        }
+
+        // 1. Embed all CSS styles into the SVG to ensure classes are applied.
+        const cssText = Array.from(document.styleSheets)
+          .map(sheet => {
+            try {
+              return Array.from(sheet.cssRules).map(rule => rule.cssText).join('');
+            } catch (e) {
+              console.warn("Could not read stylesheet for export.", e);
+              return '';
+            }
+          })
+          .join('');
+
+        const styleEl = document.createElement('style');
+        styleEl.textContent = cssText;
+        const defsEl = document.createElement('defs');
+        defsEl.appendChild(styleEl);
+        svgClone.insertBefore(defsEl, svgClone.firstChild);
+
+        // 2. Convert to string and create a data URL to prevent canvas tainting.
+        const svgString = new XMLSerializer().serializeToString(svgClone);
+        const svgDataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgString)))}`;
+
+        const img = new Image();
+
+        img.onload = () => {
+            ctx.drawImage(img, 0, 0);
+            
+            // Use high quality for JPEG export to produce a sharp image
+            const jpgUrl = canvas.toDataURL('image/jpeg', 1.0);
+            const a = document.createElement('a');
+            a.href = jpgUrl;
+            a.download = 'mind-map.jpg';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        };
+
+        img.onerror = (e) => {
+            console.error("Failed to load SVG image for export", e);
+        };
+
+        img.src = svgDataUrl;
+    }
+  }));
+
   // Effect to pre-calculate the size of each node based on its wrapped text content.
   useEffect(() => {
     if (!data || !measurementRef.current) return;
@@ -60,6 +183,8 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
     
     hierarchy.each(node => {
         if (measurementRef.current) {
+            const { padding } = getNodeStyles(node.depth);
+            measurementRef.current.style.padding = padding;
             measurementRef.current.innerText = node.data.name;
             const rect = measurementRef.current.getBoundingClientRect();
             newSizes.set(node.data.id, { width: rect.width, height: rect.height });
@@ -98,7 +223,6 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
         }
     });
 
-    // Use the max calculated dimensions to provide ample spacing for all nodes.
     const dx = maxHeight + PADDING_Y * 2;
     const dy = maxWidth + 100;
     
@@ -315,14 +439,13 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
 
   return (
     <div ref={svgContainerRef} tabIndex={0} className="relative w-full h-full bg-gray-50 rounded-lg border border-gray-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-accent">
-      {/* Off-screen div for measuring text dimensions */}
       <div
         ref={measurementRef}
-        className="absolute -top-[9999px] -left-[9999px] text-sm font-sans font-medium text-center"
+        className="absolute -top-[9999px] -left-[9999px] font-sans font-medium text-center"
         style={{
             maxWidth: `${MAX_NODE_WIDTH}px`,
-            padding: `${PADDING_Y / 2}px ${PADDING_X / 2}px`,
             wordBreak: 'break-word',
+            fontSize: '14px',
         }}
       ></div>
 
@@ -331,7 +454,7 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
           {links.map((link, i) => {
              const dy = link.target.y - link.source.y;
              const d = `M${link.source.y},${link.source.x}C${link.source.y + dy / 2},${link.source.x} ${link.source.y + dy / 2},${link.target.x} ${link.target.y},${link.target.x}`;
-             return <path key={`link-${i}`} className="fill-none stroke-gray-300 transition-all duration-500" strokeWidth="1.5" d={d} />;
+             return <path key={`link-${i}`} className="transition-all duration-500" style={{ fill: 'none', stroke: '#d1d5db', strokeWidth: 1.5 }} d={d} />;
           })}
           {nodes.map((node) => {
             const isEditing = editingNodeId === node.data.id;
@@ -345,6 +468,8 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
             const size = nodeSizes.get(node.data.id) || { width: 100, height: 38 };
             const rectWidth = size.width;
             const rectHeight = size.height;
+
+            const { rect: rectStyle, text: textStyle, padding } = getNodeStyles(node.depth);
             
             return (
               <g key={node.data.id} className={`node group transition-transform duration-500 ${isSelected ? 'selected' : ''}`}
@@ -353,28 +478,21 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
                  onMouseOver={() => draggedNodeId && setDropTargetId(node.data.id)} onMouseOut={() => draggedNodeId && setDropTargetId(null)}>
                 
                 <rect x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight} rx="8"
-                      className={`transition-all duration-200 stroke-2 ${
-                        isRoot ? 'fill-accent stroke-transparent' : 'fill-gray-200 stroke-transparent'
-                      } ${ isDropTarget ? '!stroke-green-400' : ''}`} />
+                      className={`transition-all duration-200 stroke-2 ${ isDropTarget ? '!stroke-green-400' : ''}`} style={rectStyle} />
 
                 {isEditing ? (
                   <foreignObject x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight}>
                     <textarea ref={inputRef} defaultValue={node.data.name} onBlur={handleInputBlur}
                            onKeyDown={handleInputKeyDown} onClick={e => e.stopPropagation()}
                            className="p-2 w-full h-full bg-white border border-accent rounded-md text-gray-800 text-sm font-sans text-center resize-none"
-                           style={{padding: `${PADDING_Y/2}px ${PADDING_X/2}px`}}/>
+                           style={{padding: padding}}/>
                   </foreignObject>
                 ) : (
                   <foreignObject x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight}>
                     <div xmlns="http://www.w3.org/1999/xhtml"
-                        className={`w-full h-full flex items-center justify-center text-center text-sm font-sans font-medium select-none ${
-                            isRoot ? 'text-white' : 'text-gray-800'
-                        } ${!isRoot ? 'cursor-text' : ''}`}
+                        className={`w-full h-full flex items-center justify-center text-center select-none ${!isRoot ? 'cursor-text' : ''}`}
                         onDoubleClick={!isRoot ? (e) => handleTextClick(e, node.data.id) : undefined}
-                        style={{
-                            padding: `${PADDING_Y / 2}px ${PADDING_X / 2}px`,
-                            wordBreak: 'break-word',
-                        }}
+                        style={{ ...textStyle, padding: padding }}
                     >
                         {node.data.name}
                     </div>
@@ -407,6 +525,6 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
       <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} onReset={resetView} />
     </div>
   );
-};
+});
 
 export default MindMap;

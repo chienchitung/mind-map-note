@@ -3,7 +3,7 @@ import { ViewMode, MindMapNode, SearchResult } from './types';
 import { useHistory } from './hooks/useHistory';
 import Header from './components/Header';
 import Editor from './components/Editor';
-import MindMap from './components/MindMap';
+import MindMap, { MindMapHandle } from './components/MindMap';
 import OutlineView from './components/OutlineView';
 import MarkdownPreview from './components/MarkdownPreview';
 import HelpModal from './components/HelpModal';
@@ -37,7 +37,6 @@ const App: React.FC = () => {
   } = useHistory<string>('mind-map-notes', initialMarkdown);
   
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Editor);
-  const [error, setError] = useState<string | null>(null);
   
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
   const [scrollToMatchIndex, setScrollToMatchIndex] = useState<number | null>(null);
@@ -46,6 +45,7 @@ const App: React.FC = () => {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const mindMapRef = useRef<MindMapHandle>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -148,22 +148,12 @@ const App: React.FC = () => {
   }, [viewMode, mindMapData]);
 
 
-  const handleImport = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      setMarkdown(text);
-      clearHistory();
-      setViewMode(ViewMode.Editor);
-      setError(null);
-    };
-    reader.onerror = () => {
-        setError("讀取文件失敗。");
-    }
-    reader.readAsText(file);
-  };
-
   const handleExport = () => {
+    if (viewMode === ViewMode.MindMap) {
+      mindMapRef.current?.exportAsJPG();
+      return;
+    }
+
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -234,7 +224,6 @@ const App: React.FC = () => {
       <Header
         viewMode={viewMode}
         onViewChange={setViewMode}
-        onImport={handleImport}
         onExport={handleExport}
         onUndo={undo}
         onRedo={redo}
@@ -251,12 +240,6 @@ const App: React.FC = () => {
         searchInputRef={searchInputRef}
       />
       <main className="flex-grow flex overflow-hidden">
-        {error && (
-            <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-500 text-white p-3 rounded-lg shadow-lg z-50">
-                <p>{error}</p>
-                <button onClick={() => setError(null)} className="absolute top-1 right-2 text-white font-bold">&times;</button>
-            </div>
-        )}
         {viewMode === ViewMode.Editor || viewMode === ViewMode.Preview ? (
           <div className="flex h-full w-full">
             {mindMapData && (
@@ -296,6 +279,7 @@ const App: React.FC = () => {
           <div className="p-4 md:p-6 lg:p-8 h-full w-full">
             {mindMapData ? (
                 <MindMap 
+                    ref={mindMapRef}
                     data={mindMapData} 
                     onNodeUpdate={handleNodeUpdate} 
                     onStructureUpdate={handleStructureUpdate}

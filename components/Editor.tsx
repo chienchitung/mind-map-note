@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SearchResult } from '../types';
+import { CopyIcon, CheckIcon } from './icons';
 
 interface EditorProps {
   value: string;
@@ -28,6 +29,7 @@ const Editor: React.FC<EditorProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const [isCopied, setIsCopied] = useState(false);
 
   useEffect(() => {
     if (scrollToLine !== null && textareaRef.current) {
@@ -199,8 +201,31 @@ const Editor: React.FC<EditorProps> = ({
     }
   };
 
+  const handleCopy = () => {
+    if (value) {
+      navigator.clipboard.writeText(value).then(() => {
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+      }).catch(err => {
+        console.error('Failed to copy text: ', err);
+      });
+    }
+  };
+
   return (
     <div className="h-full w-full editor-wrapper relative">
+      <button
+        onClick={handleCopy}
+        className="absolute top-3 right-3 z-10 p-2 rounded-md bg-secondary hover:bg-primary transition-colors text-text-secondary"
+        title={isCopied ? "已複製！" : "複製內容"}
+      >
+        {isCopied ? (
+          <CheckIcon className="w-5 h-5 text-green-400" />
+        ) : (
+          <CopyIcon className="w-5 h-5" />
+        )}
+      </button>
+
        <div ref={backdropRef} className="editor-backdrop">
         {renderHighlightedText()}
       </div>

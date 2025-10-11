@@ -32,12 +32,14 @@ interface MindMapProps {
   data: MindMapNode;
   onNodeUpdate: (nodeId: string, newName: string) => void;
   onStructureUpdate: (newRoot: MindMapNode) => void;
+  selectedNodeId: string | null;
+  setSelectedNodeId: (id: string | null) => void;
 }
 
-const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate }) => {
+const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const svgContainerRef = useRef<HTMLDivElement>(null);
   const measurementRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown>>();
 
@@ -106,8 +108,16 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
     return { links: treeData.links(), nodes: treeData.descendants() };
   }, [data, collapsedNodes, nodeSizes]);
 
+  const nodeMap = useMemo(() => {
+    if (!data) return new Map();
+    const map = new Map<string, d3.HierarchyNode<MindMapNode>>();
+    const root = d3.hierarchy(data);
+    root.each(node => map.set(node.data.id, node));
+    return map;
+  }, [data]);
+
   useEffect(() => {
-    const target = containerRef.current;
+    const target = svgContainerRef.current;
     if (!target) return;
     const resizeObserver = new ResizeObserver(entries => {
         if (entries && entries.length > 0) {
@@ -205,24 +215,106 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
 
     nodeSelection.call(drag);
   }, [data, nodes, onStructureUpdate, dropTargetId]);
+  
+  useEffect(() => {
+    const container = svgContainerRef.current;
+    if (!container) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (!selectedNodeId || editingNodeId) return;
+        
+        const currentNode = nodeMap.get(selectedNodeId);
+        if (!currentNode) return;
+        
+        let shouldPreventDefault = true;
+        
+        switch (e.key) {
+            case 'ArrowUp': {
+                const parent = currentNode.parent;
+                if (parent && parent.children) {
+                    const currentIndex = parent.children.findIndex(child => child.data.id === selectedNodeId);
+                    if (currentIndex > 0) {
+                        setSelectedNodeId(parent.children[currentIndex - 1].data.id);
+                    }
+                }
+                break;
+            }
+            case 'ArrowDown': {
+                const parent = currentNode.parent;
+                if (parent && parent.children) {
+                    const currentIndex = parent.children.findIndex(child => child.data.id === selectedNodeId);
+                    if (currentIndex < parent.children.length - 1) {
+                        setSelectedNodeId(parent.children[currentIndex + 1].data.id);
+                    }
+                }
+                break;
+            }
+            case 'ArrowLeft': {
+                if (currentNode.parent) {
+                    setSelectedNodeId(currentNode.parent.data.id);
+                }
+                break;
+            }
+            case 'ArrowRight': {
+                const isCollapsed = collapsedNodes.has(selectedNodeId);
+                if (currentNode.children && currentNode.children.length > 0 && !isCollapsed) {
+                    setSelectedNodeId(currentNode.children[0].data.id);
+                }
+                break;
+            }
+            case 'Enter': {
+                 if (currentNode.depth > 0) { // Root cannot be edited
+                    setEditingNodeId(selectedNodeId);
+                 }
+                break;
+            }
+            case ' ': { // Space bar
+                const hasOriginalChildren = !!nodeMap.get(selectedNodeId)?.children?.length;
+                if (hasOriginalChildren && currentNode.depth > 0) {
+                    setCollapsedNodes(prev => {
+                        const newSet = new Set(prev);
+                        newSet.has(selectedNodeId) ? newSet.delete(selectedNodeId) : newSet.add(selectedNodeId);
+                        return newSet;
+                    });
+                }
+                break;
+            }
+            default:
+                shouldPreventDefault = false;
+        }
 
-  const handleTextClick = (event: React.MouseEvent, nodeId: string) => { event.stopPropagation(); setEditingNodeId(nodeId); };
+        if (shouldPreventDefault) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    };
+    
+    container.addEventListener('keydown', handleKeyDown);
+    return () => container.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodeId, setSelectedNodeId, nodeMap, collapsedNodes, editingNodeId, data]);
+
+  const handleTextClick = (event: React.MouseEvent, nodeId: string) => { 
+      event.stopPropagation(); 
+      setSelectedNodeId(nodeId);
+      setEditingNodeId(nodeId); 
+    };
   const handleInputCommit = (newName: string) => { if (editingNodeId) { onNodeUpdate(editingNodeId, newName); setEditingNodeId(null); } };
   const handleInputBlur = (event: React.FocusEvent<HTMLTextAreaElement>) => handleInputCommit(event.target.value);
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleInputCommit(event.currentTarget.value); } else if (event.key === 'Escape') { setEditingNodeId(null); }};
   
   const handleNodeToggle = useCallback((event: React.MouseEvent, nodeId: string) => {
     event.stopPropagation();
+    setSelectedNodeId(nodeId);
     setEditingNodeId(null); // Exit editing mode when toggling
     setCollapsedNodes(prev => {
         const newSet = new Set(prev);
         newSet.has(nodeId) ? newSet.delete(nodeId) : newSet.add(nodeId);
         return newSet;
     });
-  }, []);
+  }, [setSelectedNodeId]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+    <div ref={svgContainerRef} tabIndex={0} className="relative w-full h-full bg-gray-50 rounded-lg border border-gray-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-accent">
       {/* Off-screen div for measuring text dimensions */}
       <div
         ref={measurementRef}
@@ -244,23 +336,24 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
           {nodes.map((node) => {
             const isEditing = editingNodeId === node.data.id;
             const isRoot = node.depth === 0;
-            const hasChildren = !!node.data.children?.length; // Based on the filtered data
+            const hasChildren = !!node.data.children?.length;
             const isCollapsed = collapsedNodes.has(node.data.id);
             const canToggle = (hasChildren || isCollapsed) && !isRoot;
             const isDropTarget = dropTargetId === node.data.id && draggedNodeId && dropTargetId !== draggedNodeId;
+            const isSelected = selectedNodeId === node.data.id;
             
             const size = nodeSizes.get(node.data.id) || { width: 100, height: 38 };
             const rectWidth = size.width;
             const rectHeight = size.height;
             
             return (
-              <g key={node.data.id} className={`node group transition-transform duration-500`}
+              <g key={node.data.id} className={`node group transition-transform duration-500 ${isSelected ? 'selected' : ''}`}
                  transform={`translate(${node.y},${node.x})`}
-                 onClick={canToggle && !isEditing ? (e) => handleNodeToggle(e, node.data.id) : undefined}
+                 onClick={() => setSelectedNodeId(node.data.id)}
                  onMouseOver={() => draggedNodeId && setDropTargetId(node.data.id)} onMouseOut={() => draggedNodeId && setDropTargetId(null)}>
                 
                 <rect x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight} rx="8"
-                      className={`transition-all duration-200 stroke-2 ${canToggle ? 'cursor-pointer' : ''} ${
+                      className={`transition-all duration-200 stroke-2 ${
                         isRoot ? 'fill-accent stroke-transparent' : 'fill-gray-200 stroke-transparent'
                       } ${ isDropTarget ? '!stroke-green-400' : ''}`} />
 
@@ -276,8 +369,8 @@ const MindMap: React.FC<MindMapProps> = ({ data, onNodeUpdate, onStructureUpdate
                     <div xmlns="http://www.w3.org/1999/xhtml"
                         className={`w-full h-full flex items-center justify-center text-center text-sm font-sans font-medium select-none ${
                             isRoot ? 'text-white' : 'text-gray-800'
-                        } ${!isRoot && !canToggle ? 'cursor-text' : ''}`}
-                        onClick={!isRoot && !canToggle ? (e) => handleTextClick(e, node.data.id) : undefined}
+                        } ${!isRoot ? 'cursor-text' : ''}`}
+                        onDoubleClick={!isRoot ? (e) => handleTextClick(e, node.data.id) : undefined}
                         style={{
                             padding: `${PADDING_Y / 2}px ${PADDING_X / 2}px`,
                             wordBreak: 'break-word',

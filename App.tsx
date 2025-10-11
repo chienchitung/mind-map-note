@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ViewMode, MindMapNode, SearchResult } from './types';
 import { useHistory } from './hooks/useHistory';
 import Header from './components/Header';
@@ -6,6 +6,7 @@ import Editor from './components/Editor';
 import MindMap from './components/MindMap';
 import OutlineView from './components/OutlineView';
 import MarkdownPreview from './components/MarkdownPreview';
+import HelpModal from './components/HelpModal';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
 
@@ -41,6 +42,10 @@ const App: React.FC = () => {
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
   const [scrollToMatchIndex, setScrollToMatchIndex] = useState<number | null>(null);
   const [activeLine, setActiveLine] = useState<number>(0);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,6 +77,75 @@ const App: React.FC = () => {
         setActiveMatchIndex(null);
     }
   }, [searchResults]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isEditing = 
+        e.target instanceof HTMLInputElement || 
+        e.target instanceof HTMLTextAreaElement || 
+        (e.target instanceof HTMLElement && e.target.isContentEditable);
+
+      // Help Modal Toggle
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        if (!isEditing) {
+          e.preventDefault();
+          setIsHelpModalOpen(prev => !prev);
+        }
+      }
+      
+      // Global shortcuts with Ctrl/Cmd
+      if (e.metaKey || e.ctrlKey) {
+          switch (e.key.toLowerCase()) {
+              case '1':
+                  e.preventDefault();
+                  setViewMode(ViewMode.Editor);
+                  break;
+              case '2':
+                  e.preventDefault();
+                  setViewMode(ViewMode.Preview);
+                  break;
+              case '3':
+                  e.preventDefault();
+                  setViewMode(ViewMode.MindMap);
+                  break;
+              case 'f':
+                  e.preventDefault();
+                  searchInputRef.current?.focus();
+                  break;
+              case 'z':
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                      if (canRedo) redo();
+                  } else {
+                      if (canUndo) undo();
+                  }
+                  break;
+              case 'y': // Redo for Windows
+                  e.preventDefault();
+                  if (canRedo) redo();
+                  break;
+          }
+      }
+
+      // Escape key
+      if (e.key === 'Escape') {
+        if (isHelpModalOpen) {
+          setIsHelpModalOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canUndo, canRedo, undo, redo, isHelpModalOpen]);
+
+  useEffect(() => {
+    if (viewMode === ViewMode.MindMap && mindMapData) {
+        setSelectedNodeId(mindMapData.id);
+    } else {
+        setSelectedNodeId(null);
+    }
+  }, [viewMode, mindMapData]);
 
 
   const handleImport = (file: File) => {
@@ -173,6 +247,8 @@ const App: React.FC = () => {
         onClearSearch={handleClearSearch}
         searchMatchCount={searchResults.length}
         activeMatchIndex={activeMatchIndex}
+        onShowHelp={() => setIsHelpModalOpen(true)}
+        searchInputRef={searchInputRef}
       />
       <main className="flex-grow flex overflow-hidden">
         {error && (
@@ -218,10 +294,19 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div className="p-4 md:p-6 lg:p-8 h-full w-full">
-            {mindMapData ? <MindMap data={mindMapData} onNodeUpdate={handleNodeUpdate} onStructureUpdate={handleStructureUpdate} /> : <div className="text-center text-text-secondary">請在編輯器中新增內容以生成思維導圖。</div>}
+            {mindMapData ? (
+                <MindMap 
+                    data={mindMapData} 
+                    onNodeUpdate={handleNodeUpdate} 
+                    onStructureUpdate={handleStructureUpdate}
+                    selectedNodeId={selectedNodeId}
+                    setSelectedNodeId={setSelectedNodeId}
+                />
+            ) : <div className="text-center text-text-secondary">請在編輯器中新增內容以生成思維導圖。</div>}
           </div>
         )}
       </main>
+      <HelpModal isOpen={isHelpModalOpen} onClose={() => setIsHelpModalOpen(false)} />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 import { SearchIcon, ChevronUpIcon, ChevronDownIcon, XIcon } from './icons';
 
 interface SearchBarProps {
@@ -11,15 +11,18 @@ interface SearchBarProps {
     activeMatchIndex: number | null;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({
-    query,
-    onQueryChange,
-    onNext,
-    onPrev,
-    onClear,
-    matchCount,
-    activeMatchIndex,
-}) => {
+const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
+    {
+        query,
+        onQueryChange,
+        onNext,
+        onPrev,
+        onClear,
+        matchCount,
+        activeMatchIndex,
+    }, 
+    ref
+) => {
     const hasQuery = query.length > 0;
     const hasMatches = matchCount > 0;
 
@@ -27,8 +30,9 @@ const SearchBar: React.FC<SearchBarProps> = ({
         <div className="flex items-center gap-2 bg-secondary p-1 rounded-md border border-border-color w-full max-w-sm">
             <SearchIcon className="w-5 h-5 text-text-secondary ml-1 flex-shrink-0" />
             <input
+                ref={ref}
                 type="text"
-                placeholder="搜尋筆記..."
+                placeholder="搜尋筆記... (⌘F)"
                 value={query}
                 onChange={(e) => onQueryChange(e.target.value)}
                 className="bg-transparent focus:outline-none text-text-main w-full text-sm"
@@ -56,6 +60,6 @@ const SearchBar: React.FC<SearchBarProps> = ({
             )}
         </div>
     );
-};
+});
 
 export default SearchBar;

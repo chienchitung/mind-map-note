@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { ViewMode } from '../types';
-import { EditorIcon, MindMapIcon, ImportIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon } from './icons';
+import { EditorIcon, MindMapIcon, ImportIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon } from './icons';
 import SearchBar from './SearchBar';
 
 interface HeaderProps {
@@ -19,6 +19,8 @@ interface HeaderProps {
   onClearSearch: () => void;
   searchMatchCount: number;
   activeMatchIndex: number | null;
+  onShowHelp: () => void;
+  searchInputRef: React.RefObject<HTMLInputElement>;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -37,6 +39,8 @@ const Header: React.FC<HeaderProps> = ({
   onClearSearch,
   searchMatchCount,
   activeMatchIndex,
+  onShowHelp,
+  searchInputRef,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +69,7 @@ const Header: React.FC<HeaderProps> = ({
         </h1>
         {(viewMode === ViewMode.Editor || viewMode === ViewMode.Preview) && (
            <SearchBar
+              ref={searchInputRef}
               query={searchQuery}
               onQueryChange={onSearchQueryChange}
               onNext={onNextMatch}
@@ -79,7 +84,7 @@ const Header: React.FC<HeaderProps> = ({
         <div className="flex rounded-md bg-secondary p-1">
           <button
             onClick={() => onViewChange(ViewMode.Editor)}
-            title="編輯模式"
+            title="編輯模式 (⌘1)"
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
               viewMode === ViewMode.Editor ? 'bg-accent text-white' : 'text-text-secondary hover:bg-gray-700'
             }`}
@@ -88,7 +93,7 @@ const Header: React.FC<HeaderProps> = ({
           </button>
            <button
             onClick={() => onViewChange(ViewMode.Preview)}
-            title="預覽模式"
+            title="預覽模式 (⌘2)"
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
               viewMode === ViewMode.Preview ? 'bg-accent text-white' : 'text-text-secondary hover:bg-gray-700'
             }`}
@@ -97,7 +102,7 @@ const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={() => onViewChange(ViewMode.MindMap)}
-            title="思維導圖模式"
+            title="思維導圖模式 (⌘3)"
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
               viewMode === ViewMode.MindMap ? 'bg-accent text-white' : 'text-text-secondary hover:bg-gray-700'
             }`}
@@ -114,10 +119,10 @@ const Header: React.FC<HeaderProps> = ({
                 className="hidden"
                 accept=".md, .txt"
             />
-             <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原">
+             <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原 (⌘Z)">
                 <UndoIcon className="w-5 h-5" />
             </button>
-            <button onClick={onRedo} disabled={!canRedo} className={`${iconButtonClass} ${canRedo ? enabledClass : disabledClass}`} title="重做">
+            <button onClick={onRedo} disabled={!canRedo} className={`${iconButtonClass} ${canRedo ? enabledClass : disabledClass}`} title="重做 (⌘⇧Z)">
                 <RedoIcon className="w-5 h-5" />
             </button>
             <div className="w-px h-6 bg-border-color mx-1"></div>
@@ -126,6 +131,9 @@ const Header: React.FC<HeaderProps> = ({
             </button>
             <button onClick={onExport} className={`${iconButtonClass} ${enabledClass}`} title="導出筆記">
                 <ExportIcon className="w-5 h-5" />
+            </button>
+             <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title="幫助 (?)">
+                <HelpIcon className="w-5 h-5" />
             </button>
         </div>
       </div>

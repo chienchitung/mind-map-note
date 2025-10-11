@@ -40,13 +40,18 @@
     }
     
     /* Hover effect for MindMap nodes */
-    .node:hover > circle {
-        transform: scale(1.4);
+    .node:hover > rect {
         stroke: #4f46e5; /* accent color */
-        transition: transform 0.2s, stroke 0.2s;
+        transition: stroke 0.2s;
     }
-    .node > circle {
-        transition: transform 0.2s, stroke 0.2s;
+
+    .node.selected > rect {
+        stroke: #818cf8; /* lighter accent color */
+        stroke-width: 3px;
+    }
+    
+    .node > rect {
+        transition: stroke 0.2s, stroke-width 0.2s;
     }
 
     /* Outline View Styles */
@@ -237,6 +242,43 @@
       margin-left: 0;
       color: #a0a0a0;
       font-style: italic;
+    }
+    
+    /* Help Modal Styles */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.75);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 50;
+    }
+
+    .modal-content {
+        background-color: #2a2a2a; /* secondary */
+        padding: 2rem;
+        border-radius: 0.5rem;
+        width: 90%;
+        max-width: 600px;
+        position: relative;
+        border: 1px solid #3a3a3a; /* border-color */
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+    }
+
+    .shortcut-key {
+        background-color: #1a1a1a; /* primary */
+        border: 1px solid #3a3a3a; /* border-color */
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-family: monospace;
+        color: #e0e0e0; /* text-main */
+        margin-right: 0.5rem;
+        display: inline-block;
+        line-height: 1;
     }
 </style>
 </head>

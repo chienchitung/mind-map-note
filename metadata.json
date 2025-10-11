@@ -1,0 +1,5 @@
+{
+  "name": "Mind Map Note",
+  "description": "A minimalist note-taking application that automatically organizes your thoughts into a hierarchical mind map. It features a markdown editor, real-time saving, and import/export functionality.",
+  "requestFramePermissions": []
+}

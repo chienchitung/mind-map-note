@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-g" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>思維導讀筆記工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'primary': '#1a1a1a',
+              'secondary': '#2a2a2a',
+              'accent': '#4f46e5',
+              'text-main': '#e0e0e0',
+              'text-secondary': '#a0a0a0',
+              'border-color': '#3a3a3a',
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.24.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "d3": "https://aistudiocdn.com/d3@^7.9.0",
+    "marked": "https://aistudiocdn.com/marked@^13.0.2"
+  }
+}
+</script>
+<style>
+    .node.dragging {
+        opacity: 0.5;
+    }
+    
+    /* Hover effect for MindMap nodes */
+    .node:hover > circle {
+        transform: scale(1.4);
+        stroke: #4f46e5; /* accent color */
+        transition: transform 0.2s, stroke 0.2s;
+    }
+    .node > circle {
+        transition: transform 0.2s, stroke 0.2s;
+    }
+
+    /* Outline View Styles */
+    .outline-view ul {
+        list-style: none;
+        padding-left: 20px;
+        position: relative;
+    }
+
+    .outline-view ul::before {
+        content: '';
+        position: absolute;
+        left: 5px;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background-color: #3a3a3a; /* border-color */
+    }
+    
+    .outline-view li {
+        position: relative;
+        padding-top: 4px;
+        padding-bottom: 4px;
+    }
+
+    .outline-view li::before {
+        content: '';
+        position: absolute;
+        left: -15px;
+        top: 14px;
+        width: 10px;
+        height: 1px;
+        background-color: #3a3a3a; /* border-color */
+    }
+
+    .outline-view .outline-node-content {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background-color 0.2s;
+    }
+    
+    .outline-view .outline-node-content:hover {
+        background-color: #2a2a2a;
+    }
+
+    .outline-view .outline-node-content.active {
+        background-color: #4f46e5; /* accent */
+        color: white;
+    }
+
+    .outline-view .node-bullet {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: #a0a0a0; /* text-secondary */
+        margin-right: 10px;
+        flex-shrink: 0;
+    }
+    
+    .outline-view .outline-node-content.active .node-bullet {
+        background-color: white;
+    }
+
+    /* Editor Highlighting Styles */
+    .editor-wrapper {
+        overflow: hidden;
+        border-radius: 0.5rem;
+        background-color: #2a2a2a; /* secondary */
+        border: 1px solid transparent;
+    }
+    
+    .editor-wrapper:focus-within {
+        border-color: #4f46e5; /* accent */
+    }
+
+    .editor-backdrop, .editor-textarea {
+        width: 100%;
+        height: 100%;
+        padding: 1rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 1rem;
+        line-height: 24px;
+        resize: none;
+        border: none;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow: auto;
+        -webkit-text-fill-color: transparent; /* Makes textarea text invisible */
+    }
+    
+    .editor-textarea {
+        position: absolute;
+        top: 0;
+        left: 0;
+        background-color: transparent;
+        color: #e0e0e0; /* text-main */
+        -webkit-text-fill-color: inherit; /* Resets the color for the actual textarea */
+    }
+
+    .editor-textarea:focus {
+        outline: none;
+    }
+
+    .editor-backdrop {
+        position: relative;
+        color: #e0e0e0; /* text-main */
+        z-index: 1;
+    }
+
+    .editor-textarea {
+        z-index: 2;
+    }
+    
+    .editor-backdrop mark {
+        background-color: rgba(255, 255, 0, 0.3);
+        border-radius: 2px;
+        color: inherit;
+    }
+
+    .editor-backdrop mark.active-match {
+        background-color: rgba(255, 165, 0, 0.5);
+    }
+    
+    /* Markdown Preview Styles */
+    .markdown-preview {
+      color: #e0e0e0;
+      line-height: 1.6;
+    }
+    .markdown-preview h1, .markdown-preview h2, .markdown-preview h3, .markdown-preview h4, .markdown-preview h5, .markdown-preview h6 {
+      color: #ffffff;
+      font-weight: 600;
+      border-bottom: 1px solid #3a3a3a;
+      padding-bottom: 0.3em;
+      margin-top: 1.5em;
+      margin-bottom: 1em;
+    }
+    .markdown-preview h1 { font-size: 2em; }
+    .markdown-preview h2 { font-size: 1.5em; }
+    .markdown-preview h3 { font-size: 1.25em; }
+    .markdown-preview p {
+      margin-bottom: 1em;
+    }
+    .markdown-preview ul, .markdown-preview ol {
+      padding-left: 2em;
+      margin-bottom: 1em;
+    }
+     .markdown-preview ul {
+      list-style-type: disc;
+    }
+    .markdown-preview ol {
+      list-style-type: decimal;
+    }
+    .markdown-preview li {
+      margin-bottom: 0.5em;
+    }
+    .markdown-preview a {
+      color: #818cf8;
+      text-decoration: none;
+    }
+    .markdown-preview a:hover {
+      text-decoration: underline;
+    }
+    .markdown-preview code {
+      background-color: #2a2a2a;
+      padding: 0.2em 0.4em;
+      margin: 0;
+      font-size: 85%;
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    .markdown-preview pre {
+      background-color: #2a2a2a;
+      padding: 1em;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin-bottom: 1em;
+    }
+    .markdown-preview pre code {
+      padding: 0;
+      background-color: transparent;
+    }
+    .markdown-preview blockquote {
+      border-left: 4px solid #4a4a4a;
+      padding-left: 1em;
+      margin-left: 0;
+      color: #a0a0a0;
+      font-style: italic;
+    }
+</style>
+</head>
+  <body class="bg-primary text-text-main">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

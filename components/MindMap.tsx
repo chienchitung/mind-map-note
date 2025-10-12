@@ -6,8 +6,8 @@ import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
 const PADDING_X = 24;
 const PADDING_Y = 16;
 const MAX_NODE_WIDTH = 200;
-const HORIZONTAL_GAP = 40;
-const VERTICAL_GAP = 12;
+const HORIZONTAL_GAP = 80;
+const VERTICAL_GAP = 24;
 
 
 const ZoomControls: React.FC<{
@@ -190,8 +190,6 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     if (!data || nodeSizes.size === 0) return { links: [], nodes: [] };
 
     const fullRoot = d3.hierarchy(JSON.parse(JSON.stringify(data)));
-    let finalNodes: d3.HierarchyPointNode<MindMapNode>[] = [];
-    let finalLinks: d3.HierarchyLink<MindMapNode>[] = [];
     
     const getNodeHeight = (node: d3.HierarchyNode<MindMapNode>) => nodeSizes.get(node.data.id)?.height || 0;
     const getNodeWidth = (node: d3.HierarchyNode<MindMapNode>) => nodeSizes.get(node.data.id)?.width || 0;
@@ -268,7 +266,6 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         const rootNode = fullRoot.descendants().find(n => n.depth === 0)! as d3.HierarchyPointNode<MindMapNode>;
         rootNode.x = 0;
         rootNode.y = 0;
-        finalNodes.push(rootNode);
 
         const children = rootNode.children || [];
         const midIndex = Math.ceil(children.length / 2);
@@ -284,16 +281,20 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
             
             computeHorizontalLayout(groupRoot);
 
+            const rootNodeWidth = getNodeWidth(rootNode);
             groupRoot.descendants().forEach(node => {
                 if (node.depth === 0) return; // Skip the dummy root
                 const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
-                pointNode.y = isLeftSide ? -pointNode.y : pointNode.y;
-                pointNode.data.side = isLeftSide ? 'left' : 'right';
+                
                 // Find the original node from the full hierarchy to preserve animations
                 const originalNode = fullRoot.descendants().find(n => n.data.id === node.data.id) as d3.HierarchyPointNode<MindMapNode>;
                 if (originalNode) {
+                    // Adjust position to account for the root node's width
+                    const finalY = pointNode.y + (rootNodeWidth / 2);
+                    
                     originalNode.x = pointNode.x;
-                    originalNode.y = pointNode.y;
+                    originalNode.y = isLeftSide ? -finalY : finalY;
+                    originalNode.data.side = isLeftSide ? 'left' : 'right';
                 }
             });
         });
@@ -304,47 +305,38 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         computeVerticalLayout(fullRoot);
     }
     
-    // Populate finalNodes and finalLinks from the full hierarchy, which now has positions
-    const visibleNodes = new Map<string, {x: number, y: number}>();
+    // Traverse the hierarchy to set visibility and animation start positions for collapsed nodes.
+    // A pre-order traversal ensures that a parent's visibility is determined before its children.
     fullRoot.each(node => {
-        const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
-        if (!collapsedNodes.has(pointNode.data.id) && pointNode.parent && collapsedNodes.has(pointNode.parent.data.id)) {
-            // Node is a direct child of a collapsed node, should be hidden
+      const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
+
+      if (node.parent) {
+        const parentNode = node.parent as d3.HierarchyPointNode<MindMapNode>;
+        // A node is hidden if its parent is explicitly collapsed, or if its parent is already hidden 
+        // (i.e., it's a descendant of an ancestor that was collapsed).
+        const parentIsHidden = (parentNode as any).isCollapsedChild;
+        const parentIsCollapsed = collapsedNodes.has(parentNode.data.id);
+
+        if (parentIsHidden || parentIsCollapsed) {
+          (pointNode as any).isCollapsedChild = true;
+          // For animation, the hidden node should start from its parent's position. Since we traverse 
+          // top-down, the parent's position is already correctly set (either its layout position or its 
+          // own collapsed-from position).
+          pointNode.x = parentNode.x;
+          pointNode.y = parentNode.y;
         } else {
-            visibleNodes.set(pointNode.data.id, {x: pointNode.x, y: pointNode.y});
+          (pointNode as any).isCollapsedChild = false;
         }
+      } else {
+        // The root node is never hidden.
+        (pointNode as any).isCollapsedChild = false;
+      }
     });
 
-    finalNodes = fullRoot.descendants().map(node => {
-        const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
-        const visiblePos = visibleNodes.get(pointNode.data.id);
-        
-        if (visiblePos) {
-            pointNode.x = visiblePos.x;
-            pointNode.y = visiblePos.y;
-            (pointNode as any).isCollapsedChild = false;
-        } else {
-            let ancestor = pointNode.parent;
-            let collapseSourcePos = { x: 0, y: 0 };
-            while (ancestor) {
-                const ancestorPos = visibleNodes.get(ancestor.data.id);
-                if (ancestorPos) {
-                    collapseSourcePos = ancestorPos;
-                    break;
-                }
-                ancestor = ancestor.parent;
-            }
-            pointNode.x = collapseSourcePos.x;
-            pointNode.y = collapseSourcePos.y;
-            (pointNode as any).isCollapsedChild = true;
-        }
-        return pointNode;
-    });
-
-    finalLinks = fullRoot.links().map(link => ({
-        source: finalNodes.find(n => n.data.id === link.source.data.id)!,
-        target: finalNodes.find(n => n.data.id === link.target.data.id)!,
-    }));
+    // The final nodes are all the descendants, with their visibility and positions now correctly set.
+    const finalNodes = fullRoot.descendants();
+    // The links connect these nodes. The rendering logic will hide links to invisible nodes.
+    const finalLinks = fullRoot.links();
 
     return { links: finalLinks, nodes: finalNodes };
   }, [data, collapsedNodes, nodeSizes, layout]);
@@ -598,11 +590,12 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
              const isTargetCollapsed = (link.target as any).isCollapsedChild;
              let d;
              if (layout === MindMapLayout.Organizational) {
-                d = d3.linkVertical()({ source: [link.source.x, link.source.y], target: [link.target.x, link.target.y] });
+                d = d3.linkVertical<any, d3.HierarchyPointNode<MindMapNode>>().x(d => d.x).y(d => d.y)({ source: link.source as any, target: link.target as any });
              } else {
-                 const dx = link.target.y - link.source.y;
-                 const dy = link.target.x - link.source.x;
-                 d = `M${link.source.y},${link.source.x}C${link.source.y + dx / 2},${link.source.x} ${link.source.y + dx / 2},${link.target.x} ${link.target.y},${link.target.x}`;
+                 const sourceNode = link.source as d3.HierarchyPointNode<MindMapNode>;
+                 const targetNode = link.target as d3.HierarchyPointNode<MindMapNode>;
+                 const dx = targetNode.y - sourceNode.y;
+                 d = `M${sourceNode.y},${sourceNode.x}C${sourceNode.y + dx / 2},${sourceNode.x} ${sourceNode.y + dx / 2},${targetNode.x} ${targetNode.y},${targetNode.x}`;
              }
              return <path key={`link-${i}`} style={{ fill: 'none', stroke: '#d1d5db', strokeWidth: 1.5, opacity: isTargetCollapsed ? 0 : 1, transition: 'd 500ms, opacity 500ms' }} d={d!} />;
           })}

@@ -1,0 +1,159 @@
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { ChevronDoubleRightIcon, ChatbotIcon } from './icons';
+import MarkdownPreview from './MarkdownPreview';
+import { Images } from '../types';
+import Spinner from './Spinner';
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+}
+
+interface AIPanelProps {
+  onToggleCollapse: () => void;
+  messages: ChatMessage[];
+  onSendMessage: (message: string) => void;
+  isLoading: boolean;
+  images: Images;
+}
+
+// A new component to render the AI's response with a typewriter effect.
+const TypewriterMessage: React.FC<{ text: string; images: Images, scrollRef: React.RefObject<HTMLDivElement> }> = ({ text, images, scrollRef }) => {
+  const [displayedText, setDisplayedText] = useState('');
+
+  useEffect(() => {
+    setDisplayedText(''); // Reset when a new message comes in
+    if (text) {
+      let i = 0;
+      const intervalId = setInterval(() => {
+        if (i < text.length) {
+          setDisplayedText(prev => prev + text.charAt(i));
+          i++;
+        } else {
+          clearInterval(intervalId);
+        }
+      }, 15); // Typing speed in milliseconds
+
+      return () => clearInterval(intervalId);
+    }
+  }, [text]);
+
+  // Scroll to the bottom as new text is being typed to keep it in view
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [displayedText, scrollRef]);
+
+  return <MarkdownPreview markdown={displayedText} images={images} />;
+};
+
+
+const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMessage, isLoading, images }) => {
+  const [input, setInput] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isLoading]);
+  
+  // Auto-grow textarea height based on content.
+  // Using useLayoutEffect to prevent flicker and ensure correct height calculation after DOM mutations.
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Reset height to allow shrinking
+      textarea.style.height = 'auto';
+      // Set height based on content, up to a max height
+      const scrollHeight = textarea.scrollHeight;
+      const maxHeight = 120; // Max height in pixels
+      textarea.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
+    }
+  }, [input]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (input.trim() && !isLoading) {
+      onSendMessage(input);
+      setInput('');
+    }
+  };
+
+  return (
+    <div className="h-full bg-secondary flex flex-col">
+      <div
+        className="flex items-center justify-between p-4 border-b border-border-color flex-shrink-0"
+      >
+        <div className="flex items-center gap-3">
+            <ChatbotIcon className="w-6 h-6 text-accent dark:text-text-main" />
+            <h2 className="text-lg font-bold text-text-main">AI 學習夥伴</h2>
+        </div>
+        <button onClick={onToggleCollapse} className="p-1 rounded-md text-text-secondary hover:bg-primary" title="收合側邊欄 (Esc)">
+          <ChevronDoubleRightIcon className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="flex-grow overflow-y-auto p-6 space-y-6">
+        {messages.map((msg, index) => {
+          const isLastMessage = index === messages.length - 1;
+          return (
+            <div key={index} className={`flex items-end gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {msg.role === 'model' && (
+                <div className="w-8 h-8 rounded-full bg-primary dark:bg-text-main flex items-center justify-center flex-shrink-0">
+                    <ChatbotIcon className="w-5 h-5 text-accent dark:text-primary" />
+                </div>
+              )}
+              <div className={`px-4 py-3 rounded-2xl max-w-[75%] ${msg.role === 'user' ? 'bg-accent text-white rounded-br-lg' : 'bg-primary text-text-main rounded-bl-lg'}`}>
+                {msg.role === 'model' && isLastMessage && !isLoading ? (
+                  <TypewriterMessage text={msg.text} images={images} scrollRef={messagesEndRef} />
+                ) : (
+                  <MarkdownPreview markdown={msg.text} images={images} />
+                )}
+              </div>
+            </div>
+          )
+        })}
+        {isLoading && (
+            <div className="flex items-end gap-3 justify-start">
+                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                    <ChatbotIcon className="w-5 h-5 text-accent" />
+                </div>
+                <div className="px-4 py-3 rounded-2xl bg-primary flex items-center justify-center space-x-1.5 h-[44px] rounded-bl-lg">
+                    <span className="h-2 w-2 bg-accent rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                    <span className="h-2 w-2 bg-accent rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                    <span className="h-2 w-2 bg-accent rounded-full animate-bounce"></span>
+                </div>
+            </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="p-4 bg-secondary border-t border-border-color flex-shrink-0">
+        <form onSubmit={handleSubmit} className="flex items-end gap-3">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e);
+                }
+            }}
+            placeholder="在這裡問問題..."
+            className="w-full px-4 py-2.5 bg-primary border border-transparent focus:border-accent rounded-xl focus:outline-none focus:ring-1 focus:ring-accent text-text-main resize-none transition-colors"
+            rows={1}
+            style={{ maxHeight: '120px', minHeight: '44px' }}
+            disabled={isLoading}
+          />
+          <button type="submit" disabled={isLoading || !input.trim()} className="w-10 h-10 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/50 disabled:cursor-not-allowed transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+            </svg>
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default AIPanel;

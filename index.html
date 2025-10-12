@@ -207,11 +207,11 @@
     
     /* Markdown Preview Styles */
     .markdown-preview {
-      color: var(--color-text-main);
+      color: inherit;
       line-height: 1.6;
     }
     .markdown-preview h1, .markdown-preview h2, .markdown-preview h3, .markdown-preview h4, .markdown-preview h5, .markdown-preview h6 {
-      color: var(--color-text-main);
+      color: inherit;
       font-weight: 600;
       border-bottom: 1px solid var(--color-border-color);
       padding-bottom: 0.3em;
@@ -264,10 +264,11 @@
       background-color: transparent;
     }
     .markdown-preview blockquote {
-      border-left: 4px solid #4a4a4a;
+      border-left: 4px solid var(--color-border-color);
       padding-left: 1em;
       margin-left: 0;
-      color: var(--color-text-secondary);
+      color: inherit;
+      opacity: 0.9;
       font-style: italic;
     }
     

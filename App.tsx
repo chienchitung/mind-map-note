@@ -10,9 +10,12 @@ import OutlineView from './components/OutlineView';
 import MarkdownPreview from './components/MarkdownPreview';
 import HelpModal from './components/HelpModal';
 import FileExplorer from './components/FileExplorer';
+import AIPanel, { ChatMessage } from './components/AIPanel';
+import { createChatSession } from './services/geminiChatService';
+import { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
-import { ChevronDoubleRightIcon } from './components/icons';
+import { ChevronDoubleRightIcon, ChevronDoubleLeftIcon } from './components/icons';
 
 // Custom hook to debounce a value.
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -92,6 +95,12 @@ const App: React.FC = () => {
   const [isFileExplorerCollapsed, setIsFileExplorerCollapsed] = useState(false);
   const [isOutlineViewCollapsed, setIsOutlineViewCollapsed] = useState(false);
   
+  // State for the new AI Panel
+  const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
+  const [chatSession, setChatSession] = useState<Chat | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isAILoading, setIsAILoading] = useState(false);
+
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   const activeNoteName = activeNoteId ? tree[activeNoteId]?.name ?? '筆記' : '筆記';
@@ -110,8 +119,6 @@ const App: React.FC = () => {
       Object.keys(notes).forEach(noteId => {
         const content = notes[noteId];
         
-        // FIX: Reset lastIndex before searching a new string with a global regex.
-        // This ensures the search starts from the beginning of each note's content.
         regex.lastIndex = 0;
         
         const match = regex.exec(content);
@@ -135,7 +142,6 @@ const App: React.FC = () => {
         }
       });
     } catch (e) {
-      // Invalid regex, return no results
       console.error('Search regex error:', e);
       return [];
     }
@@ -179,12 +185,13 @@ const App: React.FC = () => {
 
       if (e.key === 'Escape') {
         if (isHelpModalOpen) setIsHelpModalOpen(false);
+        if (isAIPanelOpen) setIsAIPanelOpen(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, isHelpModalOpen]);
+  }, [canUndo, canRedo, undo, redo, isHelpModalOpen, isAIPanelOpen]);
 
   useEffect(() => {
     if (viewMode === ViewMode.MindMap && mindMapData) {
@@ -231,8 +238,6 @@ const App: React.FC = () => {
     if (targetNode && targetNode.name !== newName && newName.trim() !== '') {
         const lines = markdown.split('\n');
         const originalLine = targetNode.originalLine;
-        // This replacement is simple; it might fail if the old name appears multiple times.
-        // A more robust solution would rebuild the line from the prefix, new name, and image URL if present.
         const updatedLine = originalLine.replace(targetNode.name, newName.trim());
         lines[targetNode.lineNumber] = updatedLine;
         setMarkdown(lines.join('\n'));
@@ -251,7 +256,56 @@ const App: React.FC = () => {
   
   const handleSearchResultClick = (noteId: string) => {
     setActiveNoteId(noteId);
-    setSearchQuery(''); // Clear search after selection
+    setSearchQuery('');
+  };
+
+  const handleToggleAIPanel = async () => {
+    if (isAIPanelOpen) {
+      setIsAIPanelOpen(false);
+      return;
+    }
+
+    if (!activeNoteId || !markdown) return;
+    
+    // Only start a new session if one isn't already active for this note,
+    // or if the note content has significantly changed. For simplicity,
+    // we'll start a new one each time it's opened for now.
+    setIsAIPanelOpen(true);
+    setIsAILoading(true);
+    setChatMessages([]);
+
+    try {
+      const session = await createChatSession(markdown);
+      setChatSession(session);
+      setChatMessages([{ role: 'model', text: `你好！我已經讀取了 **${activeNoteName}** 的內容。有什麼我可以協助你的嗎？例如：\n\n- 幫我摘要這篇筆記\n- 針對內容出幾題練習題\n- 用更簡單的方式解釋第二段` }]);
+    } catch (error) {
+      console.error("Failed to start chat session:", error);
+      const errorMessage = error instanceof Error ? error.message : "無法啟動 AI 助理。";
+      setChatMessages([{ role: 'model', text: `抱歉，發生錯誤：${errorMessage}` }]);
+    } finally {
+      setIsAILoading(false);
+    }
+  };
+
+  const handleSendChatMessage = async (message: string) => {
+    if (!chatSession || !message.trim()) return;
+
+    const userMessage: ChatMessage = { role: 'user', text: message };
+    setChatMessages(prev => [...prev, userMessage]);
+    setIsAILoading(true);
+
+    try {
+      const response = await chatSession.sendMessage({ message });
+      const modelMessage: ChatMessage = { role: 'model', text: response.text };
+      setChatMessages(prev => [...prev, modelMessage]);
+    } catch (error) {
+      console.error("Chat error:", error);
+      const errorMessage = error instanceof Error ? error.message : "我無法回覆。";
+      const modelErrorMessage: ChatMessage = { role: 'model', text: `抱歉，發生錯誤： ${errorMessage}` };
+      setChatMessages(prev => [...prev, modelErrorMessage]);
+    } finally {
+      setIsAILoading(false);
+    }
   };
 
   return (
@@ -276,6 +330,9 @@ const App: React.FC = () => {
         activeNoteId={activeNoteId}
         theme={theme}
         onThemeChange={setTheme}
+        onToggleAIPanel={handleToggleAIPanel}
+        isAILoading={isAILoading && !isAIPanelOpen}
+        isAIPanelOpen={isAIPanelOpen}
       />
       <div className="flex-grow flex overflow-hidden relative">
         {isFileExplorerCollapsed && (
@@ -370,6 +427,29 @@ const App: React.FC = () => {
             </div>
           )}
         </main>
+        
+        <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isAIPanelOpen ? 'w-1/3 max-w-md border-l border-border-color' : 'w-0'}`}>
+            <div className="h-full overflow-hidden">
+                <AIPanel
+                    onToggleCollapse={() => setIsAIPanelOpen(false)}
+                    messages={chatMessages}
+                    onSendMessage={handleSendChatMessage}
+                    isLoading={isAILoading}
+                    images={images}
+                />
+            </div>
+        </aside>
+        
+        {!isAIPanelOpen && activeNoteId && (
+            <button
+                onClick={handleToggleAIPanel}
+                className="absolute top-1/2 -translate-y-1/2 right-0 z-20 p-1 h-16 rounded-l-lg bg-secondary hover:bg-border-color focus:outline-none text-text-secondary"
+                title="展開 AI 學習夥伴"
+            >
+                <ChevronDoubleLeftIcon className="w-4 h-4" />
+            </button>
+        )}
+
       </div>
       <HelpModal isOpen={isHelpModalOpen} onClose={() => setIsHelpModalOpen(false)} />
     </div>

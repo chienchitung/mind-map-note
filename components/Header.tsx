@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ViewMode, MindMapLayout } from '../types';
-import { EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon } from './icons';
+import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon } from './icons';
 import SearchBar from './SearchBar';
 
 interface HeaderProps {
@@ -78,9 +78,12 @@ const Header: React.FC<HeaderProps> = ({
   return (
     <header className="flex items-center justify-between p-4 bg-primary border-b border-border-color shadow-md flex-wrap gap-4 flex-shrink-0">
       <div className="flex items-center gap-4 flex-grow">
-        <h1 className="text-lg md:text-xl font-bold text-text-main whitespace-nowrap">
-          思維導讀筆記工具
-        </h1>
+        <div className="flex items-center gap-2">
+            <LogoIcon className="w-7 h-7 text-accent"/>
+            <h1 className="text-lg md:text-xl font-bold text-text-main whitespace-nowrap">
+            MindMapNote
+            </h1>
+        </div>
         <SearchBar
           ref={searchInputRef}
           query={searchQuery}

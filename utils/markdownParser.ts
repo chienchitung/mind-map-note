@@ -32,15 +32,23 @@ const getLineInfo = (line: string): { level: number; name: string; prefix: strin
   return null;
 };
 
-export const parseMarkdownToMindMap = (markdown: string): MindMapNode | null => {
+export const parseMarkdownToMindMap = (markdown: string, noteName: string): MindMapNode | null => {
   const lines = markdown.split('\n');
   if (lines.every(line => line.trim() === '')) {
-    return null;
+    return {
+        id: 'root-empty',
+        name: noteName,
+        children: [],
+        level: 0,
+        lineNumber: -1,
+        originalLine: '',
+        prefix: '',
+    };
   }
 
   const root: MindMapNode = {
     id: 'root',
-    name: '思維導圖',
+    name: noteName,
     children: [],
     level: 0, // The virtual root is at level 0
     lineNumber: -1,
@@ -50,11 +58,24 @@ export const parseMarkdownToMindMap = (markdown: string): MindMapNode | null => 
   
   const path: MindMapNode[] = [root];
   
+  const imageRegex = /!\[(.*?)\]\((.*?)\)/;
+
   lines.forEach((line, index) => {
     const lineInfo = getLineInfo(line);
 
     if (lineInfo) {
-      const { level, name, prefix } = lineInfo;
+      let { level, name, prefix } = lineInfo;
+      let imageUrl: string | undefined = undefined;
+
+      const imageMatch = name.match(imageRegex);
+      
+      if (imageMatch) {
+          imageUrl = imageMatch[2];
+          name = name.replace(imageRegex, '').trim();
+          if (!name) {
+              name = imageMatch[1] || 'Image'; // Use alt text if no other text
+          }
+      }
       
       const newNode: MindMapNode = {
           name,
@@ -64,6 +85,7 @@ export const parseMarkdownToMindMap = (markdown: string): MindMapNode | null => 
           originalLine: line,
           level: level,
           prefix: prefix,
+          imageUrl,
       };
 
       // Traverse up the path to find the correct parent. The parent's level
@@ -81,7 +103,7 @@ export const parseMarkdownToMindMap = (markdown: string): MindMapNode | null => 
   });
 
   if (root.children.length === 0) {
-    return null;
+     return root; // Return the root with the note's name if no parsable content
   }
   
   // If there's only one top-level node, make it the root for a cleaner view.

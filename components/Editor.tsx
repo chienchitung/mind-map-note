@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SearchResult } from '../types';
-import { CopyIcon, CheckIcon } from './icons';
+import { CopyIcon, CheckIcon, ImageIcon } from './icons';
 
 interface EditorProps {
   value: string;
   onChange: (value: string) => void;
+  onImagePasted: (dataUrl: string) => string;
   scrollToLine?: number | null;
   scrollToMatchIndex?: number | null;
   onScrollComplete: () => void;
@@ -19,6 +20,7 @@ const LINE_HEIGHT = 24; // Approximation of line height in pixels for scrolling
 const Editor: React.FC<EditorProps> = ({
   value,
   onChange,
+  onImagePasted,
   scrollToLine,
   scrollToMatchIndex,
   onScrollComplete,
@@ -29,7 +31,10 @@ const Editor: React.FC<EditorProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
 
   useEffect(() => {
     if (scrollToLine !== null && textareaRef.current) {
@@ -211,20 +216,133 @@ const Editor: React.FC<EditorProps> = ({
       });
     }
   };
+  
+  const processAndInsertImage = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        const imageId = onImagePasted(dataUrl);
+        const markdownImage = `![${file.name}](image://${imageId})\n`;
+        
+        const textarea = textareaRef.current;
+        if (textarea) {
+          const { selectionStart, selectionEnd, value } = textarea;
+          const newValue = 
+            value.substring(0, selectionStart) + 
+            markdownImage + 
+            value.substring(selectionEnd);
+          
+          onChange(newValue);
+
+          // Move cursor after the inserted markdown
+          setTimeout(() => {
+            textarea.selectionStart = textarea.selectionEnd = selectionStart + markdownImage.length;
+          }, 0);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // FIX: Using a traditional for-loop to iterate over clipboard items. This can be more
+  // robust for type inference in some TypeScript environments, preventing items from
+  // being incorrectly typed as `unknown`.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+            e.preventDefault();
+            const file = item.getAsFile();
+            if (file) {
+              processAndInsertImage(file);
+            }
+            return; // Handle only the first image
+        }
+    }
+  };
+  
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processAndInsertImage(file);
+    }
+    e.target.value = ''; // Allow uploading the same file again
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      // FIX: Using a traditional for-loop to iterate over dropped files. This can be more
+      // robust for type inference in some TypeScript environments, preventing files from
+      // being incorrectly typed as `unknown`.
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const file = e.dataTransfer.files[i];
+        if (file && file.type.startsWith('image/')) {
+          processAndInsertImage(file);
+          break; // Process only the first valid image file
+        }
+      }
+    }
+  };
 
   return (
-    <div className="h-full w-full editor-wrapper relative">
-      <button
-        onClick={handleCopy}
-        className="absolute top-3 right-8 z-10 p-2 rounded-md bg-secondary hover:bg-primary transition-colors text-text-secondary"
-        title={isCopied ? "已複製！" : "複製內容"}
-      >
-        {isCopied ? (
-          <CheckIcon className="w-5 h-5 text-green-400" />
-        ) : (
-          <CopyIcon className="w-5 h-f" />
-        )}
-      </button>
+    <div
+      className="h-full w-full editor-wrapper relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDraggingOver && (
+        <div className="absolute inset-0 bg-accent/50 border-4 border-dashed border-white rounded-lg flex items-center justify-center z-20 pointer-events-none">
+          <span className="text-white font-bold text-2xl">拖曳圖片至此以上傳</span>
+        </div>
+      )}
+      
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="p-2 rounded-md bg-secondary hover:bg-primary transition-colors text-text-secondary"
+          title="上傳圖片"
+        >
+          <ImageIcon className="w-5 h-5" />
+        </button>
+        <button
+          onClick={handleCopy}
+          className="p-2 rounded-md bg-secondary hover:bg-primary transition-colors text-text-secondary"
+          title={isCopied ? "已複製！" : "複製內容"}
+        >
+          {isCopied ? (
+            <CheckIcon className="w-5 h-5 text-green-400" />
+          ) : (
+            <CopyIcon className="w-5 h-5" />
+          )}
+        </button>
+      </div>
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        className="hidden"
+      />
 
        <div ref={backdropRef} className="editor-backdrop">
         {renderHighlightedText()}
@@ -234,6 +352,7 @@ const Editor: React.FC<EditorProps> = ({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         onClick={handleCursorActivity}
         onKeyUp={handleCursorActivity}
         onScroll={handleScroll}

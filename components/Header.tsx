@@ -22,6 +22,7 @@ interface HeaderProps {
   activeMatchIndex: number | null;
   onShowHelp: () => void;
   searchInputRef: React.RefObject<HTMLInputElement>;
+  activeNoteId: string | null;
 }
 
 const layoutOptions = [
@@ -49,6 +50,7 @@ const Header: React.FC<HeaderProps> = ({
   activeMatchIndex,
   onShowHelp,
   searchInputRef,
+  activeNoteId,
 }) => {
   const iconButtonClass = "p-2 rounded-md transition-colors";
   const enabledClass = "hover:bg-secondary text-text-secondary";
@@ -70,12 +72,12 @@ const Header: React.FC<HeaderProps> = ({
   const CurrentLayoutIcon = layoutOptions.find(opt => opt.id === mindMapLayout)?.Icon || MindMapLayoutIcon;
 
   return (
-    <header className="flex items-center justify-between p-4 bg-primary border-b border-border-color shadow-md flex-wrap gap-4">
+    <header className="flex items-center justify-between p-4 bg-primary border-b border-border-color shadow-md flex-wrap gap-4 flex-shrink-0">
       <div className="flex items-center gap-4 flex-grow">
         <h1 className="text-lg md:text-xl font-bold text-text-main whitespace-nowrap">
           思維導讀筆記工具
         </h1>
-        {(viewMode === ViewMode.Editor || viewMode === ViewMode.Preview) && (
+        {(viewMode === ViewMode.Editor || viewMode === ViewMode.Preview) && activeNoteId && (
            <SearchBar
               ref={searchInputRef}
               query={searchQuery}
@@ -158,7 +160,7 @@ const Header: React.FC<HeaderProps> = ({
                 <RedoIcon className="w-5 h-5" />
             </button>
             <div className="w-px h-6 bg-border-color mx-1"></div>
-            <button onClick={onExport} className={`${iconButtonClass} ${enabledClass}`} title="導出筆記">
+            <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title="導出筆記">
                 <ExportIcon className="w-5 h-5" />
             </button>
              <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title="幫助 (?)">

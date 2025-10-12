@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import * as d3 from 'd3';
-import { MindMapNode, MindMapLayout } from '../types';
+import { MindMapNode, MindMapLayout, Images } from '../types';
 import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
 
 const PADDING_X = 24;
@@ -8,6 +8,7 @@ const PADDING_Y = 16;
 const MAX_NODE_WIDTH = 200;
 const HORIZONTAL_GAP = 80;
 const VERTICAL_GAP = 24;
+const IMAGE_HEIGHT = 120;
 
 
 const ZoomControls: React.FC<{
@@ -37,6 +38,7 @@ interface MindMapProps {
   onStructureUpdate: (newRoot: MindMapNode) => void;
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string | null) => void;
+  images: Images;
 }
 
 export interface MindMapHandle {
@@ -74,7 +76,7 @@ const getNodeStyles = (depth: number) => {
     }
 };
 
-const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId }, ref) => {
+const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId, images }, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -179,7 +181,14 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
             measurementRef.current.style.padding = padding;
             measurementRef.current.innerText = node.data.name;
             const rect = measurementRef.current.getBoundingClientRect();
-            newSizes.set(node.data.id, { width: rect.width, height: rect.height });
+            
+            const hasImage = !!node.data.imageUrl;
+            const imageContribution = hasImage ? IMAGE_HEIGHT + PADDING_Y / 2 : 0;
+            
+            newSizes.set(node.data.id, { 
+                width: rect.width, 
+                height: rect.height + imageContribution 
+            });
         }
     });
     setNodeSizes(newSizes);
@@ -614,6 +623,13 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
             const rectHeight = size.height;
 
             const { rect: rectStyle, text: textStyle, padding } = getNodeStyles(node.depth);
+
+            const hasImage = !!node.data.imageUrl;
+            let imageUrl: string | undefined = node.data.imageUrl;
+            if (imageUrl?.startsWith('image://')) {
+                const imageId = imageUrl.substring(8);
+                imageUrl = images[imageId];
+            }
             
             let nodeTransform = `translate(${node.y},${node.x})`;
             if (layout === MindMapLayout.Organizational) {
@@ -651,11 +667,19 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                 ) : (
                   <foreignObject x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight}>
                     <div xmlns="http://www.w3.org/1999/xhtml"
-                        className={`w-full h-full flex items-center justify-center text-center select-none ${!isRoot ? 'cursor-text' : ''}`}
+                        className={`w-full h-full flex flex-col items-center justify-center text-center select-none ${!isRoot ? 'cursor-text' : ''}`}
                         onDoubleClick={!isRoot ? (e) => handleTextClick(e, node.data.id) : undefined}
                         style={{ ...textStyle, padding: padding }}
                     >
-                        {node.data.name}
+                        {hasImage && imageUrl && (
+                            <img 
+                                src={imageUrl} 
+                                alt={node.data.name} 
+                                className="block rounded-md object-contain mb-2"
+                                style={{ maxHeight: `${IMAGE_HEIGHT}px`, maxWidth: '100%' }}
+                            />
+                        )}
+                        <div className="flex-shrink-0">{node.data.name}</div>
                     </div>
                   </foreignObject>
                 )}

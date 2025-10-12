@@ -1,59 +1,54 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ViewMode, MindMapNode, SearchResult, MindMapLayout } from './types';
 import { useHistory } from './hooks/useHistory';
+import { useFileSystem } from './hooks/useFileSystem';
 import Header from './components/Header';
 import Editor from './components/Editor';
 import MindMap, { MindMapHandle } from './components/MindMap';
 import OutlineView from './components/OutlineView';
 import MarkdownPreview from './components/MarkdownPreview';
 import HelpModal from './components/HelpModal';
+import FileExplorer from './components/FileExplorer';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
 
-const initialMarkdown = `# 歡迎使用思維導圖筆記工具
+// Custom hook to debounce a value.
+const useDebounce = <T,>(value: T, delay: number): T => {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value);
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+    return debouncedValue;
+};
 
-## 核心理念
-- **輕鬆寫作，自動成圖**：您只需專注於使用 Markdown 語法（如標題 '#' 和列表 '-'）來撰寫筆記，應用程式會自動將其轉換為結構化的思維導圖。
-- **階層式結構**：透過標題層級和列表縮排，輕鬆建立複雜的思緒層次。
-
-## 主要功能
-### 三種檢視模式
-- **編輯器 (⌘1)**
-  - 這是您的主要工作區，一個純粹、無干擾的 Markdown 編輯環境。
-- **預覽 (⌘2)**
-  - 即時查看您的 Markdown 筆記渲染後的樣子。
-- **思維導圖 (⌘3)**
-  - 將您的筆記內容視覺化，一目了然地看到整體結構。
-
-### 互動式思維導圖
-- **節點編輯**
-  - 在圖上雙擊任何節點即可直接修改其內容。
-- **拖放重組**
-  - 想要改變結構？只需拖放節點到新的父節點上即可。
-- **展開與折疊**
-  - 點擊節點旁的 +/- 按鈕，或選中節點後按 \`空白鍵\`，即可專注於特定分支。
-- **鍵盤導航**
-  - 使用 \`↑ ↓ ← →\` 箭頭鍵在節點之間快速移動。
-
-### 實用工具
-- **全文搜尋 (⌘F)**
-  - 快速在您的筆記中找到任何關鍵字。
-- **匯出功能**
-  - 將您的筆記匯出為 \`.md\` 檔案。
-  - 在思維導圖模式下，可以將圖表匯出為 \`.jpg\` 圖片。
-- **復原與重做 (⌘Z / ⌘⇧Z)**
-  - 不用擔心失誤，輕鬆返回上一步或重做。
-
-## 開始使用
-- **試著編輯看看！**
-  - 直接修改這份文件，新增您自己的標題或列表項。
-- **查看快捷鍵**
-  - 按下 \`?\` 鍵可以打開快捷鍵說明，了解更多高效操作。
-
-> 現在，開始您的第一次思維導圖筆記之旅吧！
-`;
 
 const App: React.FC = () => {
+  const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage } = useFileSystem();
+  
+  const findFirstFile = () => {
+      const root = tree['root'];
+      if (!root) return null;
+      const queue = [...root.childrenIds];
+      while (queue.length > 0) {
+        const nodeId = queue.shift()!;
+        const node = tree[nodeId];
+        if (node.type === 'file') return node.id;
+        if (node.type === 'folder') {
+            queue.push(...node.childrenIds);
+        }
+      }
+      return null;
+  };
+
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(findFirstFile);
+  
+  const activeNoteContent = useMemo(() => activeNoteId ? notes[activeNoteId] ?? '' : '', [notes, activeNoteId]);
+  
   const {
     state: markdown,
     set: setMarkdown,
@@ -61,8 +56,23 @@ const App: React.FC = () => {
     redo,
     canUndo,
     canRedo,
-    clear: clearHistory,
-  } = useHistory<string>('mind-map-notes', initialMarkdown);
+    reset: resetHistory,
+  } = useHistory<string>(activeNoteContent);
+
+  const debouncedMarkdown = useDebounce(markdown, 500);
+
+  useEffect(() => {
+    if (activeNoteId) {
+      resetHistory(notes[activeNoteId] ?? '');
+    }
+  }, [activeNoteId]);
+  
+  useEffect(() => {
+    if (activeNoteId && debouncedMarkdown !== (notes[activeNoteId] ?? '')) {
+      updateNote(activeNoteId, debouncedMarkdown);
+    }
+  }, [debouncedMarkdown, activeNoteId]);
+
   
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Editor);
   const [mindMapLayout, setMindMapLayout] = useState<MindMapLayout>(MindMapLayout.MindMap);
@@ -76,11 +86,11 @@ const App: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const mindMapRef = useRef<MindMapHandle>(null);
 
-  // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMatchIndex, setActiveMatchIndex] = useState<number | null>(null);
 
-  const mindMapData = useMemo(() => parseMarkdownToMindMap(markdown), [markdown]);
+  const activeNoteName = activeNoteId ? tree[activeNoteId]?.name ?? '筆記' : '筆記';
+  const mindMapData = useMemo(() => parseMarkdownToMindMap(markdown, activeNoteName), [markdown, activeNoteName]);
 
   const searchResults = useMemo((): SearchResult[] => {
     if (!searchQuery) return [];
@@ -92,7 +102,6 @@ const App: React.FC = () => {
         results.push({ startIndex: match.index, endIndex: match.index + match[0].length });
       }
     } catch (e) {
-      // Invalid regex, return no results
       return [];
     }
     return results;
@@ -114,7 +123,6 @@ const App: React.FC = () => {
         e.target instanceof HTMLTextAreaElement || 
         (e.target instanceof HTMLElement && e.target.isContentEditable);
 
-      // Help Modal Toggle
       if (e.key === '?' || (e.shiftKey && e.key === '/')) {
         if (!isEditing) {
           e.preventDefault();
@@ -122,45 +130,22 @@ const App: React.FC = () => {
         }
       }
       
-      // Global shortcuts with Ctrl/Cmd
       if (e.metaKey || e.ctrlKey) {
           switch (e.key.toLowerCase()) {
-              case '1':
-                  e.preventDefault();
-                  setViewMode(ViewMode.Editor);
-                  break;
-              case '2':
-                  e.preventDefault();
-                  setViewMode(ViewMode.Preview);
-                  break;
-              case '3':
-                  e.preventDefault();
-                  setViewMode(ViewMode.MindMap);
-                  break;
-              case 'f':
-                  e.preventDefault();
-                  searchInputRef.current?.focus();
-                  break;
+              case '1': e.preventDefault(); setViewMode(ViewMode.Editor); break;
+              case '2': e.preventDefault(); setViewMode(ViewMode.Preview); break;
+              case '3': e.preventDefault(); setViewMode(ViewMode.MindMap); break;
+              case 'f': e.preventDefault(); searchInputRef.current?.focus(); break;
               case 'z':
                   e.preventDefault();
-                  if (e.shiftKey) {
-                      if (canRedo) redo();
-                  } else {
-                      if (canUndo) undo();
-                  }
+                  if (e.shiftKey) { if (canRedo) redo(); } else { if (canUndo) undo(); }
                   break;
-              case 'y': // Redo for Windows
-                  e.preventDefault();
-                  if (canRedo) redo();
-                  break;
+              case 'y': e.preventDefault(); if (canRedo) redo(); break;
           }
       }
 
-      // Escape key
       if (e.key === 'Escape') {
-        if (isHelpModalOpen) {
-          setIsHelpModalOpen(false);
-        }
+        if (isHelpModalOpen) setIsHelpModalOpen(false);
       }
     };
 
@@ -187,7 +172,7 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'notes.md';
+    a.download = `${activeNoteName}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -213,6 +198,8 @@ const App: React.FC = () => {
     if (targetNode && targetNode.name !== newName && newName.trim() !== '') {
         const lines = markdown.split('\n');
         const originalLine = targetNode.originalLine;
+        // This replacement is simple; it might fail if the old name appears multiple times.
+        // A more robust solution would rebuild the line from the prefix, new name, and image URL if present.
         const updatedLine = originalLine.replace(targetNode.name, newName.trim());
         lines[targetNode.lineNumber] = updatedLine;
         setMarkdown(lines.join('\n'));
@@ -226,7 +213,7 @@ const App: React.FC = () => {
   
   const handleOutlineNodeClick = (lineNumber: number) => {
     setScrollToLine(lineNumber);
-    setSearchQuery(''); // Clear search when navigating from outline
+    setSearchQuery('');
   };
 
   const handleClearSearch = () => {
@@ -269,59 +256,79 @@ const App: React.FC = () => {
         activeMatchIndex={activeMatchIndex}
         onShowHelp={() => setIsHelpModalOpen(true)}
         searchInputRef={searchInputRef}
+        activeNoteId={activeNoteId}
       />
-      <main className="flex-grow flex overflow-hidden">
-        {viewMode === ViewMode.Editor || viewMode === ViewMode.Preview ? (
-          <div className="flex h-full w-full">
-            {mindMapData && (
-              <aside className="w-1/3 max-w-xs h-full overflow-y-auto p-4 border-r border-border-color flex-shrink-0">
-                <OutlineView 
-                  data={mindMapData}
-                  activeLine={activeLine}
-                  onNodeClick={handleOutlineNodeClick}
-                />
-              </aside>
-            )}
-            <div className={`flex-grow h-full ${viewMode === ViewMode.Preview ? 'w-1/2' : 'w-full'}`}>
-                <div className="p-4 md:p-6 lg:p-8 h-full">
-                    <Editor 
-                        value={markdown} 
-                        onChange={setMarkdown}
-                        scrollToLine={scrollToLine}
-                        scrollToMatchIndex={scrollToMatchIndex}
-                        onScrollComplete={() => {
-                        setScrollToLine(null)
-                        setScrollToMatchIndex(null)
-                        }}
-                        onCursorActivity={setActiveLine}
-                        searchQuery={searchQuery}
-                        searchResults={searchResults}
-                        activeMatchIndex={activeMatchIndex}
-                    />
-                </div>
-            </div>
-            {viewMode === ViewMode.Preview && (
-                <div className="flex-grow w-1/2 h-full p-4 md:p-6 lg:p-8 overflow-y-auto border-l border-border-color">
-                   <MarkdownPreview markdown={markdown} />
-                </div>
-            )}
-          </div>
-        ) : (
-          <div className="p-4 md:p-6 lg:p-8 h-full w-full">
-            {mindMapData ? (
-                <MindMap 
-                    ref={mindMapRef}
+      <div className="flex-grow flex overflow-hidden">
+        <aside className="w-1/4 max-w-xs h-full border-r border-border-color flex-shrink-0">
+          <FileExplorer 
+            tree={tree}
+            activeNoteId={activeNoteId}
+            onSelectNote={setActiveNoteId}
+            onCreateNode={createNode}
+            onRenameNode={renameNode}
+            onDeleteNode={deleteNode}
+            onMoveNode={moveNode}
+          />
+        </aside>
+        <main className="flex-grow flex overflow-hidden">
+          {!activeNoteId ? (
+              <div className="w-full h-full flex items-center justify-center text-text-secondary">
+                請選擇一篇筆記或建立新筆記
+              </div>
+          ) : viewMode === ViewMode.Editor || viewMode === ViewMode.Preview ? (
+            <div className="flex h-full w-full">
+              {mindMapData && (
+                <aside className="w-1/3 max-w-xs h-full overflow-y-auto p-4 border-r border-border-color flex-shrink-0">
+                  <OutlineView 
                     data={mindMapData}
-                    layout={mindMapLayout}
-                    onNodeUpdate={handleNodeUpdate} 
-                    onStructureUpdate={handleStructureUpdate}
-                    selectedNodeId={selectedNodeId}
-                    setSelectedNodeId={setSelectedNodeId}
-                />
-            ) : <div className="text-center text-text-secondary">請在編輯器中新增內容以生成思維導圖。</div>}
-          </div>
-        )}
-      </main>
+                    activeLine={activeLine}
+                    onNodeClick={handleOutlineNodeClick}
+                  />
+                </aside>
+              )}
+              <div className={`flex-grow h-full ${viewMode === ViewMode.Preview ? 'w-1/2' : 'w-full'}`}>
+                  <div className="p-4 md:p-6 lg:p-8 h-full">
+                      <Editor 
+                          value={markdown} 
+                          onChange={setMarkdown}
+                          onImagePasted={addImage}
+                          scrollToLine={scrollToLine}
+                          scrollToMatchIndex={scrollToMatchIndex}
+                          onScrollComplete={() => {
+                          setScrollToLine(null)
+                          setScrollToMatchIndex(null)
+                          }}
+                          onCursorActivity={setActiveLine}
+                          searchQuery={searchQuery}
+                          searchResults={searchResults}
+                          activeMatchIndex={activeMatchIndex}
+                      />
+                  </div>
+              </div>
+              {viewMode === ViewMode.Preview && (
+                  <div className="flex-grow w-1/2 h-full p-4 md:p-6 lg:p-8 overflow-y-auto border-l border-border-color">
+                    <MarkdownPreview markdown={markdown} images={images} />
+                  </div>
+              )}
+            </div>
+          ) : (
+            <div className="p-4 md:p-6 lg:p-8 h-full w-full">
+              {mindMapData ? (
+                  <MindMap 
+                      ref={mindMapRef}
+                      data={mindMapData}
+                      layout={mindMapLayout}
+                      onNodeUpdate={handleNodeUpdate} 
+                      onStructureUpdate={handleStructureUpdate}
+                      selectedNodeId={selectedNodeId}
+                      setSelectedNodeId={setSelectedNodeId}
+                      images={images}
+                  />
+              ) : <div className="text-center text-text-secondary">請在編輯器中新增內容以生成思維導圖。</div>}
+            </div>
+          )}
+        </main>
+      </div>
       <HelpModal isOpen={isHelpModalOpen} onClose={() => setIsHelpModalOpen(false)} />
     </div>
   );

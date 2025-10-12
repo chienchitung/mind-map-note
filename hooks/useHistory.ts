@@ -1,19 +1,4 @@
-import { useState, useEffect, useCallback, Reducer, useReducer } from 'react';
-
-// Custom hook to debounce a value.
-const useDebounce = <T,>(value: T, delay: number): T => {
-    const [debouncedValue, setDebouncedValue] = useState<T>(value);
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            setDebouncedValue(value);
-        }, delay);
-        return () => {
-            clearTimeout(handler);
-        };
-    }, [value, delay]);
-    return debouncedValue;
-};
-
+import { Reducer, useReducer, useCallback } from 'react';
 
 interface HistoryState<T> {
   past: T[];
@@ -25,14 +10,13 @@ interface HistoryState<T> {
 const UNDO = 'UNDO';
 const REDO = 'REDO';
 const SET = 'SET';
-const CLEAR = 'CLEAR';
+const RESET = 'RESET';
 
 type HistoryAction<T> =
   | { type: typeof UNDO }
   | { type: typeof REDO }
   | { type: typeof SET; newPresent: T }
-  | { type: typeof CLEAR; initialPresent: T };
-
+  | { type: typeof RESET; newPresent: T };
 
 const historyReducer = <T>(state: HistoryState<T>, action: HistoryAction<T>): HistoryState<T> => {
   const { past, present, future } = state;
@@ -63,36 +47,23 @@ const historyReducer = <T>(state: HistoryState<T>, action: HistoryAction<T>): Hi
         present: action.newPresent,
         future: [],
       };
-    case CLEAR:
+    case RESET:
       return {
         past: [],
-        present: action.initialPresent,
+        present: action.newPresent,
         future: [],
-      }
+      };
     default:
       return state;
   }
 };
 
-export const useHistory = <T>(localStorageKey: string, initialPresent: T) => {
-    const getInitialState = useCallback((): T => {
-        if (typeof window === 'undefined') {
-            return initialPresent;
-        }
-        try {
-            const item = window.localStorage.getItem(localStorageKey);
-            return item ? JSON.parse(item) : initialPresent;
-        } catch (error) {
-            console.error(error);
-            return initialPresent;
-        }
-    }, [localStorageKey, initialPresent]);
-
+export const useHistory = <T>(initialPresent: T) => {
     const [state, dispatch] = useReducer<Reducer<HistoryState<T>, HistoryAction<T>>>(
         historyReducer,
         {
             past: [],
-            present: getInitialState(),
+            present: initialPresent,
             future: [],
         }
     );
@@ -103,22 +74,15 @@ export const useHistory = <T>(localStorageKey: string, initialPresent: T) => {
     const undo = useCallback(() => dispatch({ type: UNDO }), []);
     const redo = useCallback(() => dispatch({ type: REDO }), []);
     const set = useCallback((newPresent: T) => dispatch({ type: SET, newPresent }), []);
-    const clear = useCallback(() => dispatch({ type: CLEAR, initialPresent }), [initialPresent]);
+    const reset = useCallback((newPresent: T) => dispatch({ type: RESET, newPresent }), []);
     
-    // Debounce saving the present state to localStorage
-    const debouncedPresent = useDebounce(state.present, 500);
-
-    useEffect(() => {
-        try {
-            if (typeof window !== 'undefined') {
-                const valueToStore = JSON.stringify(debouncedPresent);
-                window.localStorage.setItem(localStorageKey, valueToStore);
-            }
-        } catch (error) {
-            console.error("Failed to save state to localStorage:", error);
-        }
-    }, [localStorageKey, debouncedPresent]);
-
-
-    return { state: state.present, set, undo, redo, canUndo, canRedo, clear };
+    return { 
+      state: state.present, 
+      set, 
+      undo, 
+      redo, 
+      canUndo, 
+      canRedo, 
+      reset 
+    };
 };

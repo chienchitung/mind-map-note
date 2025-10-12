@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { SearchResult } from '../types';
 import { CopyIcon, CheckIcon, ImageIcon } from './icons';
 
 interface EditorProps {
@@ -7,12 +6,8 @@ interface EditorProps {
   onChange: (value: string) => void;
   onImagePasted: (dataUrl: string) => string;
   scrollToLine?: number | null;
-  scrollToMatchIndex?: number | null;
   onScrollComplete: () => void;
   onCursorActivity: (lineNumber: number) => void;
-  searchQuery: string;
-  searchResults: SearchResult[];
-  activeMatchIndex: number | null;
 }
 
 const LINE_HEIGHT = 24; // Approximation of line height in pixels for scrolling
@@ -22,12 +17,8 @@ const Editor: React.FC<EditorProps> = ({
   onChange,
   onImagePasted,
   scrollToLine,
-  scrollToMatchIndex,
   onScrollComplete,
   onCursorActivity,
-  searchQuery,
-  searchResults,
-  activeMatchIndex,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -43,20 +34,6 @@ const Editor: React.FC<EditorProps> = ({
       onScrollComplete();
     }
   }, [scrollToLine, onScrollComplete]);
-
-  useEffect(() => {
-    if (scrollToMatchIndex !== null && textareaRef.current && searchResults[scrollToMatchIndex]) {
-      // Scroll to a specific search result
-      const match = searchResults[scrollToMatchIndex];
-      const textUpToMatch = value.substring(0, match.startIndex);
-      const linesUpToMatch = textUpToMatch.split('\n').length - 1;
-      // Scroll the match to the vertical center of the textarea
-      const targetScrollTop = (linesUpToMatch * LINE_HEIGHT) - (textareaRef.current.clientHeight / 2);
-      textareaRef.current.scrollTop = Math.max(0, targetScrollTop);
-      onScrollComplete();
-    }
-  }, [scrollToMatchIndex, searchResults, value, onScrollComplete]);
-
 
   const handleCursorActivity = () => {
     if (textareaRef.current) {
@@ -75,31 +52,8 @@ const Editor: React.FC<EditorProps> = ({
   };
 
   const renderHighlightedText = () => {
-    if (!searchQuery || searchResults.length === 0) {
-      // Add a newline to prevent scroll height miscalculation on empty editor
-      return <>{value + '\n'}</>;
-    }
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-
-    searchResults.forEach((match, index) => {
-      if (match.startIndex > lastIndex) {
-        parts.push(value.substring(lastIndex, match.startIndex));
-      }
-      parts.push(
-        <mark key={`match-${index}`} className={index === activeMatchIndex ? 'active-match' : ''}>
-          {value.substring(match.startIndex, match.endIndex)}
-        </mark>
-      );
-      lastIndex = match.endIndex;
-    });
-
-    if (lastIndex < value.length) {
-      parts.push(value.substring(lastIndex));
-    }
-    // Add a newline to prevent scroll height miscalculation
-    parts.push('\n');
-    return parts;
+    // Add a newline to prevent scroll height miscalculation on empty editor
+    return <>{value + '\n'}</>;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

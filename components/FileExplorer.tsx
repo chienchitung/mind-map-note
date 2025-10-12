@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { FileSystemTree, FileSystemNode } from '../types';
-import { FolderIcon, FileIcon, ChevronDownIcon, ChevronUpIcon, PlusIcon, FolderPlusIcon, PencilIcon, TrashIcon, XIcon } from './icons';
+import { FolderIcon, FileIcon, ChevronDownIcon, ChevronUpIcon, PlusIcon, FolderPlusIcon, PencilIcon, TrashIcon, XIcon, ChevronDoubleLeftIcon } from './icons';
 
 // A modal component for moving a node to a new folder.
 const MoveToModal: React.FC<{
@@ -101,6 +101,7 @@ interface FileExplorerProps {
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onMoveNode: (nodeId: string, newParentId: string | null) => void;
+  onToggleCollapse: () => void;
 }
 
 interface IFileExplorerContext {
@@ -250,7 +251,7 @@ const Node: React.FC<{
 };
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
-  const { tree, activeNoteId, onSelectNote, onCreateNode, onRenameNode, onDeleteNode, onMoveNode } = props;
+  const { tree, activeNoteId, onSelectNote, onCreateNode, onRenameNode, onDeleteNode, onMoveNode, onToggleCollapse } = props;
   const rootNode = tree['root'];
   
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
@@ -282,8 +283,23 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
 
   return (
     <FileExplorerContext.Provider value={contextValue}>
-      <div className="h-full bg-primary p-2 text-text-secondary text-sm flex flex-col">
-        <div className="flex-grow overflow-y-auto pr-1">
+      <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
+        <div className="flex items-center justify-between p-2 flex-shrink-0">
+            <h2 className="font-bold text-text-main">檔案總管</h2>
+            <div className="flex items-center gap-1">
+                <button onClick={() => onCreateNode('file', 'root')} className="p-1 rounded-md hover:bg-secondary" title="新增筆記">
+                    <PlusIcon className="w-4 h-4" />
+                </button>
+                <button onClick={() => onCreateNode('folder', 'root')} className="p-1 rounded-md hover:bg-secondary" title="新增資料夾">
+                    <FolderPlusIcon className="w-4 h-4" />
+                </button>
+                <div className="w-px h-4 bg-border-color mx-1"></div>
+                <button onClick={onToggleCollapse} className="p-1 rounded-md hover:bg-secondary" title="收合檔案總管">
+                    <ChevronDoubleLeftIcon className="w-4 h-4" />
+                </button>
+            </div>
+        </div>
+        <div className="flex-grow overflow-y-auto px-2 pb-2">
           {rootNode.childrenIds.map(childId => (
             tree[childId] ? (
               <Node
@@ -297,14 +313,6 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
               />
             ) : null
           ))}
-        </div>
-        <div className="flex items-center justify-end gap-2 p-2 border-t border-border-color mt-2">
-            <button onClick={() => onCreateNode('file', 'root')} className="p-2 rounded hover:bg-secondary" title="新增筆記">
-                <PlusIcon className="w-5 h-5" />
-            </button>
-            <button onClick={() => onCreateNode('folder', 'root')} className="p-2 rounded hover:bg-secondary" title="新增資料夾">
-                <FolderPlusIcon className="w-5 h-5" />
-            </button>
         </div>
 
         {contextMenu && contextNode && (

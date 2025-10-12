@@ -17,14 +17,14 @@ const ZoomControls: React.FC<{
   onReset: () => void;
 }> = ({ onZoomIn, onZoomOut, onReset }) => {
   return (
-    <div className="absolute bottom-4 right-4 bg-white/80 backdrop-blur-sm shadow-lg rounded-lg p-1 flex flex-col gap-1 border border-gray-200 z-10">
-      <button onClick={onZoomIn} title="放大 (Cmd/Ctrl +)" className="p-2 rounded-md hover:bg-gray-200 transition-colors text-gray-600">
+    <div className="absolute bottom-4 right-4 bg-secondary/80 backdrop-blur-sm shadow-lg rounded-lg p-1 flex flex-col gap-1 border border-border-color z-10">
+      <button onClick={onZoomIn} title="放大 (Cmd/Ctrl +)" className="p-2 rounded-md hover:bg-border-color transition-colors text-text-secondary">
         <PlusIcon className="w-5 h-5" />
       </button>
-      <button onClick={onZoomOut} title="縮小 (Cmd/Ctrl -)" className="p-2 rounded-md hover:bg-gray-200 transition-colors text-gray-600">
+      <button onClick={onZoomOut} title="縮小 (Cmd/Ctrl -)" className="p-2 rounded-md hover:bg-border-color transition-colors text-text-secondary">
         <MinusIcon className="w-5 h-5" />
       </button>
-      <button onClick={onReset} title="重置視圖 (Cmd/Ctrl 0)" className="p-2 rounded-md hover:bg-gray-200 transition-colors text-gray-600">
+      <button onClick={onReset} title="重置視圖 (Cmd/Ctrl 0)" className="p-2 rounded-md hover:bg-border-color transition-colors text-text-secondary">
         <ResetZoomIcon className="w-5 h-5" />
       </button>
     </div>
@@ -39,44 +39,46 @@ interface MindMapProps {
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string | null) => void;
   images: Images;
+  theme: 'light' | 'dark';
 }
 
 export interface MindMapHandle {
   exportAsJPG: () => void;
 }
 
-const getNodeStyles = (depth: number) => {
+const getNodeStyles = (depth: number, theme: 'light' | 'dark') => {
+    const isDark = theme === 'dark';
     const baseText: React.CSSProperties = {
         fontFamily: `ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"`,
         fontWeight: 500,
         fontSize: '14px',
-        wordBreak: 'break-word',
+        overflowWrap: 'break-word',
     };
     const basePadding = `${PADDING_Y / 2}px ${PADDING_X / 2}px`;
 
     switch (depth) {
         case 0: // Root
             return {
-                rect: { fill: '#2563eb', stroke: 'transparent' } as React.CSSProperties,
+                rect: { fill: isDark ? '#6366f1' : '#4f46e5', stroke: 'transparent' } as React.CSSProperties,
                 text: { ...baseText, color: 'white', fontWeight: 600 },
                 padding: basePadding,
             };
         case 1: // Level 2
             return {
-                rect: { fill: '#71717a', stroke: 'transparent' } as React.CSSProperties,
+                rect: { fill: isDark ? '#71717a' : '#a1a1aa', stroke: 'transparent' } as React.CSSProperties,
                 text: { ...baseText, color: 'white' },
                 padding: basePadding,
             };
         default: // Level 3+
             return {
-                rect: { fill: 'white', stroke: '#a1a1aa', strokeWidth: 1.5 } as React.CSSProperties,
-                text: { ...baseText, color: '#3f3f46' },
+                rect: { fill: isDark ? '#2a2a2a' : '#f9fafb', stroke: isDark ? '#a0a0a0' : '#d1d5db', strokeWidth: 1.5 } as React.CSSProperties,
+                text: { ...baseText, color: isDark ? '#e0e0e0' : '#3f3f46' },
                 padding: basePadding,
             };
     }
 };
 
-const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId, images }, ref) => {
+const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId, images, theme }, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -93,7 +95,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   
   useImperativeHandle(ref, () => ({
     exportAsJPG: () => {
-        if (!svgRef.current || !gRef.current) return;
+        if (!svgRef.current || !gRef.current || !svgContainerRef.current) return;
 
         const EXPORT_PADDING = 40;
         const scale = 2; 
@@ -112,7 +114,8 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
 
         if (!ctx) return;
         
-        ctx.fillStyle = '#f9fafb'; // bg-gray-50
+        const computedStyle = getComputedStyle(svgContainerRef.current);
+        ctx.fillStyle = computedStyle.backgroundColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
         const svgClone = svgNode.cloneNode(true) as SVGSVGElement;
@@ -177,7 +180,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     
     hierarchy.each(node => {
         if (measurementRef.current) {
-            const { padding } = getNodeStyles(node.depth);
+            const { padding } = getNodeStyles(node.depth, theme);
             measurementRef.current.style.padding = padding;
             measurementRef.current.innerText = node.data.name;
             const rect = measurementRef.current.getBoundingClientRect();
@@ -192,7 +195,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         }
     });
     setNodeSizes(newSizes);
-  }, [data]);
+  }, [data, theme]);
 
 
   const { links, nodes } = useMemo(() => {
@@ -581,13 +584,13 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   }, [setSelectedNodeId]);
 
   return (
-    <div ref={svgContainerRef} tabIndex={0} className="relative w-full h-full bg-gray-50 rounded-lg border border-gray-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-accent">
+    <div ref={svgContainerRef} tabIndex={0} className="relative w-full h-full bg-secondary rounded-lg border border-border-color overflow-hidden focus:outline-none focus:ring-2 focus:ring-accent">
       <div
         ref={measurementRef}
         className="absolute -top-[9999px] -left-[9999px] font-sans font-medium text-center"
         style={{
             maxWidth: `${MAX_NODE_WIDTH}px`,
-            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
             fontSize: '14px',
         }}
       ></div>
@@ -622,7 +625,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
             const rectWidth = size.width;
             const rectHeight = size.height;
 
-            const { rect: rectStyle, text: textStyle, padding } = getNodeStyles(node.depth);
+            const { rect: rectStyle, text: textStyle, padding } = getNodeStyles(node.depth, theme);
 
             const hasImage = !!node.data.imageUrl;
             let imageUrl: string | undefined = node.data.imageUrl;

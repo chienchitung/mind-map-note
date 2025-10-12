@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ViewMode, MindMapNode, SearchResult, MindMapLayout } from './types';
+import { ViewMode, MindMapNode, MindMapLayout } from './types';
 import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
+import useLocalStorage from './hooks/useLocalStorage';
 import Header from './components/Header';
 import Editor from './components/Editor';
 import MindMap, { MindMapHandle } from './components/MindMap';
@@ -11,6 +12,7 @@ import HelpModal from './components/HelpModal';
 import FileExplorer from './components/FileExplorer';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
+import { ChevronDoubleRightIcon } from './components/icons';
 
 // Custom hook to debounce a value.
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -76,9 +78,9 @@ const App: React.FC = () => {
   
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Editor);
   const [mindMapLayout, setMindMapLayout] = useState<MindMapLayout>(MindMapLayout.MindMap);
+  const [theme, setTheme] = useLocalStorage<'light' | 'dark'>('theme', 'light');
   
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
-  const [scrollToMatchIndex, setScrollToMatchIndex] = useState<number | null>(null);
   const [activeLine, setActiveLine] = useState<number>(0);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -87,34 +89,65 @@ const App: React.FC = () => {
   const mindMapRef = useRef<MindMapHandle>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeMatchIndex, setActiveMatchIndex] = useState<number | null>(null);
+  const [isFileExplorerCollapsed, setIsFileExplorerCollapsed] = useState(false);
+  const [isOutlineViewCollapsed, setIsOutlineViewCollapsed] = useState(false);
+  
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   const activeNoteName = activeNoteId ? tree[activeNoteId]?.name ?? '筆記' : '筆記';
   const mindMapData = useMemo(() => parseMarkdownToMindMap(markdown, activeNoteName), [markdown, activeNoteName]);
 
-  const searchResults = useMemo((): SearchResult[] => {
-    if (!searchQuery) return [];
-    const results: SearchResult[] = [];
+  const globalSearchResults = useMemo(() => {
+    if (!debouncedSearchQuery.trim()) return [];
+
+    const results: { id: string; name: string; snippet: string }[] = [];
+    const SNIPPET_RADIUS = 50; // Characters before and after the match
+
     try {
-      const regex = new RegExp(searchQuery, 'gi');
-      let match;
-      while ((match = regex.exec(markdown)) !== null) {
-        results.push({ startIndex: match.index, endIndex: match.index + match[0].length });
-      }
+      const query = debouncedSearchQuery.trim();
+      const regex = new RegExp(query, 'gi');
+
+      Object.keys(notes).forEach(noteId => {
+        const content = notes[noteId];
+        
+        // FIX: Reset lastIndex before searching a new string with a global regex.
+        // This ensures the search starts from the beginning of each note's content.
+        regex.lastIndex = 0;
+        
+        const match = regex.exec(content);
+
+        if (match) {
+          if (tree[noteId]) {
+            const matchIndex = match.index;
+            const start = Math.max(0, matchIndex - SNIPPET_RADIUS);
+            const end = Math.min(
+              content.length,
+              matchIndex + match[0].length + SNIPPET_RADIUS
+            );
+
+            let snippet = content.substring(start, end).replace(/\n/g, ' ');
+
+            if (start > 0) snippet = '... ' + snippet;
+            if (end < content.length) snippet = snippet + ' ...';
+
+            results.push({ id: noteId, name: tree[noteId].name, snippet });
+          }
+        }
+      });
     } catch (e) {
+      // Invalid regex, return no results
+      console.error('Search regex error:', e);
       return [];
     }
     return results;
-  }, [markdown, searchQuery]);
+  }, [debouncedSearchQuery, notes, tree]);
+
 
   useEffect(() => {
-    if (searchResults.length > 0) {
-        setActiveMatchIndex(0);
-        setScrollToMatchIndex(0);
-    } else {
-        setActiveMatchIndex(null);
-    }
-  }, [searchResults]);
+    const body = document.body;
+    body.classList.remove('light', 'dark');
+    body.classList.add(theme);
+  }, [theme]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -215,24 +248,10 @@ const App: React.FC = () => {
     setScrollToLine(lineNumber);
     setSearchQuery('');
   };
-
-  const handleClearSearch = () => {
-    setSearchQuery('');
-    setActiveMatchIndex(null);
-  };
-
-  const handleNextMatch = () => {
-    if (searchResults.length === 0) return;
-    const nextIndex = activeMatchIndex === null || activeMatchIndex === searchResults.length - 1 ? 0 : activeMatchIndex + 1;
-    setActiveMatchIndex(nextIndex);
-    setScrollToMatchIndex(nextIndex);
-  };
-
-  const handlePrevMatch = () => {
-    if (searchResults.length === 0) return;
-    const prevIndex = activeMatchIndex === null || activeMatchIndex === 0 ? searchResults.length - 1 : activeMatchIndex - 1;
-    setActiveMatchIndex(prevIndex);
-    setScrollToMatchIndex(prevIndex);
+  
+  const handleSearchResultClick = (noteId: string) => {
+    setActiveNoteId(noteId);
+    setSearchQuery(''); // Clear search after selection
   };
 
   return (
@@ -249,42 +268,69 @@ const App: React.FC = () => {
         canRedo={canRedo}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
-        onNextMatch={handleNextMatch}
-        onPrevMatch={handlePrevMatch}
-        onClearSearch={handleClearSearch}
-        searchMatchCount={searchResults.length}
-        activeMatchIndex={activeMatchIndex}
+        onClearSearch={() => setSearchQuery('')}
+        results={globalSearchResults}
+        onResultClick={handleSearchResultClick}
         onShowHelp={() => setIsHelpModalOpen(true)}
         searchInputRef={searchInputRef}
         activeNoteId={activeNoteId}
+        theme={theme}
+        onThemeChange={setTheme}
       />
-      <div className="flex-grow flex overflow-hidden">
-        <aside className="w-1/4 max-w-xs h-full border-r border-border-color flex-shrink-0">
-          <FileExplorer 
-            tree={tree}
-            activeNoteId={activeNoteId}
-            onSelectNote={setActiveNoteId}
-            onCreateNode={createNode}
-            onRenameNode={renameNode}
-            onDeleteNode={deleteNode}
-            onMoveNode={moveNode}
-          />
+      <div className="flex-grow flex overflow-hidden relative">
+        {isFileExplorerCollapsed && (
+            <button
+                onClick={() => setIsFileExplorerCollapsed(false)}
+                className="absolute top-1/2 -translate-y-1/2 left-0 z-20 p-1 h-16 rounded-r-lg bg-secondary hover:bg-border-color focus:outline-none text-text-secondary"
+                title="展開檔案總管"
+            >
+                <ChevronDoubleRightIcon className="w-4 h-4" />
+            </button>
+        )}
+        <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isFileExplorerCollapsed ? 'w-0' : 'w-1/4 max-w-xs border-r border-border-color'}`}>
+          <div className="h-full overflow-hidden">
+            <FileExplorer 
+              tree={tree}
+              activeNoteId={activeNoteId}
+              onSelectNote={setActiveNoteId}
+              onCreateNode={createNode}
+              onRenameNode={renameNode}
+              onDeleteNode={deleteNode}
+              onMoveNode={moveNode}
+              onToggleCollapse={() => setIsFileExplorerCollapsed(true)}
+            />
+          </div>
         </aside>
+        
         <main className="flex-grow flex overflow-hidden">
           {!activeNoteId ? (
               <div className="w-full h-full flex items-center justify-center text-text-secondary">
                 請選擇一篇筆記或建立新筆記
               </div>
           ) : viewMode === ViewMode.Editor || viewMode === ViewMode.Preview ? (
-            <div className="flex h-full w-full">
+            <div className="flex h-full w-full relative">
               {mindMapData && (
-                <aside className="w-1/3 max-w-xs h-full overflow-y-auto p-4 border-r border-border-color flex-shrink-0">
-                  <OutlineView 
-                    data={mindMapData}
-                    activeLine={activeLine}
-                    onNodeClick={handleOutlineNodeClick}
-                  />
-                </aside>
+                <>
+                  {isOutlineViewCollapsed && (
+                    <button
+                        onClick={() => setIsOutlineViewCollapsed(false)}
+                        className="absolute top-1/2 -translate-y-1/2 left-0 z-20 p-1 h-16 rounded-r-lg bg-secondary hover:bg-border-color focus:outline-none text-text-secondary"
+                        title="展開大綱"
+                    >
+                        <ChevronDoubleRightIcon className="w-4 h-4" />
+                    </button>
+                  )}
+                  <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isOutlineViewCollapsed ? 'w-0' : 'w-1/3 max-w-xs border-r border-border-color'}`}>
+                    <div className="h-full overflow-hidden">
+                      <OutlineView 
+                        data={mindMapData}
+                        activeLine={activeLine}
+                        onNodeClick={handleOutlineNodeClick}
+                        onToggleCollapse={() => setIsOutlineViewCollapsed(true)}
+                      />
+                    </div>
+                  </aside>
+                </>
               )}
               <div className={`flex-grow h-full ${viewMode === ViewMode.Preview ? 'w-1/2' : 'w-full'}`}>
                   <div className="p-4 md:p-6 lg:p-8 h-full">
@@ -293,15 +339,10 @@ const App: React.FC = () => {
                           onChange={setMarkdown}
                           onImagePasted={addImage}
                           scrollToLine={scrollToLine}
-                          scrollToMatchIndex={scrollToMatchIndex}
                           onScrollComplete={() => {
-                          setScrollToLine(null)
-                          setScrollToMatchIndex(null)
+                            setScrollToLine(null)
                           }}
                           onCursorActivity={setActiveLine}
-                          searchQuery={searchQuery}
-                          searchResults={searchResults}
-                          activeMatchIndex={activeMatchIndex}
                       />
                   </div>
               </div>
@@ -323,6 +364,7 @@ const App: React.FC = () => {
                       selectedNodeId={selectedNodeId}
                       setSelectedNodeId={setSelectedNodeId}
                       images={images}
+                      theme={theme}
                   />
               ) : <div className="text-center text-text-secondary">請在編輯器中新增內容以生成思維導圖。</div>}
             </div>

@@ -103,7 +103,7 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
                 </div>
               )}
               <div className={`px-4 py-3 rounded-2xl max-w-[75%] ${msg.role === 'user' ? 'bg-accent text-white rounded-br-lg' : 'bg-primary text-text-main rounded-bl-lg'}`}>
-                {msg.role === 'model' && isLastMessage && !isLoading ? (
+                {msg.role === 'model' && isLastMessage && !isLoading && messages.length > 1 ? (
                   <TypewriterMessage text={msg.text} images={images} scrollRef={messagesEndRef} />
                 ) : (
                   <MarkdownPreview markdown={msg.text} images={images} />

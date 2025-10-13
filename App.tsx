@@ -277,7 +277,7 @@ const App: React.FC = () => {
     try {
       const session = await createChatSession(markdown);
       setChatSession(session);
-      setChatMessages([{ role: 'model', text: `你好！我已經讀取了 **${activeNoteName}** 的內容。有什麼我可以協助你的嗎？例如：\n\n- 幫我摘要這篇筆記\n- 針對內容出幾題練習題\n- 用更簡單的方式解釋第二段` }]);
+      setChatMessages([{ role: 'model', text: `你好！我已經閱讀完 **${activeNoteName}** 的內容了。我可以協助你做什麼呢？試試看問我：\n\n- 幫我總結這份筆記\n- 根據筆記內容出幾道練習題\n- 用更簡單的方式解釋第二段` }]);
     } catch (error) {
       console.error("Failed to start chat session:", error);
       const errorMessage = error instanceof Error ? error.message : "無法啟動 AI 助理。";

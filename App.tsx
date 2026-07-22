@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { ViewMode, MindMapNode, MindMapLayout } from './types';
 import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
@@ -11,7 +11,8 @@ import MarkdownPreview from './components/MarkdownPreview';
 import HelpModal from './components/HelpModal';
 import FileExplorer from './components/FileExplorer';
 import AIPanel, { ChatMessage } from './components/AIPanel';
-import { createChatSession } from './services/geminiChatService';
+import SettingsModal from './components/SettingsModal';
+import { createChatSession, MissingApiKeyError } from './services/geminiChatService';
 import { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
@@ -50,13 +51,43 @@ const App: React.FC = () => {
       return null;
   };
 
-  const [activeNoteId, setActiveNoteId] = useState<string | null>(findFirstFile);
-  
+  // The last-opened note is remembered across reloads (and validated against
+  // the current tree, in case it was since deleted or storage was cleared).
+  const [persistedActiveNoteId, setPersistedActiveNoteId] = useLocalStorage<string | null>('mind-map-last-active-note-id', null);
+
+  const [activeNoteId, setActiveNoteIdState] = useState<string | null>(() => {
+    if (persistedActiveNoteId && tree[persistedActiveNoteId]?.type === 'file') {
+      return persistedActiveNoteId;
+    }
+    return findFirstFile();
+  });
+
+  const setActiveNoteId = useCallback((id: string | null) => {
+    setActiveNoteIdState(id);
+    setPersistedActiveNoteId(id);
+  }, [setPersistedActiveNoteId]);
+
+  // If the active note disappears (deleted from another view), fall back to another file.
+  useEffect(() => {
+    if (activeNoteId && !tree[activeNoteId]) {
+      setActiveNoteId(findFirstFile());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree, activeNoteId]);
+
   const activeNoteContent = useMemo(() => activeNoteId ? notes[activeNoteId] ?? '' : '', [notes, activeNoteId]);
-  
+
+  // `markdown` is the live text bound to the editor/mind map and updates on every
+  // keystroke. Undo/redo history and localStorage persistence only record a new
+  // snapshot once typing settles (see the debounced effect below) instead of once
+  // per keystroke, so the undo stack stays meaningful and writes stay cheap.
+  const [markdown, setMarkdown] = useState<string>(activeNoteContent);
+  const markdownRef = useRef(markdown);
+  useEffect(() => { markdownRef.current = markdown; }, [markdown]);
+
   const {
-    state: markdown,
-    set: setMarkdown,
+    state: committedMarkdown,
+    set: commitMarkdown,
     undo,
     redo,
     canUndo,
@@ -67,18 +98,50 @@ const App: React.FC = () => {
   const debouncedMarkdown = useDebounce(markdown, 500);
 
   useEffect(() => {
-    if (activeNoteId) {
-      resetHistory(notes[activeNoteId] ?? '');
-    }
-  }, [activeNoteId]);
-  
-  useEffect(() => {
-    if (activeNoteId && debouncedMarkdown !== (notes[activeNoteId] ?? '')) {
-      updateNote(activeNoteId, debouncedMarkdown);
-    }
-  }, [debouncedMarkdown, activeNoteId]);
+    const noteId = activeNoteId;
+    const content = noteId ? notes[noteId] ?? '' : '';
+    setMarkdown(content);
+    resetHistory(content);
 
-  
+    return () => {
+      // Flush any edits to the outgoing note that hadn't been persisted yet
+      // (typed within the last debounce window right before switching away).
+      if (noteId && markdownRef.current !== (notes[noteId] ?? '')) {
+        updateNote(noteId, markdownRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNoteId]);
+
+  // Commit a history snapshot and persist to storage once typing settles.
+  // Deliberately depends only on `debouncedMarkdown` (not `activeNoteId`) so a
+  // note switch can never fire this with a stale, not-yet-updated debounce value.
+  useEffect(() => {
+    const noteId = activeNoteId;
+    if (!noteId) return;
+    if (debouncedMarkdown !== committedMarkdown) {
+      commitMarkdown(debouncedMarkdown);
+    }
+    if (debouncedMarkdown !== (notes[noteId] ?? '')) {
+      updateNote(noteId, debouncedMarkdown);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedMarkdown]);
+
+  // Undo/redo moves the committed snapshot; mirror it back into the live editor text.
+  useEffect(() => {
+    setMarkdown(committedMarkdown);
+  }, [committedMarkdown]);
+
+  // Discrete, already-atomic edits (renaming a node, dragging to reparent in the
+  // mind map) should land in undo history immediately rather than waiting for
+  // the typing-pause debounce used for continuous keystrokes.
+  const commitMarkdownNow = useCallback((newMarkdown: string) => {
+    setMarkdown(newMarkdown);
+    commitMarkdown(newMarkdown);
+  }, [commitMarkdown]);
+
+
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Editor);
   const [mindMapLayout, setMindMapLayout] = useState<MindMapLayout>(MindMapLayout.MindMap);
   const [theme, setTheme] = useLocalStorage<'light' | 'dark'>('theme', 'light');
@@ -86,6 +149,8 @@ const App: React.FC = () => {
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
   const [activeLine, setActiveLine] = useState<number>(0);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -186,12 +251,13 @@ const App: React.FC = () => {
       if (e.key === 'Escape') {
         if (isHelpModalOpen) setIsHelpModalOpen(false);
         if (isAIPanelOpen) setIsAIPanelOpen(false);
+        if (isSettingsOpen) setIsSettingsOpen(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, isHelpModalOpen, isAIPanelOpen]);
+  }, [canUndo, canRedo, undo, redo, isHelpModalOpen, isAIPanelOpen, isSettingsOpen]);
 
   useEffect(() => {
     if (viewMode === ViewMode.MindMap && mindMapData) {
@@ -240,13 +306,13 @@ const App: React.FC = () => {
         const originalLine = targetNode.originalLine;
         const updatedLine = originalLine.replace(targetNode.name, newName.trim());
         lines[targetNode.lineNumber] = updatedLine;
-        setMarkdown(lines.join('\n'));
+        commitMarkdownNow(lines.join('\n'));
     }
   };
-  
+
   const handleStructureUpdate = (newRootNode: MindMapNode) => {
     const newMarkdown = mindMapToMarkdown(newRootNode);
-    setMarkdown(newMarkdown);
+    commitMarkdownNow(newMarkdown);
   };
   
   const handleOutlineNodeClick = (lineNumber: number) => {
@@ -266,7 +332,12 @@ const App: React.FC = () => {
     }
 
     if (!activeNoteId || !markdown) return;
-    
+
+    if (!apiKey) {
+      setIsSettingsOpen(true);
+      return;
+    }
+
     // Only start a new session if one isn't already active for this note,
     // or if the note content has significantly changed. For simplicity,
     // we'll start a new one each time it's opened for now.
@@ -275,11 +346,16 @@ const App: React.FC = () => {
     setChatMessages([]);
 
     try {
-      const session = await createChatSession(markdown);
+      const session = await createChatSession(markdown, apiKey);
       setChatSession(session);
       setChatMessages([{ role: 'model', text: `你好！我已經閱讀完 **${activeNoteName}** 的內容了。我可以協助你做什麼呢？試試看問我：\n\n- 幫我總結這份筆記\n- 根據筆記內容出幾道練習題\n- 用更簡單的方式解釋第二段` }]);
     } catch (error) {
       console.error("Failed to start chat session:", error);
+      if (error instanceof MissingApiKeyError) {
+        setIsAIPanelOpen(false);
+        setIsSettingsOpen(true);
+        return;
+      }
       const errorMessage = error instanceof Error ? error.message : "無法啟動 AI 助理。";
       setChatMessages([{ role: 'model', text: `抱歉，發生錯誤：${errorMessage}` }]);
     } finally {
@@ -333,18 +409,19 @@ const App: React.FC = () => {
         onToggleAIPanel={handleToggleAIPanel}
         isAILoading={isAILoading && !isAIPanelOpen}
         isAIPanelOpen={isAIPanelOpen}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
       <div className="flex-grow flex overflow-hidden relative">
         {isFileExplorerCollapsed && (
             <button
                 onClick={() => setIsFileExplorerCollapsed(false)}
-                className="absolute top-1/2 -translate-y-1/2 left-0 z-20 p-1 h-16 rounded-r-lg bg-secondary hover:bg-border-color focus:outline-none text-text-secondary"
+                className="glass-surface absolute top-1/2 -translate-y-1/2 left-0 z-20 p-1.5 h-16 rounded-r-2xl border border-l-0 border-border-color/60 shadow-apple-sm hover:bg-border-color/30 transition-colors duration-150 ease-apple focus:outline-none text-text-secondary"
                 title="展開檔案總管"
             >
                 <ChevronDoubleRightIcon className="w-4 h-4" />
             </button>
         )}
-        <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isFileExplorerCollapsed ? 'w-0' : 'w-1/4 max-w-xs border-r border-border-color'}`}>
+        <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isFileExplorerCollapsed ? 'w-0' : 'w-1/4 max-w-xs border-r border-border-color/60'}`}>
           <div className="h-full overflow-hidden">
             <FileExplorer 
               tree={tree}
@@ -361,7 +438,7 @@ const App: React.FC = () => {
         
         <main className="flex-grow flex overflow-hidden">
           {!activeNoteId ? (
-              <div className="w-full h-full flex items-center justify-center text-text-secondary">
+              <div className="w-full h-full flex items-center justify-center text-text-secondary text-sm">
                 請選擇一篇筆記或建立新筆記
               </div>
           ) : viewMode === ViewMode.Editor || viewMode === ViewMode.Preview ? (
@@ -371,13 +448,13 @@ const App: React.FC = () => {
                   {isOutlineViewCollapsed && (
                     <button
                         onClick={() => setIsOutlineViewCollapsed(false)}
-                        className="absolute top-1/2 -translate-y-1/2 left-0 z-20 p-1 h-16 rounded-r-lg bg-secondary hover:bg-border-color focus:outline-none text-text-secondary"
+                        className="glass-surface absolute top-1/2 -translate-y-1/2 left-0 z-20 p-1.5 h-16 rounded-r-2xl border border-l-0 border-border-color/60 shadow-apple-sm hover:bg-border-color/30 transition-colors duration-150 ease-apple focus:outline-none text-text-secondary"
                         title="展開大綱"
                     >
                         <ChevronDoubleRightIcon className="w-4 h-4" />
                     </button>
                   )}
-                  <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isOutlineViewCollapsed ? 'w-0' : 'w-1/3 max-w-xs border-r border-border-color'}`}>
+                  <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isOutlineViewCollapsed ? 'w-0' : 'w-1/3 max-w-xs border-r border-border-color/60'}`}>
                     <div className="h-full overflow-hidden">
                       <OutlineView 
                         data={mindMapData}
@@ -404,7 +481,7 @@ const App: React.FC = () => {
                   </div>
               </div>
               {viewMode === ViewMode.Preview && (
-                  <div className="flex-grow w-1/2 h-full p-4 md:p-6 lg:p-8 overflow-y-auto border-l border-border-color">
+                  <div className="flex-grow w-1/2 h-full p-4 md:p-6 lg:p-8 overflow-y-auto border-l border-border-color/60">
                     <MarkdownPreview markdown={markdown} images={images} />
                   </div>
               )}
@@ -412,23 +489,23 @@ const App: React.FC = () => {
           ) : (
             <div className="p-4 md:p-6 lg:p-8 h-full w-full">
               {mindMapData ? (
-                  <MindMap 
+                  <MindMap
                       ref={mindMapRef}
                       data={mindMapData}
                       layout={mindMapLayout}
-                      onNodeUpdate={handleNodeUpdate} 
+                      onNodeUpdate={handleNodeUpdate}
                       onStructureUpdate={handleStructureUpdate}
                       selectedNodeId={selectedNodeId}
                       setSelectedNodeId={setSelectedNodeId}
                       images={images}
                       theme={theme}
                   />
-              ) : <div className="text-center text-text-secondary">請在編輯器中新增內容以生成思維導圖。</div>}
+              ) : <div className="text-center text-text-secondary text-sm">請在編輯器中新增內容以生成思維導圖。</div>}
             </div>
           )}
         </main>
-        
-        <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isAIPanelOpen ? 'w-1/3 max-w-md border-l border-border-color' : 'w-0'}`}>
+
+        <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isAIPanelOpen ? 'w-1/3 max-w-md border-l border-border-color/60' : 'w-0'}`}>
             <div className="h-full overflow-hidden">
                 <AIPanel
                     onToggleCollapse={() => setIsAIPanelOpen(false)}
@@ -443,7 +520,7 @@ const App: React.FC = () => {
         {!isAIPanelOpen && activeNoteId && (
             <button
                 onClick={handleToggleAIPanel}
-                className="absolute top-1/2 -translate-y-1/2 right-0 z-20 p-1 h-16 rounded-l-lg bg-secondary hover:bg-border-color focus:outline-none text-text-secondary"
+                className="glass-surface absolute top-1/2 -translate-y-1/2 right-0 z-20 p-1.5 h-16 rounded-l-2xl border border-r-0 border-border-color/60 shadow-apple-sm hover:bg-border-color/30 transition-colors duration-150 ease-apple focus:outline-none text-text-secondary"
                 title="展開 AI 學習夥伴"
             >
                 <ChevronDoubleLeftIcon className="w-4 h-4" />
@@ -452,6 +529,12 @@ const App: React.FC = () => {
 
       </div>
       <HelpModal isOpen={isHelpModalOpen} onClose={() => setIsHelpModalOpen(false)} />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        apiKey={apiKey}
+        onSaveApiKey={setApiKey}
+      />
     </div>
   );
 };

@@ -264,28 +264,28 @@ const Editor: React.FC<EditorProps> = ({
       onDrop={handleDrop}
     >
       {isDraggingOver && (
-        <div className="absolute inset-0 bg-accent/50 border-4 border-dashed border-white rounded-lg flex items-center justify-center z-20 pointer-events-none">
-          <span className="text-white font-bold text-2xl">拖曳圖片至此以上傳</span>
+        <div className="absolute inset-0 bg-accent/40 backdrop-blur-sm border-2 border-dashed border-white rounded-2xl flex items-center justify-center z-20 pointer-events-none">
+          <span className="text-white font-semibold text-xl tracking-tight">拖曳圖片至此以上傳</span>
         </div>
       )}
-      
-      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="p-2 rounded-md bg-secondary hover:bg-primary transition-colors text-text-secondary"
+          className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
           title="上傳圖片"
         >
-          <ImageIcon className="w-5 h-5" />
+          <ImageIcon className="w-4 h-4" />
         </button>
         <button
           onClick={handleCopy}
-          className="p-2 rounded-md bg-secondary hover:bg-primary transition-colors text-text-secondary"
+          className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
           title={isCopied ? "已複製！" : "複製內容"}
         >
           {isCopied ? (
-            <CheckIcon className="w-5 h-5 text-green-400" />
+            <CheckIcon className="w-4 h-4 text-green-500" />
           ) : (
-            <CopyIcon className="w-5 h-5" />
+            <CopyIcon className="w-4 h-4" />
           )}
         </button>
       </div>

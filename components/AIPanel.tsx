@@ -81,14 +81,14 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
   return (
     <div className="h-full bg-secondary flex flex-col">
       <div
-        className="flex items-center justify-between p-4 border-b border-border-color flex-shrink-0"
+        className="flex items-center justify-between p-4 border-b border-border-color/70 flex-shrink-0"
       >
-        <div className="flex items-center gap-3">
-            <ChatbotIcon className="w-6 h-6 text-accent dark:text-text-main" />
-            <h2 className="text-lg font-bold text-text-main">AI 學習夥伴</h2>
+        <div className="flex items-center gap-2.5">
+            <ChatbotIcon className="w-5 h-5 text-accent" />
+            <h2 className="text-[15px] font-semibold text-text-main tracking-tight">AI 學習夥伴</h2>
         </div>
-        <button onClick={onToggleCollapse} className="p-1 rounded-md text-text-secondary hover:bg-primary" title="收合側邊欄 (Esc)">
-          <ChevronDoubleRightIcon className="w-5 h-5" />
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90" title="收合側邊欄 (Esc)">
+          <ChevronDoubleRightIcon className="w-4 h-4" />
         </button>
       </div>
 
@@ -96,13 +96,13 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
         {messages.map((msg, index) => {
           const isLastMessage = index === messages.length - 1;
           return (
-            <div key={index} className={`flex items-end gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={index} className={`flex items-end gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {msg.role === 'model' && (
-                <div className="w-8 h-8 rounded-full bg-primary dark:bg-text-main flex items-center justify-center flex-shrink-0">
-                    <ChatbotIcon className="w-5 h-5 text-accent dark:text-primary" />
+                <div className="w-7 h-7 rounded-full bg-elevated shadow-apple-xs flex items-center justify-center flex-shrink-0">
+                    <ChatbotIcon className="w-4 h-4 text-accent" />
                 </div>
               )}
-              <div className={`px-4 py-3 rounded-2xl max-w-[75%] ${msg.role === 'user' ? 'bg-accent text-white rounded-br-lg' : 'bg-primary text-text-main rounded-bl-lg'}`}>
+              <div className={`px-4 py-2.5 rounded-2xl max-w-[75%] ${msg.role === 'user' ? 'bg-accent text-white rounded-br-md' : 'bg-elevated text-text-main rounded-bl-md shadow-apple-xs'}`}>
                 {msg.role === 'model' && isLastMessage && !isLoading && messages.length > 1 ? (
                   <TypewriterMessage text={msg.text} images={images} scrollRef={messagesEndRef} />
                 ) : (
@@ -113,11 +113,11 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
           )
         })}
         {isLoading && (
-            <div className="flex items-end gap-3 justify-start">
-                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                    <ChatbotIcon className="w-5 h-5 text-accent" />
+            <div className="flex items-end gap-2.5 justify-start">
+                <div className="w-7 h-7 rounded-full bg-elevated shadow-apple-xs flex items-center justify-center flex-shrink-0">
+                    <ChatbotIcon className="w-4 h-4 text-accent" />
                 </div>
-                <div className="px-4 py-3 rounded-2xl bg-primary flex items-center justify-center space-x-1.5 h-[44px] rounded-bl-lg">
+                <div className="px-4 py-3 rounded-2xl bg-elevated shadow-apple-xs flex items-center justify-center space-x-1.5 h-[42px] rounded-bl-md">
                     <span className="h-2 w-2 bg-accent rounded-full animate-bounce [animation-delay:-0.3s]"></span>
                     <span className="h-2 w-2 bg-accent rounded-full animate-bounce [animation-delay:-0.15s]"></span>
                     <span className="h-2 w-2 bg-accent rounded-full animate-bounce"></span>
@@ -127,8 +127,8 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 bg-secondary border-t border-border-color flex-shrink-0">
-        <form onSubmit={handleSubmit} className="flex items-end gap-3">
+      <div className="p-4 bg-secondary border-t border-border-color/70 flex-shrink-0">
+        <form onSubmit={handleSubmit} className="flex items-end gap-2.5">
           <textarea
             ref={textareaRef}
             value={input}
@@ -140,12 +140,12 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
                 }
             }}
             placeholder="在這裡問問題..."
-            className="w-full px-4 py-2.5 bg-primary border border-transparent focus:border-accent rounded-xl focus:outline-none focus:ring-1 focus:ring-accent text-text-main resize-none transition-colors"
+            className="w-full px-4 py-2.5 bg-elevated border border-transparent focus:border-accent rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/30 text-text-main resize-none transition-colors duration-150 ease-apple"
             rows={1}
             style={{ maxHeight: '120px', minHeight: '44px' }}
             disabled={isLoading}
           />
-          <button type="submit" disabled={isLoading || !input.trim()} className="w-10 h-10 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/50 disabled:cursor-not-allowed transition-colors">
+          <button type="submit" disabled={isLoading || !input.trim()} className="w-10 h-10 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/50 disabled:cursor-not-allowed transition-all duration-150 ease-apple active:scale-90">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                 <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
             </svg>

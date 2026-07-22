@@ -1,5 +1,5 @@
 // hooks/useFileSystem.ts
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { FileSystemTree, NotesContent, FileSystemNode, Images } from '../types';
 
 const initialMarkdown = `# 歡迎使用思維導圖筆記工具
@@ -22,6 +22,24 @@ const NOTES_STORAGE_KEY = 'mind-map-notes-content';
 const IMAGES_STORAGE_KEY = 'mind-map-images';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+// Writes to localStorage are debounced by this many ms so rapid successive
+// edits (typing, dragging nodes, etc.) don't serialize the whole workspace
+// — including any base64 images — on every single state change.
+const PERSIST_DEBOUNCE_MS = 400;
+
+// Matches `![alt](image://<id>)` references embedded in note markdown.
+const IMAGE_REFERENCE_REGEX = /!\[.*?\]\(image:\/\/(.*?)\)/g;
+
+const extractReferencedImageIds = (content: string): string[] => {
+    const ids: string[] = [];
+    const regex = new RegExp(IMAGE_REFERENCE_REGEX);
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(content)) !== null) {
+        ids.push(match[1]);
+    }
+    return ids;
+};
 
 const getInitialFileSystem = () => {
     const savedTree = localStorage.getItem(TREE_STORAGE_KEY);
@@ -59,15 +77,35 @@ const getInitialFileSystem = () => {
 export const useFileSystem = () => {
     const [{ tree, notes, images }, setState] = useState(getInitialFileSystem);
 
+    // Keep a ref to the latest state so the unload flush (below) and the
+    // debounce timer always write the most current data, not a stale closure.
+    const latestStateRef = useRef({ tree, notes, images });
     useEffect(() => {
+        latestStateRef.current = { tree, notes, images };
+    });
+
+    const flushToStorage = useCallback(() => {
         try {
+            const { tree, notes, images } = latestStateRef.current;
             localStorage.setItem(TREE_STORAGE_KEY, JSON.stringify(tree));
             localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
             localStorage.setItem(IMAGES_STORAGE_KEY, JSON.stringify(images));
         } catch (error) {
-            console.error("Failed to save file system to localStorage", error);
+            console.error("Failed to save notes to local storage — it may be full. Try removing large images.", error);
         }
-    }, [tree, notes, images]);
+    }, []);
+
+    // Debounce persistence so a burst of edits results in one write, not one per keystroke.
+    useEffect(() => {
+        const timeoutId = setTimeout(flushToStorage, PERSIST_DEBOUNCE_MS);
+        return () => clearTimeout(timeoutId);
+    }, [tree, notes, images, flushToStorage]);
+
+    // Make sure the latest changes are still written if the tab closes before the debounce fires.
+    useEffect(() => {
+        window.addEventListener('beforeunload', flushToStorage);
+        return () => window.removeEventListener('beforeunload', flushToStorage);
+    }, [flushToStorage]);
 
     const addImage = useCallback((dataUrl: string): string => {
         const id = generateId();
@@ -118,8 +156,6 @@ export const useFileSystem = () => {
     }, []);
 
     const deleteNode = useCallback((nodeId: string) => {
-        // A more robust solution might garbage collect unused images here,
-        // but for now, we leave them to avoid complexity.
         setState(prevState => {
             const newTree = { ...prevState.tree };
             const newNotes = { ...prevState.notes };
@@ -129,26 +165,41 @@ export const useFileSystem = () => {
 
             const nodesToDelete = new Set<string>();
             const queue = [nodeId];
-            
+
             while (queue.length > 0) {
                 const currentId = queue.shift()!;
                 nodesToDelete.add(currentId);
                 newTree[currentId]?.childrenIds.forEach(childId => queue.push(childId));
             }
-            
+
             nodesToDelete.forEach(id => {
                 delete newTree[id];
                 if (id in newNotes) {
                     delete newNotes[id];
                 }
             });
-            
+
             if (nodeToDelete.parentId && newTree[nodeToDelete.parentId]) {
                 const parent = newTree[nodeToDelete.parentId];
                 newTree[parent.id] = { ...parent, childrenIds: parent.childrenIds.filter(id => id !== nodeId) };
             }
-            
-            return { tree: newTree, notes: newNotes, images: prevState.images };
+
+            // Garbage-collect any images that were only referenced by the deleted note(s),
+            // so pasted screenshots don't silently accumulate in storage forever.
+            let newImages = prevState.images;
+            if (Object.keys(prevState.images).length > 0) {
+                const stillReferenced = new Set<string>();
+                Object.keys(newNotes).forEach(id => {
+                    extractReferencedImageIds(newNotes[id]).forEach(imageId => stillReferenced.add(imageId));
+                });
+                const orphanedIds = Object.keys(prevState.images).filter(id => !stillReferenced.has(id));
+                if (orphanedIds.length > 0) {
+                    newImages = { ...prevState.images };
+                    orphanedIds.forEach(id => delete newImages[id]);
+                }
+            }
+
+            return { tree: newTree, notes: newNotes, images: newImages };
         });
     }, []);
 

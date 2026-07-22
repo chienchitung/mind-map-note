@@ -47,13 +47,13 @@ const OutlineNode: React.FC<{
 const OutlineView: React.FC<OutlineViewProps> = ({ data, activeLine, onNodeClick, onToggleCollapse }) => {
   return (
     <div className="outline-view text-text-secondary text-sm h-full flex flex-col">
-        <div className="flex items-center justify-between p-2 flex-shrink-0">
-            <h2 className="font-bold text-text-main">大綱</h2>
-            <button onClick={onToggleCollapse} className="p-1 rounded-md hover:bg-secondary" title="收合大綱">
+        <div className="flex items-center justify-between px-3 py-3 flex-shrink-0">
+            <h2 className="font-semibold text-text-main text-[13px] tracking-tight">大綱</h2>
+            <button onClick={onToggleCollapse} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90" title="收合大綱">
                 <ChevronDoubleLeftIcon className="w-4 h-4" />
             </button>
         </div>
-        <div className="flex-grow overflow-y-auto pr-2">
+        <div className="flex-grow overflow-y-auto pr-2 pl-1">
             <ul>
                 <OutlineNode node={data} activeLine={activeLine} onNodeClick={onNodeClick} />
             </ul>

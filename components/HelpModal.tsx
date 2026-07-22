@@ -24,10 +24,10 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 text-text-secondary hover:text-text-main" title="關閉 (Esc)">
-          <XIcon className="w-6 h-6" />
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="關閉 (Esc)">
+          <XIcon className="w-5 h-5" />
         </button>
-        <h2 className="text-2xl font-bold mb-6 text-text-main">鍵盤快捷鍵</h2>
+        <h2 className="text-xl font-semibold mb-6 text-text-main tracking-tight">鍵盤快捷鍵</h2>
         
         <div className="space-y-6">
           <div>

@@ -17,14 +17,14 @@ const ZoomControls: React.FC<{
   onReset: () => void;
 }> = ({ onZoomIn, onZoomOut, onReset }) => {
   return (
-    <div className="absolute bottom-4 right-4 bg-secondary/80 backdrop-blur-sm shadow-lg rounded-lg p-1 flex flex-col gap-1 border border-border-color z-10">
-      <button onClick={onZoomIn} title="放大 (Cmd/Ctrl +)" className="p-2 rounded-md hover:bg-border-color transition-colors text-text-secondary">
+    <div className="glass-surface absolute bottom-4 right-4 shadow-apple-md rounded-full p-1 flex flex-col gap-1 border border-border-color/60 z-10">
+      <button onClick={onZoomIn} title="放大 (Cmd/Ctrl +)" className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
         <PlusIcon className="w-5 h-5" />
       </button>
-      <button onClick={onZoomOut} title="縮小 (Cmd/Ctrl -)" className="p-2 rounded-md hover:bg-border-color transition-colors text-text-secondary">
+      <button onClick={onZoomOut} title="縮小 (Cmd/Ctrl -)" className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
         <MinusIcon className="w-5 h-5" />
       </button>
-      <button onClick={onReset} title="重置視圖 (Cmd/Ctrl 0)" className="p-2 rounded-md hover:bg-border-color transition-colors text-text-secondary">
+      <button onClick={onReset} title="重置視圖 (Cmd/Ctrl 0)" className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
         <ResetZoomIcon className="w-5 h-5" />
       </button>
     </div>
@@ -46,34 +46,50 @@ export interface MindMapHandle {
   exportAsJPG: () => void;
 }
 
+// A soft drop shadow applied to "card" style nodes (depth 2+) for an Apple-like
+// floating-surface feel, without touching stroke/fill (which theming handles).
+const CARD_SHADOW = 'drop-shadow(0 1px 2px rgba(0,0,0,0.06)) drop-shadow(0 4px 10px rgba(0,0,0,0.08))';
+
 const getNodeStyles = (depth: number, theme: 'light' | 'dark') => {
     const isDark = theme === 'dark';
     const baseText: React.CSSProperties = {
-        fontFamily: `ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"`,
+        fontFamily: `-apple-system, BlinkMacSystemFont, "SF Pro Text", ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"`,
         fontWeight: 500,
         fontSize: '14px',
+        letterSpacing: '-0.005em',
         overflowWrap: 'break-word',
     };
     const basePadding = `${PADDING_Y / 2}px ${PADDING_X / 2}px`;
 
     switch (depth) {
-        case 0: // Root
+        case 0: // Root — a bold, filled accent capsule
             return {
-                rect: { fill: isDark ? '#6366f1' : '#4f46e5', stroke: 'transparent' } as React.CSSProperties,
-                text: { ...baseText, color: 'white', fontWeight: 600 },
+                rect: { fill: 'var(--color-accent)', stroke: 'transparent' } as React.CSSProperties,
+                text: { ...baseText, color: '#ffffff', fontWeight: 600 },
                 padding: basePadding,
+                rx: 18,
             };
-        case 1: // Level 2
+        case 1: // Level 2 — a soft tinted chip in the accent color
             return {
-                rect: { fill: isDark ? '#71717a' : '#a1a1aa', stroke: 'transparent' } as React.CSSProperties,
-                text: { ...baseText, color: 'white' },
+                rect: {
+                    fill: isDark ? 'rgba(10, 132, 255, 0.18)' : 'rgba(0, 113, 227, 0.1)',
+                    stroke: 'transparent',
+                } as React.CSSProperties,
+                text: { ...baseText, color: 'var(--color-accent)', fontWeight: 600 },
                 padding: basePadding,
+                rx: 14,
             };
-        default: // Level 3+
+        default: // Level 3+ — a clean elevated card, floating above the canvas
             return {
-                rect: { fill: isDark ? '#2a2a2a' : '#f9fafb', stroke: isDark ? '#a0a0a0' : '#d1d5db', strokeWidth: 1.5 } as React.CSSProperties,
-                text: { ...baseText, color: isDark ? '#e0e0e0' : '#3f3f46' },
+                rect: {
+                    fill: 'var(--color-elevated)',
+                    stroke: 'var(--color-border-color)',
+                    strokeWidth: 1,
+                    filter: CARD_SHADOW,
+                } as React.CSSProperties,
+                text: { ...baseText, color: 'var(--color-text-main)' },
                 padding: basePadding,
+                rx: 12,
             };
     }
 };
@@ -584,7 +600,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   }, [setSelectedNodeId]);
 
   return (
-    <div ref={svgContainerRef} tabIndex={0} className="relative w-full h-full bg-secondary rounded-lg border border-border-color overflow-hidden focus:outline-none focus:ring-2 focus:ring-accent">
+    <div ref={svgContainerRef} tabIndex={0} className="relative w-full h-full bg-secondary rounded-2xl border border-border-color overflow-hidden focus:outline-none focus:ring-2 focus:ring-accent/60">
       <div
         ref={measurementRef}
         className="absolute -top-[9999px] -left-[9999px] font-sans font-medium text-center"
@@ -609,7 +625,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                  const dx = targetNode.y - sourceNode.y;
                  d = `M${sourceNode.y},${sourceNode.x}C${sourceNode.y + dx / 2},${sourceNode.x} ${sourceNode.y + dx / 2},${targetNode.x} ${targetNode.y},${targetNode.x}`;
              }
-             return <path key={`link-${i}`} style={{ fill: 'none', stroke: '#d1d5db', strokeWidth: 1.5, opacity: isTargetCollapsed ? 0 : 1, transition: 'd 500ms, opacity 500ms' }} d={d!} />;
+             return <path key={`link-${i}`} style={{ fill: 'none', stroke: 'var(--color-border-color)', strokeWidth: 1.5, opacity: isTargetCollapsed ? 0 : 1, transition: 'd 500ms var(--ease-apple), opacity 500ms var(--ease-apple)' }} d={d!} />;
           })}
           {nodes.map((node) => {
             const isEditing = editingNodeId === node.data.id;
@@ -625,7 +641,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
             const rectWidth = size.width;
             const rectHeight = size.height;
 
-            const { rect: rectStyle, text: textStyle, padding } = getNodeStyles(node.depth, theme);
+            const { rect: rectStyle, text: textStyle, padding, rx: rectRadius } = getNodeStyles(node.depth, theme);
 
             const hasImage = !!node.data.imageUrl;
             let imageUrl: string | undefined = node.data.imageUrl;
@@ -652,13 +668,13 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                  style={{
                      opacity: isCollapsedChild ? 0 : 1,
                      pointerEvents: isCollapsedChild ? 'none' : 'auto',
-                     transition: 'transform 500ms, opacity 500ms',
+                     transition: 'transform 500ms var(--ease-apple), opacity 500ms var(--ease-apple)',
                  }}
                  onClick={() => setSelectedNodeId(node.data.id)}
                  onMouseOver={() => draggedNodeId && setDropTargetId(node.data.id)} onMouseOut={() => draggedNodeId && setDropTargetId(null)}>
-                
-                <rect x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight} rx="8"
-                      className={`transition-all duration-200 stroke-2 ${ isDropTarget ? '!stroke-green-400' : ''}`} style={rectStyle} />
+
+                <rect x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight} rx={rectRadius}
+                      className={`transition-all duration-200 ease-apple stroke-2 ${ isDropTarget ? '!stroke-green-400' : ''}`} style={rectStyle} />
 
                 {isEditing ? (
                   <foreignObject x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight}>
@@ -693,9 +709,9 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                     onClick={(e) => handleNodeToggle(e, node.data.id)}
                     className="cursor-pointer"
                   >
-                    <circle r="10" className="fill-white stroke-gray-400 stroke-1 transition-all group-hover:stroke-accent" />
+                    <circle r="10" style={{ fill: 'var(--color-elevated)', stroke: 'var(--color-border-color)', filter: CARD_SHADOW }} className="stroke-1 transition-all duration-150 ease-apple group-hover:stroke-accent" />
                     <foreignObject x="-8" y="-8" width="16" height="16">
-                        <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full flex items-center justify-center text-gray-600">
+                        <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full flex items-center justify-center text-text-secondary">
                            {isCollapsed ? (
                                 <PlusIcon className="w-4 h-4" />
                             ) : (

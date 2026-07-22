@@ -42,7 +42,7 @@ const MoveToModal: React.FC<{
           return (
             <div key={childId}>
               <div
-                className={`flex items-center p-2 rounded-md transition-colors ${isDisabled ? 'text-text-secondary/50 cursor-not-allowed' : 'text-text-secondary hover:bg-secondary hover:text-text-main cursor-pointer'}`}
+                className={`flex items-center p-2 rounded-xl transition-colors duration-150 ease-apple ${isDisabled ? 'text-text-secondary/50 cursor-not-allowed' : 'text-text-secondary hover:bg-secondary hover:text-text-main cursor-pointer'}`}
                 style={{ paddingLeft: `${level * 20 + 12}px` }}
                 onClick={() => {
                   if (!isDisabled) {
@@ -66,10 +66,10 @@ const MoveToModal: React.FC<{
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content text-text-main" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 text-text-secondary hover:text-text-main" title="Close (Esc)">
-          <XIcon className="w-6 h-6" />
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="Close (Esc)">
+          <XIcon className="w-5 h-5" />
         </button>
-        <h2 className="text-xl font-bold mb-4">Move "<span className="text-accent">{nodeToMove.name}</span>" to...</h2>
+        <h2 className="text-lg font-semibold mb-4 tracking-tight">Move "<span className="text-accent">{nodeToMove.name}</span>" to...</h2>
         
         <div className="max-h-[60vh] overflow-y-auto pr-2">
             <div
@@ -194,8 +194,8 @@ const Node: React.FC<{
   return (
     <div>
       <div
-        className={`flex items-center rounded-md p-1 group transition-colors ${isActive ? 'bg-accent text-white' : 'hover:bg-secondary'} ${isDropTarget ? 'bg-green-500/20 ring-2 ring-green-500' : ''}`}
-        style={{ paddingLeft: `${level * 16 + 4}px` }}
+        className={`flex items-center rounded-lg py-1.5 px-1.5 group transition-colors duration-150 ease-apple ${isActive ? 'bg-accent text-white' : 'hover:bg-secondary'} ${isDropTarget ? 'bg-green-500/20 ring-2 ring-green-500' : ''}`}
+        style={{ paddingLeft: `${level * 16 + 6}px` }}
         onClick={handleClick}
         onContextMenu={(e) => onContextMenu(e, node.id)}
         onMouseEnter={() => setIsHovering(true)}
@@ -219,15 +219,15 @@ const Node: React.FC<{
             onBlur={handleFinishRename}
             onKeyDown={(e) => { if (e.key === 'Enter') handleFinishRename(); else if (e.key === 'Escape') handleCancelRename(); }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-primary border border-accent rounded-sm px-1 py-0 w-full text-text-main"
+            className="bg-primary border border-accent rounded-md px-1.5 py-0.5 w-full text-text-main"
           />
         ) : (
-          <span className="truncate flex-grow cursor-pointer">{node.name}</span>
+          <span className="truncate flex-grow cursor-pointer text-[13px]">{node.name}</span>
         )}
         {isHovering && !isRenaming && (
-          <div className="flex-shrink-0 ml-auto">
-            <button onClick={(e) => { e.stopPropagation(); setRenamingNodeId(node.id); }} className={`p-1 rounded ${isActive ? 'hover:bg-accent/80' : 'hover:bg-primary'}`}><PencilIcon className="w-4 h-4" /></button>
-            {node.parentId !== null && <button onClick={(e) => { e.stopPropagation(); if(confirm(`確定要刪除 "${node.name}" 嗎？`)) onDeleteNode(node.id); }} className={`p-1 rounded ${isActive ? 'hover:bg-accent/80' : 'hover:bg-primary'}`}><TrashIcon className="w-4 h-4" /></button>}
+          <div className="flex-shrink-0 ml-auto flex items-center gap-0.5">
+            <button onClick={(e) => { e.stopPropagation(); setRenamingNodeId(node.id); }} className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><PencilIcon className="w-3.5 h-3.5" /></button>
+            {node.parentId !== null && <button onClick={(e) => { e.stopPropagation(); if(confirm(`確定要刪除 "${node.name}" 嗎？`)) onDeleteNode(node.id); }} className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><TrashIcon className="w-3.5 h-3.5" /></button>}
           </div>
         )}
       </div>
@@ -284,22 +284,22 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   return (
     <FileExplorerContext.Provider value={contextValue}>
       <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
-        <div className="flex items-center justify-between p-2 flex-shrink-0">
-            <h2 className="font-bold text-text-main">檔案總管</h2>
-            <div className="flex items-center gap-1">
-                <button onClick={() => onCreateNode('file', 'root')} className="p-1 rounded-md hover:bg-secondary" title="新增筆記">
+        <div className="flex items-center justify-between px-3 py-3 flex-shrink-0">
+            <h2 className="font-semibold text-text-main text-[13px] tracking-tight">檔案總管</h2>
+            <div className="flex items-center gap-0.5">
+                <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90" title="新增筆記">
                     <PlusIcon className="w-4 h-4" />
                 </button>
-                <button onClick={() => onCreateNode('folder', 'root')} className="p-1 rounded-md hover:bg-secondary" title="新增資料夾">
+                <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90" title="新增資料夾">
                     <FolderPlusIcon className="w-4 h-4" />
                 </button>
                 <div className="w-px h-4 bg-border-color mx-1"></div>
-                <button onClick={onToggleCollapse} className="p-1 rounded-md hover:bg-secondary" title="收合檔案總管">
+                <button onClick={onToggleCollapse} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90" title="收合檔案總管">
                     <ChevronDoubleLeftIcon className="w-4 h-4" />
                 </button>
             </div>
         </div>
-        <div className="flex-grow overflow-y-auto px-2 pb-2">
+        <div className="flex-grow overflow-y-auto px-2.5 pb-2 space-y-0.5">
           {rootNode.childrenIds.map(childId => (
             tree[childId] ? (
               <Node
@@ -319,23 +319,23 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
           <div
             ref={contextMenuRef}
             style={{ top: contextMenu.y, left: contextMenu.x }}
-            className="absolute z-30 w-48 bg-secondary border border-border-color rounded-md shadow-lg py-1 text-text-main"
+            className="glass-surface absolute z-30 w-48 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main"
           >
             <button
               onClick={() => { setRenamingNodeId(contextMenu.nodeId); closeContextMenu(); }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-white flex items-center gap-2"
+              className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
             >
               <PencilIcon className="w-4 h-4" /> <span>重新命名</span>
             </button>
             <button
               onClick={() => { setMoveToModalNodeId(contextMenu.nodeId); closeContextMenu(); }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-white flex items-center gap-2"
+              className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
             >
               <FolderIcon className="w-4 h-4" /> <span>移動到...</span>
             </button>
             {contextNode.parentId !== null && (
               <>
-                <div className="h-px bg-border-color my-1"></div>
+                <div className="h-px bg-border-color my-1 mx-1"></div>
                 <button
                   onClick={() => {
                     if(confirm(`確定要刪除 "${contextNode.name}" 嗎？`)) {
@@ -343,7 +343,7 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
                     }
                     closeContextMenu();
                   }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500 hover:text-white flex items-center gap-2"
+                  className="w-full text-left px-3 py-1.5 text-sm rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
                 >
                   <TrashIcon className="w-4 h-4" /> <span>刪除</span>
                 </button>

@@ -12,10 +12,13 @@ const REDO = 'REDO';
 const SET = 'SET';
 const RESET = 'RESET';
 
+// Caps the undo stack so long editing sessions don't grow it unbounded.
+const DEFAULT_HISTORY_LIMIT = 100;
+
 type HistoryAction<T> =
   | { type: typeof UNDO }
   | { type: typeof REDO }
-  | { type: typeof SET; newPresent: T }
+  | { type: typeof SET; newPresent: T; limit: number }
   | { type: typeof RESET; newPresent: T };
 
 const historyReducer = <T>(state: HistoryState<T>, action: HistoryAction<T>): HistoryState<T> => {
@@ -40,13 +43,15 @@ const historyReducer = <T>(state: HistoryState<T>, action: HistoryAction<T>): Hi
         present: next,
         future: newFuture,
       };
-    case SET:
+    case SET: {
       if (action.newPresent === present) return state;
+      const trimmedPast = past.length >= action.limit ? past.slice(past.length - action.limit + 1) : past;
       return {
-        past: [...past, present],
+        past: [...trimmedPast, present],
         present: action.newPresent,
         future: [],
       };
+    }
     case RESET:
       return {
         past: [],
@@ -58,7 +63,7 @@ const historyReducer = <T>(state: HistoryState<T>, action: HistoryAction<T>): Hi
   }
 };
 
-export const useHistory = <T>(initialPresent: T) => {
+export const useHistory = <T>(initialPresent: T, limit: number = DEFAULT_HISTORY_LIMIT) => {
     const [state, dispatch] = useReducer<Reducer<HistoryState<T>, HistoryAction<T>>>(
         historyReducer,
         {
@@ -73,16 +78,16 @@ export const useHistory = <T>(initialPresent: T) => {
 
     const undo = useCallback(() => dispatch({ type: UNDO }), []);
     const redo = useCallback(() => dispatch({ type: REDO }), []);
-    const set = useCallback((newPresent: T) => dispatch({ type: SET, newPresent }), []);
+    const set = useCallback((newPresent: T) => dispatch({ type: SET, newPresent, limit }), [limit]);
     const reset = useCallback((newPresent: T) => dispatch({ type: RESET, newPresent }), []);
-    
-    return { 
-      state: state.present, 
-      set, 
-      undo, 
-      redo, 
-      canUndo, 
-      canRedo, 
-      reset 
+
+    return {
+      state: state.present,
+      set,
+      undo,
+      redo,
+      canUndo,
+      canRedo,
+      reset
     };
 };

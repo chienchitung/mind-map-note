@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { Images } from '../types';
 
 interface MarkdownPreviewProps {
@@ -24,8 +25,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ markdown, images }) =
 
         // Parse the processed markdown without any custom renderers.
         const parsedHtml = marked.parse(processedMarkdown);
-        
-        return typeof parsedHtml === 'string' ? parsedHtml : '';
+        const rawHtml = typeof parsedHtml === 'string' ? parsedHtml : '';
+
+        // Notes may contain content pasted from untrusted sources, so the rendered
+        // HTML must be sanitized before it is injected into the DOM.
+        return DOMPurify.sanitize(rawHtml, { ADD_ATTR: ['target'] });
     }, [markdown, images]);
 
     return (

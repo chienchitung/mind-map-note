@@ -75,8 +75,8 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
 
     return (
         <div ref={searchContainerRef} className="relative w-full max-w-sm">
-            <div className="flex items-center gap-2 bg-secondary p-1 rounded-md border border-border-color w-full">
-                <SearchIcon className="w-5 h-5 text-text-secondary ml-1 flex-shrink-0" />
+            <div className={`flex items-center gap-2 bg-secondary px-3 py-1.5 rounded-full border w-full transition-colors duration-150 ease-apple ${isFocused ? 'border-accent' : 'border-transparent'}`}>
+                <SearchIcon className="w-4 h-4 text-text-secondary flex-shrink-0" />
                 <input
                     ref={ref}
                     type="text"
@@ -84,24 +84,24 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
                     value={query}
                     onChange={(e) => onQueryChange(e.target.value)}
                     onFocus={() => setIsFocused(true)}
-                    className="bg-transparent focus:outline-none text-text-main w-full text-sm"
+                    className="bg-transparent focus:outline-none text-text-main w-full text-sm placeholder:text-text-secondary"
                 />
                 {query.length > 0 && (
-                    <button onClick={onClear} className="p-1 rounded hover:bg-primary" title="清除搜尋">
-                        <XIcon className="w-4 h-4 text-text-secondary" />
+                    <button onClick={onClear} className="p-1 rounded-full hover:bg-border-color/60 transition-colors" title="清除搜尋">
+                        <XIcon className="w-3.5 h-3.5 text-text-secondary" />
                     </button>
                 )}
             </div>
 
             {showResults && (
-                <div className="absolute top-full mt-2 w-full bg-primary border border-border-color rounded-md shadow-lg z-30 max-h-80 overflow-y-auto">
+                <div className="absolute top-full mt-2 w-full glass-surface border border-border-color/70 rounded-2xl shadow-apple-md z-30 max-h-80 overflow-y-auto p-1.5">
                     {results.length > 0 ? (
                         <ul>
                             {results.map(result => (
                                 <li key={result.id}>
                                     <button
                                         onClick={() => handleResultClick(result.id)}
-                                        className="group w-full text-left px-3 py-2.5 hover:bg-accent hover:text-white transition-colors flex items-start gap-3"
+                                        className="group w-full text-left px-3 py-2.5 rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-start gap-3"
                                     >
                                         <FileIcon className="w-4 h-4 mt-0.5 flex-shrink-0 text-text-secondary group-hover:text-white" />
                                         <div className="flex-grow overflow-hidden">

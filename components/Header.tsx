@@ -87,10 +87,12 @@ const Header: React.FC<HeaderProps> = ({
   return (
     <header className="glass-surface flex items-center justify-between px-5 py-3.5 border-b border-border-color/70 flex-wrap gap-4 flex-shrink-0 z-30 relative">
       <div className="flex items-center gap-4 flex-grow">
-        <div className="flex items-center gap-2">
-            <LogoIcon className="w-6 h-6 text-accent"/>
-            <h1 className="text-[15px] md:text-base font-semibold text-text-main whitespace-nowrap tracking-tight">
-            MindMapNote
+        <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-[9px] bg-accent flex items-center justify-center flex-shrink-0">
+              <LogoIcon className="w-[18px] h-[18px] text-white" />
+            </div>
+            <h1 className="text-[15px] md:text-base whitespace-nowrap tracking-tight leading-none">
+              <span className="font-semibold text-text-main">MindMap</span><span className="font-medium text-accent">Note</span>
             </h1>
         </div>
         <SearchBar

@@ -1,27 +1,70 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+
+<img src="public/favicon.svg" width="64" height="64" alt="MindMapNote logo" />
+
+# MindMapNote
+
+**用 Markdown 寫筆記，自動整理成心智圖。**
+
+一款極簡的筆記工具：你只管寫，階層結構會即時長成可互動的心智圖 —— 不需要額外拖拉節點、不需要學新語法。所有資料留在你自己的瀏覽器裡。
+
+<img src="docs/screenshot-mindmap.png" alt="MindMapNote screenshot" width="100%" />
+
 </div>
 
-# Run and deploy your AI Studio app
+## 特色功能
 
-This contains everything you need to run your app locally.
+- **Markdown 即心智圖** — 用標題 (`#`) 和列表 (`-`) 撰寫筆記，畫面即時轉換成階層式心智圖，三種版面（心智圖 / 邏輯圖 / 組織圖）可切換。
+- **雙向編輯** — 在編輯器改文字，或直接在心智圖上雙擊節點重新命名、拖曳節點調整結構，兩邊即時同步。
+- **大綱導覽** — 依標題層級自動生成大綱，點擊可跳轉到編輯器對應行。
+- **檔案總管** — 資料夾與筆記的樹狀結構，支援新增、重新命名、刪除、拖曳搬移。
+- **全文搜尋** — 跨所有筆記搜尋，顯示比對片段，一鍵跳轉 (`⌘F`)。
+- **圖片支援** — 貼上或拖曳圖片直接插入筆記與心智圖節點。
+- **匯出** — 筆記匯出成 `.md`，心智圖匯出成高解析度 `.jpg`。
+- **復原 / 重做** — 完整的編輯歷史，`⌘Z` / `⌘⇧Z`。
+- **深色模式** — 跟隨系統風格切換，所有畫面皆有對應主題。
+- **AI 學習夥伴（選用）** — 串接 Google Gemini，針對目前筆記內容摘要、出題、答疑。金鑰只存在你自己的瀏覽器，不會出現在部署的程式碼中，也可以完全不用。
+- **本機優先、注重隱私** — 所有筆記、圖片都存在瀏覽器 `localStorage`，沒有帳號、沒有後端伺服器。
 
-View your app in AI Studio: https://ai.studio/apps/drive/1QAwRjaqrbz5t29oXuGBt28inkJz7xcRP
+## 技術棧
 
-## Run Locally
+[React 19](https://react.dev/) · [TypeScript](https://www.typescriptlang.org/) · [Vite](https://vite.dev/) · [Tailwind CSS](https://tailwindcss.com/) · [D3.js](https://d3js.org/)（心智圖版面運算與互動）· [marked](https://marked.js.org/) + [DOMPurify](https://github.com/cure53/DOMPurify)（Markdown 預覽）· [@google/genai](https://ai.google.dev/)（AI 學習夥伴）
 
-**Prerequisites:**  Node.js
+## 快速開始
 
-1. Install dependencies:
-   `npm install`
-2. Run the app:
-   `npm run dev`
-3. In the app, click the **settings (⚙️) icon** in the header and paste in your
-   own [Gemini API key](https://aistudio.google.com/apikey) to enable the AI
-   learning assistant.
+**環境需求：** Node.js 18 以上
 
-The API key is entered at runtime and stored only in your browser's
-`localStorage` — it is never baked into the build, so it's never exposed in
-the deployed JS bundle to other visitors of a hosted copy of this app. AI
-features are optional; the editor, mind map, and file explorer all work
-without a key.
+```bash
+# 1. 安裝套件
+npm install
+
+# 2. 啟動開發伺服器
+npm run dev
+```
+
+開啟瀏覽器後即可使用。想啟用 AI 學習夥伴的話，點擊右上角的設定 (⚙️) 圖示，貼上你自己的 [Gemini API 金鑰](https://aistudio.google.com/apikey) 即可 —— 金鑰只會存在這台裝置的瀏覽器 `localStorage`，不會被打包進程式碼、也不會上傳到任何伺服器。這一步是選用的，不影響編輯器、心智圖、檔案總管等其他功能。
+
+### 其他指令
+
+```bash
+npm run build    # 建置正式版
+npm run preview  # 預覽建置後的成果
+```
+
+## 鍵盤快捷鍵
+
+| 功能 | 快捷鍵 |
+| --- | --- |
+| 切換編輯 / 預覽 / 心智圖視圖 | `⌘1` / `⌘2` / `⌘3` |
+| 搜尋筆記 | `⌘F` |
+| 復原 / 重做 | `⌘Z` / `⌘⇧Z` |
+| 心智圖：導航節點 | `↑` `↓` `←` `→` |
+| 心智圖：編輯選定節點 | `Enter` |
+| 心智圖：展開 / 折疊節點 | `Space` |
+| 心智圖：縮放 | `⌘+` / `⌘-` / `⌘0` |
+
+應用程式內按 `?` 可隨時打開完整的快捷鍵說明。
+
+## License
+
+本專案採用 [MIT License](LICENSE) 授權。

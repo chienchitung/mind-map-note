@@ -99,12 +99,13 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const CurrentLayoutIcon = layoutOptions.find(opt => opt.id === mindMapLayout)?.Icon || MindMapLayoutIcon;
+  const exportLabel = viewMode === ViewMode.MindMap ? '匯出心智圖圖片 (JPG)' : '導出筆記 (Markdown)';
 
   const moreMenuItems = [
     { key: 'theme', onClick: handleThemeToggle, disabled: false, icon: theme === 'dark' ? SunIcon : MoonIcon, label: '切換主題' },
     { key: 'undo', onClick: onUndo, disabled: !canUndo, icon: UndoIcon, label: '復原' },
     { key: 'redo', onClick: onRedo, disabled: !canRedo, icon: RedoIcon, label: '重做' },
-    { key: 'export', onClick: onExport, disabled: !activeNoteId, icon: ExportIcon, label: '導出筆記' },
+    { key: 'export', onClick: onExport, disabled: !activeNoteId, icon: ExportIcon, label: exportLabel },
     { key: 'settings', onClick: onOpenSettings, disabled: false, icon: SettingsIcon, label: 'AI 金鑰設定' },
     { key: 'help', onClick: onShowHelp, disabled: false, icon: HelpIcon, label: '幫助' },
   ];
@@ -259,7 +260,7 @@ const Header: React.FC<HeaderProps> = ({
                   <RedoIcon className="w-5 h-5" />
               </button>
               <div className="w-px h-5 bg-border-color mx-1"></div>
-              <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title="導出筆記">
+              <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title={exportLabel}>
                   <ExportIcon className="w-5 h-5" />
               </button>
               <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="AI 金鑰設定">

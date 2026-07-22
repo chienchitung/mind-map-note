@@ -108,6 +108,7 @@ interface IFileExplorerContext {
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
+  setDraggingNodeId: (id: string | null) => void;
 }
 
 const FileExplorerContext = React.createContext<IFileExplorerContext | null>(null);
@@ -123,7 +124,7 @@ const Node: React.FC<{
   const context = useContext(FileExplorerContext);
   if (!context) throw new Error("Node must be used within a FileExplorerContext");
 
-  const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu } = context;
+  const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu, setDraggingNodeId } = context;
 
   const [isExpanded, setIsExpanded] = useState(true);
   const [name, setName] = useState(node.name);
@@ -168,8 +169,13 @@ const Node: React.FC<{
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', node.id);
     e.dataTransfer.effectAllowed = 'move';
+    setDraggingNodeId(node.id);
   };
-  
+
+  const handleDragEnd = () => {
+    setDraggingNodeId(null);
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     if (node.type === 'folder') {
       e.preventDefault();
@@ -200,6 +206,7 @@ const Node: React.FC<{
         onMouseLeave={() => setIsHovering(false)}
         draggable={node.parentId !== null} // Root items cannot be dragged
         onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
         onDragOver={handleDragOver}
         onDragLeave={() => setIsDropTarget(false)}
         onDrop={handleDrop}
@@ -255,7 +262,8 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: string } | null>(null);
   const [moveToModalNodeId, setMoveToModalNodeId] = useState<string | null>(null);
-  
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+
   const contextMenuRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
@@ -277,12 +285,32 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const closeContextMenu = () => setContextMenu(null);
 
   const contextNode = contextMenu ? tree[contextMenu.nodeId] : null;
-  const contextValue: IFileExplorerContext = { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu: handleContextMenu };
+  const contextValue: IFileExplorerContext = { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu: handleContextMenu, setDraggingNodeId };
+
+  // Only nested items (not already at root) need a way back out — dropping
+  // a folder's contents anywhere but onto another folder previously did
+  // nothing, with no feedback, so notes could get stuck once filed away.
+  const showRootDropZone = draggingNodeId !== null && tree[draggingNodeId]?.parentId !== 'root';
 
   return (
     <FileExplorerContext.Provider value={contextValue}>
       <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
         <div className="flex-grow overflow-y-auto px-2.5 pt-2 pb-2 space-y-0.5">
+          {showRootDropZone && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const droppedNodeId = e.dataTransfer.getData('text/plain');
+                if (droppedNodeId) onMoveNode(droppedNodeId, 'root');
+                setDraggingNodeId(null);
+              }}
+              className="flex items-center gap-2 px-3 py-2 mb-1 rounded-xl border-2 border-dashed border-accent/50 bg-accent/5 text-accent text-xs font-medium"
+            >
+              <FolderIcon className="w-4 h-4 flex-shrink-0" />
+              <span>拖放到此處以移出資料夾</span>
+            </div>
+          )}
           {rootNode.childrenIds.map(childId => (
             tree[childId] ? (
               <Node

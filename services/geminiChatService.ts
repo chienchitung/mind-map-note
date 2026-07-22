@@ -12,6 +12,27 @@ export class MissingApiKeyError extends Error {
 }
 
 /**
+ * The @google/genai SDK often throws with `message` set to the raw JSON error
+ * body (e.g. `{"error":{"code":404,"message":"...","status":"NOT_FOUND"}}`).
+ * Pull out the human-readable message so the chat UI shows plain text
+ * instead of a raw JSON blob.
+ */
+export const extractGeminiErrorMessage = (error: unknown): string => {
+    if (error instanceof Error) {
+        try {
+            const parsed = JSON.parse(error.message);
+            if (typeof parsed?.error?.message === 'string') {
+                return parsed.error.message;
+            }
+        } catch {
+            // Not JSON — fall through to the raw message below.
+        }
+        return error.message;
+    }
+    return '發生未知的錯誤。';
+};
+
+/**
  * Creates a new conversational chat session with the Gemini API.
  * The session is initialized with the content of the user's note for context.
  *
@@ -31,7 +52,7 @@ export const createChatSession = async (noteContent: string, apiKey: string): Pr
     try {
         const ai = new GoogleGenAI({ apiKey });
         const chat: Chat = ai.chats.create({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.6-flash',
             config: {
                 systemInstruction: 'You are an AI learning assistant. A user has provided you with their notes. Your role is to help them understand, summarize, or quiz them on the provided content in a conversational manner. Be helpful and encouraging.',
             },

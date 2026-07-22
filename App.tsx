@@ -12,7 +12,7 @@ import HelpModal from './components/HelpModal';
 import FileExplorer from './components/FileExplorer';
 import AIPanel, { ChatMessage } from './components/AIPanel';
 import SettingsModal from './components/SettingsModal';
-import { createChatSession, MissingApiKeyError } from './services/geminiChatService';
+import { createChatSession, MissingApiKeyError, extractGeminiErrorMessage } from './services/geminiChatService';
 import { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
@@ -356,7 +356,7 @@ const App: React.FC = () => {
         setIsSettingsOpen(true);
         return;
       }
-      const errorMessage = error instanceof Error ? error.message : "無法啟動 AI 助理。";
+      const errorMessage = extractGeminiErrorMessage(error);
       setChatMessages([{ role: 'model', text: `抱歉，發生錯誤：${errorMessage}` }]);
     } finally {
       setIsAILoading(false);
@@ -376,7 +376,7 @@ const App: React.FC = () => {
       setChatMessages(prev => [...prev, modelMessage]);
     } catch (error) {
       console.error("Chat error:", error);
-      const errorMessage = error instanceof Error ? error.message : "我無法回覆。";
+      const errorMessage = extractGeminiErrorMessage(error);
       const modelErrorMessage: ChatMessage = { role: 'model', text: `抱歉，發生錯誤： ${errorMessage}` };
       setChatMessages(prev => [...prev, modelErrorMessage]);
     } finally {

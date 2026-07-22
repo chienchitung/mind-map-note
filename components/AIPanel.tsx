@@ -60,14 +60,30 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
   // Using useLayoutEffect to prevent flicker and ensure correct height calculation after DOM mutations.
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
-    if (textarea) {
+    if (!textarea) return;
+
+    const resize = () => {
       // Reset height to allow shrinking
       textarea.style.height = 'auto';
       // Set height based on content, up to a max height
       const scrollHeight = textarea.scrollHeight;
-      const maxHeight = 120; // Max height in pixels
+      const maxHeight = 200; // Max height in pixels
       textarea.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
-    }
+    };
+
+    resize();
+
+    // This panel stays mounted at all times — its parent <aside> just
+    // animates width to 0 when collapsed — so a measurement taken while
+    // collapsed (e.g. on first mount) would wrap the placeholder into many
+    // lines and lock the textarea at max-height. Re-measure whenever the
+    // composer's available width actually changes (panel opens, sidebar
+    // resizes, etc.) so it self-corrects instead of staying stuck.
+    const container = textarea.parentElement;
+    if (!container) return;
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
   }, [input]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -128,7 +144,10 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
       </div>
 
       <div className="p-4 bg-secondary border-t border-border-color/70 flex-shrink-0">
-        <form onSubmit={handleSubmit} className="flex items-end gap-2.5">
+        <form
+          onSubmit={handleSubmit}
+          className="relative bg-elevated rounded-[26px] shadow-apple-xs border border-transparent focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30 transition-colors duration-150 ease-apple"
+        >
           <textarea
             ref={textareaRef}
             value={input}
@@ -139,14 +158,19 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
                     handleSubmit(e);
                 }
             }}
-            placeholder="在這裡問問題..."
-            className="w-full px-4 py-2.5 bg-elevated border border-transparent focus:border-accent rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/30 text-text-main resize-none transition-colors duration-150 ease-apple"
+            placeholder="在這裡問問題...（Enter 傳送，Shift + Enter 換行）"
+            className="w-full pl-4 pr-14 py-3.5 bg-transparent focus:outline-none text-[14.5px] leading-relaxed text-text-main placeholder:text-text-secondary/70 resize-none"
             rows={1}
-            style={{ maxHeight: '120px', minHeight: '44px' }}
+            style={{ maxHeight: '200px', minHeight: '52px' }}
             disabled={isLoading}
           />
-          <button type="submit" disabled={isLoading || !input.trim()} className="w-10 h-10 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/50 disabled:cursor-not-allowed transition-all duration-150 ease-apple active:scale-90">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+          <button
+            type="submit"
+            disabled={isLoading || !input.trim()}
+            title="傳送 (Enter)"
+            className="absolute right-2 bottom-2 w-9 h-9 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/35 disabled:cursor-not-allowed transition-all duration-150 ease-apple active:scale-90 hover:opacity-90"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
                 <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
             </svg>
           </button>

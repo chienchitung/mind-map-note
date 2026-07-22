@@ -635,14 +635,32 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
           {links.map((link, i) => {
              if (!link.source || !link.target) return null;
              const isTargetCollapsed = (link.target as any).isCollapsedChild;
+             const sourceNode = link.source as d3.HierarchyPointNode<MindMapNode>;
+             const targetNode = link.target as d3.HierarchyPointNode<MindMapNode>;
              let d;
              if (layout === MindMapLayout.Organizational) {
-                d = d3.linkVertical<any, d3.HierarchyPointNode<MindMapNode>>().x(d => d.x).y(d => d.y)({ source: link.source as any, target: link.target as any });
+                // Anchor to the bottom edge of the parent and the top edge of the
+                // child (not their centers) — several node shapes here are fully
+                // rounded pills, whose corners aren't actually painted, so a line
+                // drawn through the node's center would peek out through them.
+                const sourceHeight = nodeSizes.get(sourceNode.data.id)?.height || 0;
+                const targetHeight = nodeSizes.get(targetNode.data.id)?.height || 0;
+                const startX = sourceNode.x;
+                const startY = sourceNode.y + sourceHeight / 2;
+                const endX = targetNode.x;
+                const endY = targetNode.y - targetHeight / 2;
+                const dy = endY - startY;
+                d = `M${startX},${startY}C${startX},${startY + dy / 2} ${endX},${startY + dy / 2} ${endX},${endY}`;
              } else {
-                 const sourceNode = link.source as d3.HierarchyPointNode<MindMapNode>;
-                 const targetNode = link.target as d3.HierarchyPointNode<MindMapNode>;
-                 const dx = targetNode.y - sourceNode.y;
-                 d = `M${sourceNode.y},${sourceNode.x}C${sourceNode.y + dx / 2},${sourceNode.x} ${sourceNode.y + dx / 2},${targetNode.x} ${targetNode.y},${targetNode.x}`;
+                 // Same idea, rotated: anchor to the left/right edge (whichever
+                 // faces the other node) instead of the horizontal center.
+                 const sourceWidth = nodeSizes.get(sourceNode.data.id)?.width || 0;
+                 const targetWidth = nodeSizes.get(targetNode.data.id)?.width || 0;
+                 const goingRight = targetNode.y >= sourceNode.y;
+                 const startY = sourceNode.y + (goingRight ? sourceWidth / 2 : -sourceWidth / 2);
+                 const endY = targetNode.y + (goingRight ? -targetWidth / 2 : targetWidth / 2);
+                 const dx = endY - startY;
+                 d = `M${startY},${sourceNode.x}C${startY + dx / 2},${sourceNode.x} ${startY + dx / 2},${targetNode.x} ${endY},${targetNode.x}`;
              }
              return <path key={`link-${i}`} style={{ fill: 'none', stroke: 'var(--color-border-color)', strokeWidth: 1.5, opacity: isTargetCollapsed ? 0 : 1, transition: 'd 500ms var(--ease-apple), opacity 500ms var(--ease-apple)' }} d={d!} />;
           })}

@@ -4,10 +4,8 @@ interface IconProps {
     className?: string;
 }
 
-// The app's mark: a filled root "node" branching into three outlined child
-// nodes via the same curved connector geometry the mind map canvas itself
-// draws (see the link-path math in MindMap.tsx) — the logo is a miniature
-// of the product, not an unrelated pictogram.
+// The app's mark: an "M" (for MindMap) drawn as three connected nodes — the
+// brand's initial and the product's own node-graph language in one glyph.
 export const LogoIcon: React.FC<IconProps> = ({ className }) => (
     <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -15,13 +13,10 @@ export const LogoIcon: React.FC<IconProps> = ({ className }) => (
         className={className}
         fill="none"
     >
-        <path d="M9,12 C12,12 12,4.5 15,4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        <path d="M9,12 L16,12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        <path d="M9,12 C12,12 12,19.5 15,19.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        <rect x="2" y="9.5" width="7" height="5" rx="2.5" fill="currentColor" />
-        <rect x="15" y="2.5" width="7" height="4" rx="1.6" stroke="currentColor" strokeWidth="1.5" />
-        <rect x="16" y="10" width="6" height="4" rx="1.6" stroke="currentColor" strokeWidth="1.5" />
-        <rect x="15" y="17.5" width="7" height="4" rx="1.6" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M5,19 L5,6 L12,13 L19,6 L19,19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="5" cy="6" r="1.6" fill="currentColor" />
+        <circle cx="12" cy="13" r="1.6" fill="currentColor" />
+        <circle cx="19" cy="6" r="1.6" fill="currentColor" />
     </svg>
 );
 

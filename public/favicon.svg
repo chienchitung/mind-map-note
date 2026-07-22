@@ -6,11 +6,8 @@
     }
   </style>
   <rect class="bg" x="0" y="0" width="32" height="32" rx="8" />
-  <path d="M13,16 C16,16 16,8.5 19,8.5" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none" />
-  <path d="M13,16 L20,16" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none" />
-  <path d="M13,16 C16,16 16,23.5 19,23.5" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" fill="none" />
-  <rect x="6" y="13.5" width="7" height="5" rx="2.5" fill="#ffffff" />
-  <rect x="19" y="6.5" width="7" height="4" rx="1.6" stroke="#ffffff" stroke-width="1.6" fill="none" />
-  <rect x="20" y="14" width="6" height="4" rx="1.6" stroke="#ffffff" stroke-width="1.6" fill="none" />
-  <rect x="19" y="21.5" width="7" height="4" rx="1.6" stroke="#ffffff" stroke-width="1.6" fill="none" />
+  <path d="M9,23 L9,10 L16,17 L23,10 L23,23" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <circle cx="9" cy="10" r="2" fill="#ffffff" />
+  <circle cx="16" cy="17" r="2" fill="#ffffff" />
+  <circle cx="23" cy="10" r="2" fill="#ffffff" />
 </svg>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { MindMapNode } from '../types';
 import { ChevronDoubleLeftIcon } from './icons';
+import { stripInlineMarkdown } from '../utils/markdownParser';
 
 interface OutlineViewProps {
   data: MindMapNode;
@@ -26,7 +27,7 @@ const OutlineNode: React.FC<{
         onClick={() => onNodeClick(node.lineNumber)}
       >
         <span className="node-bullet"></span>
-        <span className="truncate">{node.name}</span>
+        <span className="truncate">{stripInlineMarkdown(node.name)}</span>
       </div>
       {node.children && node.children.length > 0 && (
         <ul>

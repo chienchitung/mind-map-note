@@ -2,6 +2,7 @@ import React, { useRef, useMemo, useEffect, useCallback, useState, forwardRef, u
 import * as d3 from 'd3';
 import { MindMapNode, MindMapLayout, Images } from '../types';
 import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
+import { stripInlineMarkdown } from '../utils/markdownParser';
 
 const PADDING_X = 24;
 const PADDING_Y = 16;
@@ -198,7 +199,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         if (measurementRef.current) {
             const { padding } = getNodeStyles(node.depth, theme);
             measurementRef.current.style.padding = padding;
-            measurementRef.current.innerText = node.data.name;
+            measurementRef.current.innerText = stripInlineMarkdown(node.data.name);
             const rect = measurementRef.current.getBoundingClientRect();
             
             const hasImage = !!node.data.imageUrl;
@@ -691,14 +692,14 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                         style={{ ...textStyle, padding: padding }}
                     >
                         {hasImage && imageUrl && (
-                            <img 
-                                src={imageUrl} 
-                                alt={node.data.name} 
+                            <img
+                                src={imageUrl}
+                                alt={stripInlineMarkdown(node.data.name)}
                                 className="block rounded-md object-contain mb-2"
                                 style={{ maxHeight: `${IMAGE_HEIGHT}px`, maxWidth: '100%' }}
                             />
                         )}
-                        <div className="flex-shrink-0">{node.data.name}</div>
+                        <div className="flex-shrink-0">{stripInlineMarkdown(node.data.name)}</div>
                     </div>
                   </foreignObject>
                 )}

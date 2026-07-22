@@ -1,6 +1,25 @@
 import { MindMapNode } from '../types';
 
 /**
+ * Strips common inline Markdown syntax (bold, italic, strikethrough, inline
+ * code, links) for display in compact UI surfaces — the mind map canvas and
+ * outline sidebar — that render node labels as plain text rather than
+ * running them through a Markdown renderer. Bold must be stripped before
+ * italic so a leftover single `*`/`_` from an already-consumed `**`/`__`
+ * pair isn't mistaken for italic markup.
+ */
+export const stripInlineMarkdown = (text: string): string => {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/`([^`]+?)`/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/(?<![A-Za-z0-9])_(.+?)_(?![A-Za-z0-9])/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+};
+
+/**
  * Determines the hierarchical level and content of a given line of markdown.
  * @param line The markdown line to parse.
  * @returns An object with level, name, and prefix, or null if not a valid node.

@@ -6,7 +6,7 @@ import { stripInlineMarkdown } from '../utils/markdownParser';
 
 const PADDING_X = 24;
 const PADDING_Y = 16;
-const MAX_NODE_WIDTH = 200;
+const MAX_NODE_WIDTH = 280;
 const HORIZONTAL_GAP = 80;
 const VERTICAL_GAP = 24;
 const IMAGE_HEIGHT = 120;
@@ -57,8 +57,13 @@ const getNodeStyles = (depth: number, theme: 'light' | 'dark') => {
         fontFamily: `-apple-system, BlinkMacSystemFont, "SF Pro Text", ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"`,
         fontWeight: 500,
         fontSize: '14px',
+        lineHeight: 1.45,
         letterSpacing: '-0.005em',
         overflowWrap: 'break-word',
+        // Distributes wrapped lines evenly instead of letting the last line
+        // trail off with one or two orphaned characters — the main cause of
+        // compound Chinese terms (e.g. 思維導圖) splitting mid-word.
+        textWrap: 'balance',
     };
     const basePadding = `${PADDING_Y / 2}px ${PADDING_X / 2}px`;
 
@@ -197,7 +202,13 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     
     hierarchy.each(node => {
         if (measurementRef.current) {
-            const { padding } = getNodeStyles(node.depth, theme);
+            const { text, padding } = getNodeStyles(node.depth, theme);
+            // Mirror the exact text style (weight, family, spacing, wrap
+            // behavior) the real node renders with — depth 0/1 use a bolder
+            // weight than the default, and measuring at the wrong weight
+            // under-sizes the box, causing the real render to wrap one more
+            // line than what was measured for.
+            Object.assign(measurementRef.current.style, text as Record<string, string>);
             measurementRef.current.style.padding = padding;
             measurementRef.current.innerText = stripInlineMarkdown(node.data.name);
             const rect = measurementRef.current.getBoundingClientRect();
@@ -604,12 +615,8 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     <div ref={svgContainerRef} tabIndex={0} className="relative w-full h-full bg-secondary rounded-2xl border border-border-color overflow-hidden focus:outline-none focus:ring-2 focus:ring-accent/60">
       <div
         ref={measurementRef}
-        className="absolute -top-[9999px] -left-[9999px] font-sans font-medium text-center"
-        style={{
-            maxWidth: `${MAX_NODE_WIDTH}px`,
-            overflowWrap: 'break-word',
-            fontSize: '14px',
-        }}
+        className="absolute -top-[9999px] -left-[9999px] text-center"
+        style={{ maxWidth: `${MAX_NODE_WIDTH}px` }}
       ></div>
 
       <svg ref={svgRef} width={dimensions.width} height={dimensions.height} className="cursor-move">

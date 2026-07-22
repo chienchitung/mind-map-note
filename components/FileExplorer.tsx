@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { FileSystemTree, FileSystemNode } from '../types';
-import { FolderIcon, FileIcon, ChevronDownIcon, ChevronUpIcon, PlusIcon, FolderPlusIcon, PencilIcon, TrashIcon, XIcon, ChevronDoubleLeftIcon } from './icons';
+import { FolderIcon, FileIcon, ChevronDownIcon, ChevronUpIcon, PencilIcon, TrashIcon, XIcon } from './icons';
 
 // A modal component for moving a node to a new folder.
 const MoveToModal: React.FC<{
@@ -97,11 +97,9 @@ interface FileExplorerProps {
   tree: FileSystemTree;
   activeNoteId: string | null;
   onSelectNote: (noteId: string) => void;
-  onCreateNode: (type: 'file' | 'folder', parentId: string | null) => void;
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onMoveNode: (nodeId: string, newParentId: string | null) => void;
-  onToggleCollapse: () => void;
 }
 
 interface IFileExplorerContext {
@@ -251,7 +249,7 @@ const Node: React.FC<{
 };
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
-  const { tree, activeNoteId, onSelectNote, onCreateNode, onRenameNode, onDeleteNode, onMoveNode, onToggleCollapse } = props;
+  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode } = props;
   const rootNode = tree['root'];
   
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
@@ -284,22 +282,7 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   return (
     <FileExplorerContext.Provider value={contextValue}>
       <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
-        <div className="flex items-center justify-between px-3 py-3 flex-shrink-0">
-            <h2 className="font-semibold text-text-main text-[13px] tracking-tight">檔案總管</h2>
-            <div className="flex items-center gap-0.5">
-                <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90" title="新增筆記">
-                    <PlusIcon className="w-4 h-4" />
-                </button>
-                <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90" title="新增資料夾">
-                    <FolderPlusIcon className="w-4 h-4" />
-                </button>
-                <div className="w-px h-4 bg-border-color mx-1"></div>
-                <button onClick={onToggleCollapse} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90" title="收合檔案總管">
-                    <ChevronDoubleLeftIcon className="w-4 h-4" />
-                </button>
-            </div>
-        </div>
-        <div className="flex-grow overflow-y-auto px-2.5 pb-2 space-y-0.5">
+        <div className="flex-grow overflow-y-auto px-2.5 pt-2 pb-2 space-y-0.5">
           {rootNode.childrenIds.map(childId => (
             tree[childId] ? (
               <Node

@@ -226,6 +226,20 @@ export const KeyIcon: React.FC<IconProps> = ({ className }) => (
     </svg>
 );
 
+export const MenuIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.75} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+    </svg>
+);
+
+export const MoreIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="12" r="1.75" />
+        <circle cx="12" cy="12" r="1.75" />
+        <circle cx="19" cy="12" r="1.75" />
+    </svg>
+);
+
 export const ChatbotIcon: React.FC<IconProps> = ({ className }) => (
     <svg
         xmlns="http://www.w3.org/2000/svg"

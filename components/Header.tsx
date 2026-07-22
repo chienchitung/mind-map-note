@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ViewMode, MindMapLayout } from '../types';
-import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon, ChatbotIcon, SettingsIcon } from './icons';
+import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon, ChatbotIcon, SettingsIcon, MenuIcon, MoreIcon, SearchIcon } from './icons';
 import SearchBar from './SearchBar';
 import Spinner from './Spinner';
 
@@ -28,6 +28,8 @@ interface HeaderProps {
   isAILoading: boolean;
   isAIPanelOpen: boolean;
   onOpenSettings: () => void;
+  onToggleSidebar: () => void;
+  isMobile: boolean;
 }
 
 const layoutOptions = [
@@ -60,23 +62,37 @@ const Header: React.FC<HeaderProps> = ({
   isAILoading,
   isAIPanelOpen,
   onOpenSettings,
+  onToggleSidebar,
+  isMobile,
 }) => {
   const iconButtonClass = "p-2 rounded-full transition-all duration-150 ease-apple active:scale-90";
   const enabledClass = "hover:bg-secondary text-text-secondary";
   const disabledClass = "text-text-secondary/30 cursor-not-allowed";
-  
+
   const [isLayoutDropdownOpen, setIsLayoutDropdownOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const layoutDropdownRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (layoutDropdownRef.current && !layoutDropdownRef.current.contains(event.target as Node)) {
         setIsLayoutDropdownOpen(false);
       }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setIsMoreMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (isMobileSearchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [isMobileSearchOpen, searchInputRef]);
 
   const handleThemeToggle = () => {
     onThemeChange(theme === 'dark' ? 'light' : 'dark');
@@ -84,27 +100,51 @@ const Header: React.FC<HeaderProps> = ({
 
   const CurrentLayoutIcon = layoutOptions.find(opt => opt.id === mindMapLayout)?.Icon || MindMapLayoutIcon;
 
+  const moreMenuItems = [
+    { key: 'theme', onClick: handleThemeToggle, disabled: false, icon: theme === 'dark' ? SunIcon : MoonIcon, label: '切換主題' },
+    { key: 'undo', onClick: onUndo, disabled: !canUndo, icon: UndoIcon, label: '復原' },
+    { key: 'redo', onClick: onRedo, disabled: !canRedo, icon: RedoIcon, label: '重做' },
+    { key: 'export', onClick: onExport, disabled: !activeNoteId, icon: ExportIcon, label: '導出筆記' },
+    { key: 'settings', onClick: onOpenSettings, disabled: false, icon: SettingsIcon, label: 'AI 金鑰設定' },
+    { key: 'help', onClick: onShowHelp, disabled: false, icon: HelpIcon, label: '幫助' },
+  ];
+
   return (
-    <header className="glass-surface flex items-center justify-between px-5 py-3.5 border-b border-border-color/70 flex-wrap gap-4 flex-shrink-0 z-30 relative">
-      <div className="flex items-center gap-4 flex-grow">
-        <div className="flex items-center gap-2.5">
+    <header className="glass-surface flex items-center justify-between px-3 md:px-5 py-3 md:py-3.5 border-b border-border-color/70 flex-wrap gap-3 md:gap-4 flex-shrink-0 z-30 relative">
+      <div className="flex items-center gap-2 md:gap-4 flex-grow min-w-0">
+        <button onClick={onToggleSidebar} className={`${iconButtonClass} ${enabledClass} flex-shrink-0`} title="側邊欄">
+          <MenuIcon className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-2.5 flex-shrink-0">
             <div className="w-7 h-7 rounded-[9px] bg-accent flex items-center justify-center flex-shrink-0">
               <LogoIcon className="w-[18px] h-[18px] text-white" />
             </div>
-            <h1 className="text-[15px] md:text-base whitespace-nowrap tracking-tight leading-none">
+            <h1 className="hidden md:block text-[15px] md:text-base whitespace-nowrap tracking-tight leading-none">
               <span className="font-semibold text-text-main">MindMap</span><span className="font-medium text-accent">Note</span>
             </h1>
         </div>
-        <SearchBar
-          ref={searchInputRef}
-          query={searchQuery}
-          onQueryChange={onSearchQueryChange}
-          onClear={onClearSearch}
-          results={results}
-          onResultClick={onResultClick}
-        />
+        {!isMobile && (
+          <SearchBar
+            ref={searchInputRef}
+            query={searchQuery}
+            onQueryChange={onSearchQueryChange}
+            onClear={onClearSearch}
+            results={results}
+            onResultClick={onResultClick}
+          />
+        )}
       </div>
-      <div className="flex items-center gap-2 md:gap-3">
+      <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+        {isMobile && (
+          <button
+            onClick={() => setIsMobileSearchOpen(prev => !prev)}
+            className={`${iconButtonClass} ${isMobileSearchOpen ? 'bg-accent text-white' : `bg-secondary ${enabledClass}`}`}
+            title="搜尋筆記"
+          >
+            <SearchIcon className="w-5 h-5" />
+          </button>
+        )}
+
         <div className="flex rounded-full bg-secondary p-1">
           <button
             onClick={() => onViewChange(ViewMode.Editor)}
@@ -179,29 +219,71 @@ const Header: React.FC<HeaderProps> = ({
           {isAILoading ? <Spinner className="w-5 h-5" /> : <ChatbotIcon className="w-5 h-5" />}
         </button>
 
-        <div className="flex items-center gap-1">
-            <button onClick={handleThemeToggle} className={`${iconButtonClass} ${enabledClass}`} title="切換主題">
-              {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+        {isMobile ? (
+          <div ref={moreMenuRef} className="relative">
+            <button
+              onClick={() => setIsMoreMenuOpen(prev => !prev)}
+              className={`${iconButtonClass} ${enabledClass}`}
+              title="更多"
+            >
+              <MoreIcon className="w-5 h-5" />
             </button>
-            <div className="w-px h-5 bg-border-color mx-1"></div>
-             <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原 (⌘Z)">
-                <UndoIcon className="w-5 h-5" />
-            </button>
-            <button onClick={onRedo} disabled={!canRedo} className={`${iconButtonClass} ${canRedo ? enabledClass : disabledClass}`} title="重做 (⌘⇧Z)">
-                <RedoIcon className="w-5 h-5" />
-            </button>
-            <div className="w-px h-5 bg-border-color mx-1"></div>
-            <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title="導出筆記">
-                <ExportIcon className="w-5 h-5" />
-            </button>
-            <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="AI 金鑰設定">
-                <SettingsIcon className="w-5 h-5" />
-            </button>
-             <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title="幫助 (?)">
-                <HelpIcon className="w-5 h-5" />
-            </button>
-        </div>
+            {isMoreMenuOpen && (
+              <div className="absolute top-full right-0 mt-2 w-48 glass-surface border border-border-color/70 rounded-2xl shadow-apple-md z-20 p-1.5 overflow-hidden">
+                {moreMenuItems.map(({ key, onClick, disabled, icon: Icon, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => { onClick(); setIsMoreMenuOpen(false); }}
+                    disabled={disabled}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm text-left rounded-xl transition-colors duration-150 ease-apple ${
+                      disabled ? 'text-text-secondary/30 cursor-not-allowed' : 'text-text-secondary hover:bg-secondary hover:text-text-main'
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+              <button onClick={handleThemeToggle} className={`${iconButtonClass} ${enabledClass}`} title="切換主題">
+                {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+              </button>
+              <div className="w-px h-5 bg-border-color mx-1"></div>
+               <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原 (⌘Z)">
+                  <UndoIcon className="w-5 h-5" />
+              </button>
+              <button onClick={onRedo} disabled={!canRedo} className={`${iconButtonClass} ${canRedo ? enabledClass : disabledClass}`} title="重做 (⌘⇧Z)">
+                  <RedoIcon className="w-5 h-5" />
+              </button>
+              <div className="w-px h-5 bg-border-color mx-1"></div>
+              <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title="導出筆記">
+                  <ExportIcon className="w-5 h-5" />
+              </button>
+              <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="AI 金鑰設定">
+                  <SettingsIcon className="w-5 h-5" />
+              </button>
+               <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title="幫助 (?)">
+                  <HelpIcon className="w-5 h-5" />
+              </button>
+          </div>
+        )}
       </div>
+
+      {isMobile && isMobileSearchOpen && (
+        <div className="absolute top-full left-0 right-0 glass-surface border-b border-border-color/70 p-3 z-20">
+          <SearchBar
+            ref={searchInputRef}
+            query={searchQuery}
+            onQueryChange={onSearchQueryChange}
+            onClear={onClearSearch}
+            results={results}
+            onResultClick={(id) => { onResultClick(id); setIsMobileSearchOpen(false); }}
+          />
+        </div>
+      )}
     </header>
   );
 };

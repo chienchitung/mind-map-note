@@ -1,13 +1,11 @@
 import React from 'react';
 import { MindMapNode } from '../types';
-import { ChevronDoubleLeftIcon } from './icons';
 import { stripInlineMarkdown } from '../utils/markdownParser';
 
 interface OutlineViewProps {
   data: MindMapNode;
   activeLine: number;
   onNodeClick: (lineNumber: number) => void;
-  onToggleCollapse: () => void;
 }
 
 const OutlineNode: React.FC<{ 
@@ -45,16 +43,10 @@ const OutlineNode: React.FC<{
   );
 };
 
-const OutlineView: React.FC<OutlineViewProps> = ({ data, activeLine, onNodeClick, onToggleCollapse }) => {
+const OutlineView: React.FC<OutlineViewProps> = ({ data, activeLine, onNodeClick }) => {
   return (
     <div className="outline-view text-text-secondary text-sm h-full flex flex-col">
-        <div className="flex items-center justify-between px-3 py-3 flex-shrink-0">
-            <h2 className="font-semibold text-text-main text-[13px] tracking-tight">大綱</h2>
-            <button onClick={onToggleCollapse} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90" title="收合大綱">
-                <ChevronDoubleLeftIcon className="w-4 h-4" />
-            </button>
-        </div>
-        <div className="flex-grow overflow-y-auto pr-2 pl-1">
+        <div className="flex-grow overflow-y-auto pr-2 pl-1 pt-2">
             <ul>
                 <OutlineNode node={data} activeLine={activeLine} onNodeClick={onNodeClick} />
             </ul>

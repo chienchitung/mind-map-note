@@ -3,6 +3,7 @@ import * as d3 from 'd3';
 import { MindMapNode, MindMapLayout, Images } from '../types';
 import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
 import { stripInlineMarkdown } from '../utils/markdownParser';
+import { useIsTouchPrimary } from '../hooks/useMediaQuery';
 
 const PADDING_X = 24;
 const PADDING_Y = 16;
@@ -101,6 +102,7 @@ const getNodeStyles = (depth: number, theme: 'light' | 'dark') => {
 };
 
 const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId, images, theme }, ref) => {
+  const isTouchPrimary = useIsTouchPrimary();
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -461,6 +463,15 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     const nodeSelection = g.selectAll<SVGGElement, d3.HierarchyPointNode<MindMapNode>>('g.node')
       .data(nodes, (d) => d?.data?.id ?? '');
 
+    if (isTouchPrimary) {
+        // Dragging a node to reparent it relies on mouse hover to highlight the
+        // drop target, which doesn't exist on touch, and a touch-drag starting
+        // on a node would otherwise fight with pinch/pan on the same surface.
+        // Skip attaching drag entirely so touch users get reliable pan/zoom/tap.
+        nodeSelection.on('.drag', null);
+        return;
+    }
+
     const drag = d3.drag<SVGGElement, d3.HierarchyPointNode<MindMapNode>>()
         .on('start', (event, d) => {
             if (!d?.data || d.depth === 0) return;
@@ -499,7 +510,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         });
 
     nodeSelection.call(drag);
-  }, [data, nodes, onStructureUpdate, dropTargetId]);
+  }, [data, nodes, onStructureUpdate, dropTargetId, isTouchPrimary]);
   
   useEffect(() => {
     const container = svgContainerRef.current;

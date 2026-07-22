@@ -3,20 +3,19 @@ import { ViewMode, MindMapNode, MindMapLayout } from './types';
 import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
 import useLocalStorage from './hooks/useLocalStorage';
+import { useIsMobile } from './hooks/useMediaQuery';
 import Header from './components/Header';
 import Editor from './components/Editor';
 import MindMap, { MindMapHandle } from './components/MindMap';
-import OutlineView from './components/OutlineView';
 import MarkdownPreview from './components/MarkdownPreview';
 import HelpModal from './components/HelpModal';
-import FileExplorer from './components/FileExplorer';
+import Sidebar from './components/Sidebar';
 import AIPanel, { ChatMessage } from './components/AIPanel';
 import SettingsModal from './components/SettingsModal';
 import { createChatSession, MissingApiKeyError, extractGeminiErrorMessage } from './services/geminiChatService';
 import { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
-import { ChevronDoubleRightIcon, ChevronDoubleLeftIcon } from './components/icons';
 
 // Custom hook to debounce a value.
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -157,9 +156,24 @@ const App: React.FC = () => {
   const mindMapRef = useRef<MindMapHandle>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [isFileExplorerCollapsed, setIsFileExplorerCollapsed] = useState(false);
-  const [isOutlineViewCollapsed, setIsOutlineViewCollapsed] = useState(false);
-  
+
+  // The file explorer + outline sidebar is one unified panel now. Its open
+  // state is remembered on desktop (where it sits inline next to the
+  // content); on mobile it's a full-screen drawer that always starts closed
+  // so it doesn't eat the whole screen on load.
+  const isMobile = useIsMobile();
+  const [isSidebarOpenDesktop, setIsSidebarOpenDesktop] = useLocalStorage<boolean>('mind-map-sidebar-open', true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const isSidebarVisible = isMobile ? isMobileSidebarOpen : isSidebarOpenDesktop;
+  const toggleSidebar = useCallback(() => {
+    if (isMobile) setIsMobileSidebarOpen(prev => !prev);
+    else setIsSidebarOpenDesktop(prev => !prev);
+  }, [isMobile, setIsSidebarOpenDesktop]);
+  const closeSidebar = useCallback(() => {
+    if (isMobile) setIsMobileSidebarOpen(false);
+    else setIsSidebarOpenDesktop(false);
+  }, [isMobile, setIsSidebarOpenDesktop]);
+
   // State for the new AI Panel
   const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
   const [chatSession, setChatSession] = useState<Chat | null>(null);
@@ -252,12 +266,13 @@ const App: React.FC = () => {
         if (isHelpModalOpen) setIsHelpModalOpen(false);
         if (isAIPanelOpen) setIsAIPanelOpen(false);
         if (isSettingsOpen) setIsSettingsOpen(false);
+        if (isMobile && isMobileSidebarOpen) setIsMobileSidebarOpen(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, isHelpModalOpen, isAIPanelOpen, isSettingsOpen]);
+  }, [canUndo, canRedo, undo, redo, isHelpModalOpen, isAIPanelOpen, isSettingsOpen, isMobile, isMobileSidebarOpen]);
 
   useEffect(() => {
     if (viewMode === ViewMode.MindMap && mindMapData) {
@@ -318,8 +333,16 @@ const App: React.FC = () => {
   const handleOutlineNodeClick = (lineNumber: number) => {
     setScrollToLine(lineNumber);
     setSearchQuery('');
+    if (isMobile) setIsMobileSidebarOpen(false);
   };
-  
+
+  // On mobile the sidebar is a full-screen drawer, so picking a note should
+  // also dismiss it — staying open would just cover the note you just opened.
+  const handleSelectNote = useCallback((noteId: string) => {
+    setActiveNoteId(noteId);
+    if (isMobile) setIsMobileSidebarOpen(false);
+  }, [setActiveNoteId, isMobile]);
+
   const handleSearchResultClick = (noteId: string) => {
     setActiveNoteId(noteId);
     setSearchQuery('');
@@ -384,6 +407,32 @@ const App: React.FC = () => {
     }
   };
 
+  const sidebarElement = (
+    <Sidebar
+      tree={tree}
+      activeNoteId={activeNoteId}
+      onSelectNote={handleSelectNote}
+      onCreateNode={createNode}
+      onRenameNode={renameNode}
+      onDeleteNode={deleteNode}
+      onMoveNode={moveNode}
+      mindMapData={mindMapData}
+      activeLine={activeLine}
+      onOutlineNodeClick={handleOutlineNodeClick}
+      onClose={closeSidebar}
+    />
+  );
+
+  const aiPanelElement = (
+    <AIPanel
+      onToggleCollapse={() => setIsAIPanelOpen(false)}
+      messages={chatMessages}
+      onSendMessage={handleSendChatMessage}
+      isLoading={isAILoading}
+      images={images}
+    />
+  );
+
   return (
     <div className="flex flex-col h-screen font-sans bg-primary">
       <Header
@@ -410,32 +459,27 @@ const App: React.FC = () => {
         isAILoading={isAILoading && !isAIPanelOpen}
         isAIPanelOpen={isAIPanelOpen}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onToggleSidebar={toggleSidebar}
+        isMobile={isMobile}
       />
       <div className="flex-grow flex overflow-hidden relative">
-        {isFileExplorerCollapsed && (
-            <button
-                onClick={() => setIsFileExplorerCollapsed(false)}
-                className="glass-surface absolute top-1/2 -translate-y-1/2 left-0 z-20 p-1.5 h-16 rounded-r-2xl border border-l-0 border-border-color/60 shadow-apple-sm hover:bg-border-color/30 transition-colors duration-150 ease-apple focus:outline-none text-text-secondary"
-                title="展開檔案總管"
-            >
-                <ChevronDoubleRightIcon className="w-4 h-4" />
-            </button>
+        {isMobile ? (
+          isMobileSidebarOpen && (
+            <>
+              <div className="fixed inset-0 bg-black/40 z-40" onClick={closeSidebar} />
+              <aside className="fixed inset-y-0 left-0 w-[85vw] max-w-sm bg-primary z-50 shadow-apple-lg">
+                {sidebarElement}
+              </aside>
+            </>
+          )
+        ) : (
+          <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isSidebarVisible ? 'w-1/4 max-w-xs border-r border-border-color/60' : 'w-0'}`}>
+            <div className="h-full overflow-hidden">
+              {sidebarElement}
+            </div>
+          </aside>
         )}
-        <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isFileExplorerCollapsed ? 'w-0' : 'w-1/4 max-w-xs border-r border-border-color/60'}`}>
-          <div className="h-full overflow-hidden">
-            <FileExplorer 
-              tree={tree}
-              activeNoteId={activeNoteId}
-              onSelectNote={setActiveNoteId}
-              onCreateNode={createNode}
-              onRenameNode={renameNode}
-              onDeleteNode={deleteNode}
-              onMoveNode={moveNode}
-              onToggleCollapse={() => setIsFileExplorerCollapsed(true)}
-            />
-          </div>
-        </aside>
-        
+
         <main className="flex-grow flex overflow-hidden">
           {!activeNoteId ? (
               <div className="w-full h-full flex items-center justify-center text-text-secondary text-sm">
@@ -443,45 +487,24 @@ const App: React.FC = () => {
               </div>
           ) : viewMode === ViewMode.Editor || viewMode === ViewMode.Preview ? (
             <div className="flex h-full w-full relative">
-              {mindMapData && (
-                <>
-                  {isOutlineViewCollapsed && (
-                    <button
-                        onClick={() => setIsOutlineViewCollapsed(false)}
-                        className="glass-surface absolute top-1/2 -translate-y-1/2 left-0 z-20 p-1.5 h-16 rounded-r-2xl border border-l-0 border-border-color/60 shadow-apple-sm hover:bg-border-color/30 transition-colors duration-150 ease-apple focus:outline-none text-text-secondary"
-                        title="展開大綱"
-                    >
-                        <ChevronDoubleRightIcon className="w-4 h-4" />
-                    </button>
-                  )}
-                  <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isOutlineViewCollapsed ? 'w-0' : 'w-1/3 max-w-xs border-r border-border-color/60'}`}>
-                    <div className="h-full overflow-hidden">
-                      <OutlineView 
-                        data={mindMapData}
-                        activeLine={activeLine}
-                        onNodeClick={handleOutlineNodeClick}
-                        onToggleCollapse={() => setIsOutlineViewCollapsed(true)}
-                      />
+              {(viewMode === ViewMode.Editor || !isMobile) && (
+                <div className={`flex-grow h-full ${viewMode === ViewMode.Preview && !isMobile ? 'w-1/2' : 'w-full'}`}>
+                    <div className="p-4 md:p-6 lg:p-8 h-full">
+                        <Editor
+                            value={markdown}
+                            onChange={setMarkdown}
+                            onImagePasted={addImage}
+                            scrollToLine={scrollToLine}
+                            onScrollComplete={() => {
+                              setScrollToLine(null)
+                            }}
+                            onCursorActivity={setActiveLine}
+                        />
                     </div>
-                  </aside>
-                </>
+                </div>
               )}
-              <div className={`flex-grow h-full ${viewMode === ViewMode.Preview ? 'w-1/2' : 'w-full'}`}>
-                  <div className="p-4 md:p-6 lg:p-8 h-full">
-                      <Editor 
-                          value={markdown} 
-                          onChange={setMarkdown}
-                          onImagePasted={addImage}
-                          scrollToLine={scrollToLine}
-                          onScrollComplete={() => {
-                            setScrollToLine(null)
-                          }}
-                          onCursorActivity={setActiveLine}
-                      />
-                  </div>
-              </div>
               {viewMode === ViewMode.Preview && (
-                  <div className="flex-grow w-1/2 h-full p-4 md:p-6 lg:p-8 overflow-y-auto border-l border-border-color/60">
+                  <div className={`flex-grow h-full p-4 md:p-6 lg:p-8 overflow-y-auto ${!isMobile ? 'w-1/2 border-l border-border-color/60' : 'w-full'}`}>
                     <MarkdownPreview markdown={markdown} images={images} />
                   </div>
               )}
@@ -505,28 +528,22 @@ const App: React.FC = () => {
           )}
         </main>
 
-        <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isAIPanelOpen ? 'w-1/3 max-w-md border-l border-border-color/60' : 'w-0'}`}>
-            <div className="h-full overflow-hidden">
-                <AIPanel
-                    onToggleCollapse={() => setIsAIPanelOpen(false)}
-                    messages={chatMessages}
-                    onSendMessage={handleSendChatMessage}
-                    isLoading={isAILoading}
-                    images={images}
-                />
-            </div>
-        </aside>
-        
-        {!isAIPanelOpen && activeNoteId && (
-            <button
-                onClick={handleToggleAIPanel}
-                className="glass-surface absolute top-1/2 -translate-y-1/2 right-0 z-20 p-1.5 h-16 rounded-l-2xl border border-r-0 border-border-color/60 shadow-apple-sm hover:bg-border-color/30 transition-colors duration-150 ease-apple focus:outline-none text-text-secondary"
-                title="展開 AI 學習夥伴"
-            >
-                <ChevronDoubleLeftIcon className="w-4 h-4" />
-            </button>
+        {isMobile ? (
+          isAIPanelOpen && (
+            <>
+              <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setIsAIPanelOpen(false)} />
+              <aside className="fixed inset-y-0 right-0 w-[90vw] max-w-md bg-secondary z-50 shadow-apple-lg">
+                {aiPanelElement}
+              </aside>
+            </>
+          )
+        ) : (
+          <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isAIPanelOpen ? 'w-1/3 max-w-md border-l border-border-color/60' : 'w-0'}`}>
+              <div className="h-full overflow-hidden">
+                  {aiPanelElement}
+              </div>
+          </aside>
         )}
-
       </div>
       <HelpModal isOpen={isHelpModalOpen} onClose={() => setIsHelpModalOpen(false)} />
       <SettingsModal

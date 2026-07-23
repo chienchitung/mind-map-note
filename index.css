@@ -22,6 +22,7 @@
   --color-border-color: #d2d2d7;
   --shadow-color: 0, 0, 0;
   --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-solid: rgba(255, 255, 255, 0.96);
 }
 
 .dark {
@@ -35,6 +36,7 @@
   --color-border-color: #38383a;
   --shadow-color: 0, 0, 0;
   --glass-bg: rgba(28, 28, 30, 0.72);
+  --glass-bg-solid: rgba(28, 28, 30, 0.95);
 }
 
 :root {
@@ -77,6 +79,17 @@ body {
   background-color: var(--glass-bg);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* A near-opaque variant for popovers — dropdown menus, context menus,
+   search results, toasts — that can appear over arbitrary, busy content
+   (mind map nodes, colorful text) rather than the header's more
+   predictable backdrop. The lighter .glass-surface reads fine there, but
+   on menus it left list items hard to make out, especially on mobile. */
+.glass-surface-solid {
+  background-color: var(--glass-bg-solid);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
 }
 
 .node.dragging {

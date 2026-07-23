@@ -217,7 +217,7 @@ const Header: React.FC<HeaderProps> = ({
               <ChevronDownIcon className="w-4 h-4" />
             </button>
             {isLayoutDropdownOpen && (
-              <div className="absolute top-full right-0 mt-2 w-40 glass-surface border border-border-color/70 rounded-2xl shadow-apple-md z-20 p-1.5 overflow-hidden">
+              <div className="absolute top-full right-0 mt-2 w-40 glass-surface-solid border border-border-color/70 rounded-2xl shadow-apple-md z-20 p-1.5 overflow-hidden">
                 {layoutOptions.map(({ id, label, Icon }) => (
                   <button
                     key={id}
@@ -266,7 +266,7 @@ const Header: React.FC<HeaderProps> = ({
               <MoreIcon className="w-5 h-5" />
             </button>
             {isMoreMenuOpen && (
-              <div className="absolute top-full right-0 mt-2 w-48 glass-surface border border-border-color/70 rounded-2xl shadow-apple-md z-20 p-1.5 overflow-hidden">
+              <div className="absolute top-full right-0 mt-2 w-48 glass-surface-solid border border-border-color/70 rounded-2xl shadow-apple-md z-20 p-1.5 overflow-hidden">
                 {moreMenuItems.map(({ key, onClick, disabled, icon: Icon, label }) => (
                   <button
                     key={key}
@@ -310,7 +310,7 @@ const Header: React.FC<HeaderProps> = ({
       </div>
 
       {isMobile && isMobileSearchOpen && (
-        <div className="absolute top-full left-0 right-0 glass-surface border-b border-border-color/70 p-3 z-20">
+        <div className="absolute top-full left-0 right-0 glass-surface-solid border-b border-border-color/70 p-3 z-20">
           <SearchBar
             ref={searchInputRef}
             query={searchQuery}

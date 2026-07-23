@@ -96,7 +96,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
             </div>
 
             {showResults && (
-                <div className="absolute top-full mt-2 w-full glass-surface border border-border-color/70 rounded-2xl shadow-apple-md z-30 max-h-80 overflow-y-auto p-1.5">
+                <div className="absolute top-full mt-2 w-full glass-surface-solid border border-border-color/70 rounded-2xl shadow-apple-md z-30 max-h-80 overflow-y-auto p-1.5">
                     {results.length > 0 ? (
                         <ul>
                             {results.map(result => (

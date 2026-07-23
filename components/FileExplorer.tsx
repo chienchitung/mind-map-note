@@ -338,7 +338,7 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
           <div
             ref={contextMenuRef}
             style={{ top: contextMenu.y, left: contextMenu.x }}
-            className="glass-surface absolute z-30 w-48 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main"
+            className="glass-surface-solid absolute z-30 w-48 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main"
           >
             <button
               onClick={() => { setRenamingNodeId(contextMenu.nodeId); closeContextMenu(); }}

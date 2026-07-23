@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { ViewMode, MindMapNode, MindMapLayout } from './types';
 import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
@@ -10,14 +10,19 @@ import MindMap, { MindMapHandle } from './components/MindMap';
 import MarkdownPreview from './components/MarkdownPreview';
 import HelpModal from './components/HelpModal';
 import Sidebar from './components/Sidebar';
-import AIPanel, { ChatMessage } from './components/AIPanel';
+import type { ChatMessage } from './components/AIPanel';
 import SettingsModal from './components/SettingsModal';
 import Toast from './components/Toast';
-import { createChatSession, MissingApiKeyError, extractGeminiErrorMessage } from './services/geminiChatService';
-import { Chat } from '@google/genai';
+import Spinner from './components/Spinner';
+import type { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
 import { escapeRegExp } from './utils/escapeRegExp';
+
+// The AI chat panel (and the @google/genai SDK it pulls in) is only ever
+// needed once a user with an API key opens it, so it's loaded on demand
+// instead of padding out everyone's initial bundle.
+const AIPanel = lazy(() => import('./components/AIPanel'));
 
 // Custom hook to debounce a value.
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -181,6 +186,14 @@ const App: React.FC = () => {
   const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isAILoading, setIsAILoading] = useState(false);
+  // On desktop the panel stays mounted (width just collapses to 0) so its
+  // open/close slide animates — but mounting it unconditionally from the
+  // start would trigger the lazy AIPanel chunk immediately for everyone.
+  // Only start mounting it once the user has actually opened it.
+  const [hasOpenedAIPanel, setHasOpenedAIPanel] = useState(false);
+  useEffect(() => {
+    if (isAIPanelOpen) setHasOpenedAIPanel(true);
+  }, [isAIPanelOpen]);
 
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
@@ -371,11 +384,13 @@ const App: React.FC = () => {
     setChatMessages([]);
 
     try {
+      const { createChatSession } = await import('./services/geminiChatService');
       const session = await createChatSession(markdown, apiKey);
       setChatSession(session);
       setChatMessages([{ role: 'model', text: `你好！我已經閱讀完 **${activeNoteName}** 的內容了。我可以協助你做什麼呢？試試看問我：\n\n- 幫我總結這份筆記\n- 根據筆記內容出幾道練習題\n- 用更簡單的方式解釋第二段` }]);
     } catch (error) {
       console.error("Failed to start chat session:", error);
+      const { MissingApiKeyError, extractGeminiErrorMessage } = await import('./services/geminiChatService');
       if (error instanceof MissingApiKeyError) {
         setIsAIPanelOpen(false);
         setIsSettingsOpen(true);
@@ -401,6 +416,7 @@ const App: React.FC = () => {
       setChatMessages(prev => [...prev, modelMessage]);
     } catch (error) {
       console.error("Chat error:", error);
+      const { extractGeminiErrorMessage } = await import('./services/geminiChatService');
       const errorMessage = extractGeminiErrorMessage(error);
       const modelErrorMessage: ChatMessage = { role: 'model', text: `抱歉，發生錯誤： ${errorMessage}` };
       setChatMessages(prev => [...prev, modelErrorMessage]);
@@ -426,13 +442,15 @@ const App: React.FC = () => {
   );
 
   const aiPanelElement = (
-    <AIPanel
-      onToggleCollapse={() => setIsAIPanelOpen(false)}
-      messages={chatMessages}
-      onSendMessage={handleSendChatMessage}
-      isLoading={isAILoading}
-      images={images}
-    />
+    <Suspense fallback={<div className="h-full flex items-center justify-center"><Spinner className="w-6 h-6 text-accent" /></div>}>
+      <AIPanel
+        onToggleCollapse={() => setIsAIPanelOpen(false)}
+        messages={chatMessages}
+        onSendMessage={handleSendChatMessage}
+        isLoading={isAILoading}
+        images={images}
+      />
+    </Suspense>
   );
 
   return (
@@ -542,7 +560,7 @@ const App: React.FC = () => {
         ) : (
           <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isAIPanelOpen ? 'w-1/3 max-w-md border-l border-border-color/60' : 'w-0'}`}>
               <div className="h-full overflow-hidden">
-                  {aiPanelElement}
+                  {hasOpenedAIPanel && aiPanelElement}
               </div>
           </aside>
         )}

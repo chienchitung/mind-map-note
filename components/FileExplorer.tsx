@@ -53,7 +53,7 @@ const MoveToModal: React.FC<{
               >
                 <FolderIcon className="w-5 h-5 mr-2 flex-shrink-0" />
                 <span className="truncate">{child.name}</span>
-                {childId === nodeToMove.parentId && <span className="ml-auto text-xs text-accent">(current)</span>}
+                {childId === nodeToMove.parentId && <span className="ml-auto text-xs text-accent">（目前位置）</span>}
               </div>
               <FolderTree parentId={childId} level={level + 1} />
             </div>
@@ -66,14 +66,22 @@ const MoveToModal: React.FC<{
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content text-text-main" role="dialog" aria-modal="true" aria-labelledby="move-modal-title" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="Close (Esc)" aria-label="Close">
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="關閉 (Esc)" aria-label="關閉">
           <XIcon className="w-5 h-5" />
         </button>
-        <h2 id="move-modal-title" className="text-lg font-semibold mb-4 tracking-tight">Move "<span className="text-accent">{nodeToMove.name}</span>" to...</h2>
-        
+
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center flex-shrink-0">
+            <FolderIcon className="w-5 h-5" />
+          </div>
+          <h2 id="move-modal-title" className="text-lg font-semibold tracking-tight truncate">
+            移動「<span className="text-accent">{nodeToMove.name}</span>」到...
+          </h2>
+        </div>
+
         <div className="max-h-[60vh] overflow-y-auto pr-2">
             <div
-              className={`flex items-center p-2 rounded-md transition-colors ${nodeToMove.parentId === 'root' ? 'text-text-secondary/50 cursor-not-allowed' : 'text-text-secondary hover:bg-secondary hover:text-text-main cursor-pointer'}`}
+              className={`flex items-center p-2 rounded-xl transition-colors duration-150 ease-apple ${nodeToMove.parentId === 'root' ? 'text-text-secondary/50 cursor-not-allowed' : 'text-text-secondary hover:bg-secondary hover:text-text-main cursor-pointer'}`}
               onClick={() => {
                   if (nodeToMove.parentId !== 'root') {
                       onMoveNode(nodeToMove.id, 'root');
@@ -82,8 +90,8 @@ const MoveToModal: React.FC<{
               }}
             >
               <FolderIcon className="w-5 h-5 mr-2 flex-shrink-0" />
-              <span>(Root Folder)</span>
-              {nodeToMove.parentId === 'root' && <span className="ml-auto text-xs text-accent">(current)</span>}
+              <span>根目錄</span>
+              {nodeToMove.parentId === 'root' && <span className="ml-auto text-xs text-accent">（目前位置）</span>}
             </div>
             <FolderTree parentId="root" level={0} />
         </div>

@@ -74,6 +74,7 @@ const Header: React.FC<HeaderProps> = ({
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const layoutDropdownRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -83,9 +84,21 @@ const Header: React.FC<HeaderProps> = ({
       if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
         setIsMoreMenuOpen(false);
       }
+      // The mobile search panel floats below the header rather than living
+      // inside a dropdown, so a tap anywhere outside the header entirely
+      // (e.g. on the canvas underneath it) needs to dismiss it too —
+      // otherwise it stays stuck open, floating over whatever view the
+      // user switches to next.
+      if (headerRef.current && !headerRef.current.contains(event.target as Node)) {
+        setIsMobileSearchOpen(false);
+      }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    // Capture phase: the mind map canvas has its own mousedown handling
+    // (d3-zoom/d3-drag) that can stop the event from bubbling up to
+    // document, which would otherwise make this listener never see clicks
+    // on the canvas at all. Capturing runs before that, so it always fires.
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => document.removeEventListener('mousedown', handleClickOutside, true);
   }, []);
 
   useEffect(() => {
@@ -96,6 +109,13 @@ const Header: React.FC<HeaderProps> = ({
 
   const handleThemeToggle = () => {
     onThemeChange(theme === 'dark' ? 'light' : 'dark');
+  };
+
+  // Switching views should dismiss the mobile search overlay — otherwise it
+  // stays floating over whatever the user navigates to next.
+  const handleViewChange = (mode: ViewMode) => {
+    setIsMobileSearchOpen(false);
+    onViewChange(mode);
   };
 
   const CurrentLayoutIcon = layoutOptions.find(opt => opt.id === mindMapLayout)?.Icon || MindMapLayoutIcon;
@@ -111,7 +131,7 @@ const Header: React.FC<HeaderProps> = ({
   ];
 
   return (
-    <header className="glass-surface flex items-center justify-between px-3 md:px-5 py-3 md:py-3.5 border-b border-border-color/70 flex-wrap gap-3 md:gap-4 flex-shrink-0 z-30 relative">
+    <header ref={headerRef} className="glass-surface flex items-center justify-between px-3 md:px-5 py-3 md:py-3.5 border-b border-border-color/70 flex-wrap gap-3 md:gap-4 flex-shrink-0 z-30 relative">
       <div className="flex items-center gap-2 md:gap-4 flex-grow min-w-0">
         <button onClick={onToggleSidebar} className={`${iconButtonClass} ${enabledClass} flex-shrink-0`} title="側邊欄" aria-label="切換側邊欄">
           <MenuIcon className="w-5 h-5" />
@@ -149,7 +169,7 @@ const Header: React.FC<HeaderProps> = ({
 
         <div className="flex rounded-full bg-secondary p-1">
           <button
-            onClick={() => onViewChange(ViewMode.Editor)}
+            onClick={() => handleViewChange(ViewMode.Editor)}
             title="編輯模式 (⌘1)"
             aria-label="編輯模式"
             aria-pressed={viewMode === ViewMode.Editor}
@@ -160,7 +180,7 @@ const Header: React.FC<HeaderProps> = ({
             <EditorIcon className="w-5 h-5" />
           </button>
            <button
-            onClick={() => onViewChange(ViewMode.Preview)}
+            onClick={() => handleViewChange(ViewMode.Preview)}
             title="預覽模式 (⌘2)"
             aria-label="預覽模式"
             aria-pressed={viewMode === ViewMode.Preview}
@@ -171,7 +191,7 @@ const Header: React.FC<HeaderProps> = ({
             <PreviewIcon className="w-5 h-5" />
           </button>
           <button
-            onClick={() => onViewChange(ViewMode.MindMap)}
+            onClick={() => handleViewChange(ViewMode.MindMap)}
             title="思維導圖模式 (⌘3)"
             aria-label="思維導圖模式"
             aria-pressed={viewMode === ViewMode.MindMap}

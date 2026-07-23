@@ -76,6 +76,10 @@ const getInitialFileSystem = () => {
 
 export const useFileSystem = () => {
     const [{ tree, notes, images }, setState] = useState(getInitialFileSystem);
+    // Surfaced to the UI so a full storage quota doesn't fail silently —
+    // without this, edits keep "working" on screen but stop persisting,
+    // and the user only finds out after losing them on the next reload.
+    const [storageError, setStorageError] = useState<string | null>(null);
 
     // Keep a ref to the latest state so the unload flush (below) and the
     // debounce timer always write the most current data, not a stale closure.
@@ -90,8 +94,16 @@ export const useFileSystem = () => {
             localStorage.setItem(TREE_STORAGE_KEY, JSON.stringify(tree));
             localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
             localStorage.setItem(IMAGES_STORAGE_KEY, JSON.stringify(images));
+            setStorageError(null);
         } catch (error) {
             console.error("Failed to save notes to local storage — it may be full. Try removing large images.", error);
+            const isQuotaError = error instanceof DOMException &&
+                (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+            setStorageError(
+                isQuotaError
+                    ? '儲存空間已滿，最新的變更目前無法儲存。請刪除較大的圖片或筆記以釋出空間。'
+                    : '筆記儲存失敗，變更可能會在重新整理後遺失。'
+            );
         }
     }, []);
 
@@ -235,5 +247,5 @@ export const useFileSystem = () => {
         });
     }, []);
 
-    return { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage };
+    return { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, storageError, dismissStorageError: () => setStorageError(null) };
 };

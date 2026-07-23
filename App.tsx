@@ -12,10 +12,12 @@ import HelpModal from './components/HelpModal';
 import Sidebar from './components/Sidebar';
 import AIPanel, { ChatMessage } from './components/AIPanel';
 import SettingsModal from './components/SettingsModal';
+import Toast from './components/Toast';
 import { createChatSession, MissingApiKeyError, extractGeminiErrorMessage } from './services/geminiChatService';
 import { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
+import { escapeRegExp } from './utils/escapeRegExp';
 
 // Custom hook to debounce a value.
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -33,7 +35,7 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 
 
 const App: React.FC = () => {
-  const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage } = useFileSystem();
+  const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, storageError, dismissStorageError } = useFileSystem();
   
   const findFirstFile = () => {
       const root = tree['root'];
@@ -193,7 +195,7 @@ const App: React.FC = () => {
 
     try {
       const query = debouncedSearchQuery.trim();
-      const regex = new RegExp(query, 'gi');
+      const regex = new RegExp(escapeRegExp(query), 'gi');
 
       Object.keys(notes).forEach(noteId => {
         const content = notes[noteId];
@@ -552,6 +554,7 @@ const App: React.FC = () => {
         apiKey={apiKey}
         onSaveApiKey={setApiKey}
       />
+      {storageError && <Toast message={storageError} onDismiss={dismissStorageError} />}
     </div>
   );
 };

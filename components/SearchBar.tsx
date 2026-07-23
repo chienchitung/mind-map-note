@@ -1,5 +1,6 @@
 import React, { forwardRef, useState, useRef, useEffect } from 'react';
 import { SearchIcon, XIcon, FileIcon } from './icons';
+import { escapeRegExp } from '../utils/escapeRegExp';
 
 interface SearchResultItem {
   id: string;
@@ -20,7 +21,7 @@ const HighlightMatch: React.FC<{ text: string; query: string }> = ({ text, query
       return <span>{text}</span>;
     }
     try {
-      const regex = new RegExp(`(${query})`, 'gi');
+      const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
       const parts = text.split(regex);
       return (
         <>

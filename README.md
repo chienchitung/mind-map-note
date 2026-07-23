@@ -25,10 +25,12 @@
 - **深色模式** — 跟隨系統風格切換，所有畫面皆有對應主題。
 - **AI 學習夥伴（選用）** — 串接 Google Gemini，針對目前筆記內容摘要、出題、答疑。金鑰只存在你自己的瀏覽器，不會出現在部署的程式碼中，也可以完全不用。
 - **本機優先、注重隱私** — 所有筆記、圖片都存在瀏覽器 `localStorage`，沒有帳號、沒有後端伺服器。
+- **備份與還原** — 在設定裡一鍵把整個工作區（所有筆記、資料夾、圖片）匯出成單一 JSON 檔，換裝置、重灌瀏覽器前都能先備份，也能隨時匯入還原。
+- **可安裝、支援離線** — 支援加入手機主畫面或電腦桌面當作獨立 App 開啟，離線時也能繼續編輯筆記。
 
 ## 技術棧
 
-[React 19](https://react.dev/) · [TypeScript](https://www.typescriptlang.org/) · [Vite](https://vite.dev/) · [Tailwind CSS](https://tailwindcss.com/) · [D3.js](https://d3js.org/)（心智圖版面運算與互動）· [marked](https://marked.js.org/) + [DOMPurify](https://github.com/cure53/DOMPurify)（Markdown 預覽）· [@google/genai](https://ai.google.dev/)（AI 學習夥伴）
+[React 19](https://react.dev/) · [TypeScript](https://www.typescriptlang.org/) · [Vite](https://vite.dev/) · [Tailwind CSS](https://tailwindcss.com/) · [D3.js](https://d3js.org/)（心智圖版面運算與互動）· [marked](https://marked.js.org/) + [DOMPurify](https://github.com/cure53/DOMPurify)（Markdown 預覽）· [@google/genai](https://ai.google.dev/)（AI 學習夥伴）· [vite-plugin-pwa](https://vite-pwa-org.netlify.app/)（可安裝、離線支援）
 
 ## 快速開始
 

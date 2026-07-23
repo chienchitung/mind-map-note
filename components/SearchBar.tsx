@@ -1,12 +1,7 @@
 import React, { forwardRef, useState, useRef, useEffect } from 'react';
 import { SearchIcon, XIcon, FileIcon } from './icons';
 import { escapeRegExp } from '../utils/escapeRegExp';
-
-interface SearchResultItem {
-  id: string;
-  name: string;
-  snippet: string;
-}
+import type { SearchResultItem } from '../types';
 
 interface SearchBarProps {
     query: string;
@@ -16,7 +11,7 @@ interface SearchBarProps {
     onResultClick: (noteId: string) => void;
 }
 
-const HighlightMatch: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+export const HighlightMatch: React.FC<{ text: string; query: string }> = ({ text, query }) => {
     if (!query.trim()) {
       return <span>{text}</span>;
     }
@@ -107,6 +102,9 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
                                     >
                                         <FileIcon className="w-4 h-4 mt-0.5 flex-shrink-0 text-text-secondary group-hover:text-white" />
                                         <div className="flex-grow overflow-hidden">
+                                            {result.path && (
+                                                <p className="text-[11px] text-text-secondary/70 group-hover:text-white/60 truncate">{result.path}</p>
+                                            )}
                                             <p className="font-medium truncate">{result.name}</p>
                                             <p className="text-xs text-text-secondary group-hover:text-white/80 truncate">
                                                 <HighlightMatch text={result.snippet} query={query} />

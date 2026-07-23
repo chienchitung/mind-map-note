@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ViewMode, MindMapLayout } from '../types';
+import { ViewMode, MindMapLayout, SearchResultItem } from '../types';
 import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon, ChatbotIcon, SettingsIcon, MenuIcon, MoreIcon, SearchIcon } from './icons';
 import SearchBar from './SearchBar';
+import MobileSearchOverlay from './MobileSearchOverlay';
 import Spinner from './Spinner';
 
 interface HeaderProps {
@@ -17,7 +18,7 @@ interface HeaderProps {
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   onClearSearch: () => void;
-  results: { id: string; name: string; snippet: string }[];
+  results: SearchResultItem[];
   onResultClick: (noteId: string) => void;
   onShowHelp: () => void;
   searchInputRef: React.RefObject<HTMLInputElement>;
@@ -131,6 +132,7 @@ const Header: React.FC<HeaderProps> = ({
   ];
 
   return (
+    <>
     <header ref={headerRef} className="glass-surface flex items-center justify-between px-3 md:px-5 py-3 md:py-3.5 border-b border-border-color/70 flex-wrap gap-3 md:gap-4 flex-shrink-0 z-30 relative">
       <div className="flex items-center gap-2 md:gap-4 flex-grow min-w-0">
         <button onClick={onToggleSidebar} className={`${iconButtonClass} ${enabledClass} flex-shrink-0`} title="側邊欄" aria-label="切換側邊欄">
@@ -308,20 +310,18 @@ const Header: React.FC<HeaderProps> = ({
           </div>
         )}
       </div>
-
-      {isMobile && isMobileSearchOpen && (
-        <div className="absolute top-full left-0 right-0 glass-surface-solid border-b border-border-color/70 p-3 z-20">
-          <SearchBar
-            ref={searchInputRef}
-            query={searchQuery}
-            onQueryChange={onSearchQueryChange}
-            onClear={onClearSearch}
-            results={results}
-            onResultClick={(id) => { onResultClick(id); setIsMobileSearchOpen(false); }}
-          />
-        </div>
-      )}
     </header>
+    {isMobile && isMobileSearchOpen && (
+      <MobileSearchOverlay
+        query={searchQuery}
+        onQueryChange={onSearchQueryChange}
+        onClose={() => setIsMobileSearchOpen(false)}
+        results={results}
+        onResultClick={(id) => { onResultClick(id); setIsMobileSearchOpen(false); }}
+        inputRef={searchInputRef}
+      />
+    )}
+    </>
   );
 };
 

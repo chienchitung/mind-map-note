@@ -52,3 +52,13 @@ export interface SearchResult {
     startIndex: number;
     endIndex: number;
 }
+
+export interface SearchResultItem {
+    id: string;
+    name: string;
+    snippet: string;
+    // Ancestor folder names joined with " / ", e.g. "工作 / 專案A" — empty
+    // string for a note that lives directly at the root. Lets a result
+    // list disambiguate notes that share a name in different folders.
+    path: string;
+}

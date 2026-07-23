@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
-import { ViewMode, MindMapNode, MindMapLayout, FileSystemTree, NotesContent, Images } from './types';
+import { ViewMode, MindMapNode, MindMapLayout, FileSystemTree, NotesContent, Images, SearchResultItem } from './types';
 import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
 import useLocalStorage from './hooks/useLocalStorage';
@@ -28,6 +28,21 @@ const AIPanel = lazy(() => import('./components/AIPanel'));
 // they're not some unrelated JSON file.
 const BACKUP_APP_ID = 'mind-map-note';
 const BACKUP_VERSION = 1;
+
+// Walks a note's ancestor folders (skipping the implicit "root") to build a
+// breadcrumb like "工作 / 專案A", so search results can disambiguate notes
+// that share a name in different folders.
+const getFolderPath = (tree: FileSystemTree, nodeId: string): string => {
+  const segments: string[] = [];
+  let currentId = tree[nodeId]?.parentId;
+  while (currentId && currentId !== 'root') {
+    const node = tree[currentId];
+    if (!node) break;
+    segments.unshift(node.name);
+    currentId = node.parentId;
+  }
+  return segments.join(' / ');
+};
 
 // Custom hook to debounce a value.
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -218,7 +233,7 @@ const App: React.FC = () => {
   const globalSearchResults = useMemo(() => {
     if (!debouncedSearchQuery.trim()) return [];
 
-    const results: { id: string; name: string; snippet: string }[] = [];
+    const results: SearchResultItem[] = [];
     const SNIPPET_RADIUS = 50; // Characters before and after the match
 
     try {
@@ -246,7 +261,7 @@ const App: React.FC = () => {
             if (start > 0) snippet = '... ' + snippet;
             if (end < content.length) snippet = snippet + ' ...';
 
-            results.push({ id: noteId, name: tree[noteId].name, snippet });
+            results.push({ id: noteId, name: tree[noteId].name, snippet, path: getFolderPath(tree, noteId) });
           }
         }
       });

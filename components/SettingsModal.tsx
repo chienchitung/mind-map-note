@@ -33,8 +33,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="關閉 (Esc)">
+      <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="關閉 (Esc)" aria-label="關閉">
           <XIcon className="w-5 h-5" />
         </button>
 
@@ -42,7 +42,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
           <div className="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center flex-shrink-0">
             <KeyIcon className="w-5 h-5" />
           </div>
-          <h2 className="text-xl font-semibold text-text-main">AI 學習夥伴設定</h2>
+          <h2 id="settings-modal-title" className="text-xl font-semibold text-text-main">AI 學習夥伴設定</h2>
         </div>
 
         <p className="text-sm text-text-secondary mb-5 leading-relaxed">

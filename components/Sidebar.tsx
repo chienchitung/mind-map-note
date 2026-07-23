@@ -55,15 +55,15 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {activeTab === 'files' && (
             <>
-              <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="新增筆記">
+              <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="新增筆記" aria-label="新增筆記">
                 <PlusIcon className="w-4 h-4" />
               </button>
-              <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="新增資料夾">
+              <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="新增資料夾" aria-label="新增資料夾">
                 <FolderPlusIcon className="w-4 h-4" />
               </button>
             </>
           )}
-          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="收合側邊欄">
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="收合側邊欄" aria-label="收合側邊欄">
             <XIcon className="w-4 h-4" />
           </button>
         </div>

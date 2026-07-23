@@ -113,7 +113,7 @@ const Header: React.FC<HeaderProps> = ({
   return (
     <header className="glass-surface flex items-center justify-between px-3 md:px-5 py-3 md:py-3.5 border-b border-border-color/70 flex-wrap gap-3 md:gap-4 flex-shrink-0 z-30 relative">
       <div className="flex items-center gap-2 md:gap-4 flex-grow min-w-0">
-        <button onClick={onToggleSidebar} className={`${iconButtonClass} ${enabledClass} flex-shrink-0`} title="側邊欄">
+        <button onClick={onToggleSidebar} className={`${iconButtonClass} ${enabledClass} flex-shrink-0`} title="側邊欄" aria-label="切換側邊欄">
           <MenuIcon className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-2.5 flex-shrink-0">
@@ -141,6 +141,7 @@ const Header: React.FC<HeaderProps> = ({
             onClick={() => setIsMobileSearchOpen(prev => !prev)}
             className={`${iconButtonClass} ${isMobileSearchOpen ? 'bg-accent text-white' : `bg-secondary ${enabledClass}`}`}
             title="搜尋筆記"
+            aria-label="搜尋筆記"
           >
             <SearchIcon className="w-5 h-5" />
           </button>
@@ -150,6 +151,8 @@ const Header: React.FC<HeaderProps> = ({
           <button
             onClick={() => onViewChange(ViewMode.Editor)}
             title="編輯模式 (⌘1)"
+            aria-label="編輯模式"
+            aria-pressed={viewMode === ViewMode.Editor}
             className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
               viewMode === ViewMode.Editor ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
             }`}
@@ -159,6 +162,8 @@ const Header: React.FC<HeaderProps> = ({
            <button
             onClick={() => onViewChange(ViewMode.Preview)}
             title="預覽模式 (⌘2)"
+            aria-label="預覽模式"
+            aria-pressed={viewMode === ViewMode.Preview}
             className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
               viewMode === ViewMode.Preview ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
             }`}
@@ -168,6 +173,8 @@ const Header: React.FC<HeaderProps> = ({
           <button
             onClick={() => onViewChange(ViewMode.MindMap)}
             title="思維導圖模式 (⌘3)"
+            aria-label="思維導圖模式"
+            aria-pressed={viewMode === ViewMode.MindMap}
             className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
               viewMode === ViewMode.MindMap ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
             }`}
@@ -181,6 +188,10 @@ const Header: React.FC<HeaderProps> = ({
             <button
               onClick={() => setIsLayoutDropdownOpen(prev => !prev)}
               className="flex items-center gap-1.5 p-2 rounded-full bg-secondary hover:bg-border-color/60 text-text-secondary transition-colors duration-150 ease-apple"
+              title="切換版面配置"
+              aria-label="切換版面配置"
+              aria-haspopup="menu"
+              aria-expanded={isLayoutDropdownOpen}
             >
               <CurrentLayoutIcon className="w-5 h-5" />
               <ChevronDownIcon className="w-4 h-4" />
@@ -216,6 +227,8 @@ const Header: React.FC<HeaderProps> = ({
               : 'bg-secondary text-text-secondary'
           } ${activeNoteId && !isAILoading ? 'hover:bg-border-color/60' : 'cursor-not-allowed opacity-50'}`}
           title="AI 學習夥伴"
+          aria-label="AI 學習夥伴"
+          aria-pressed={isAIPanelOpen}
         >
           {isAILoading ? <Spinner className="w-5 h-5" /> : <ChatbotIcon className="w-5 h-5" />}
         </button>
@@ -226,6 +239,9 @@ const Header: React.FC<HeaderProps> = ({
               onClick={() => setIsMoreMenuOpen(prev => !prev)}
               className={`${iconButtonClass} ${enabledClass}`}
               title="更多"
+              aria-label="更多選項"
+              aria-haspopup="menu"
+              aria-expanded={isMoreMenuOpen}
             >
               <MoreIcon className="w-5 h-5" />
             </button>
@@ -249,24 +265,24 @@ const Header: React.FC<HeaderProps> = ({
           </div>
         ) : (
           <div className="flex items-center gap-1">
-              <button onClick={handleThemeToggle} className={`${iconButtonClass} ${enabledClass}`} title="切換主題">
+              <button onClick={handleThemeToggle} className={`${iconButtonClass} ${enabledClass}`} title="切換主題" aria-label="切換主題">
                 {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
               </button>
               <div className="w-px h-5 bg-border-color mx-1"></div>
-               <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原 (⌘Z)">
+               <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原 (⌘Z)" aria-label="復原">
                   <UndoIcon className="w-5 h-5" />
               </button>
-              <button onClick={onRedo} disabled={!canRedo} className={`${iconButtonClass} ${canRedo ? enabledClass : disabledClass}`} title="重做 (⌘⇧Z)">
+              <button onClick={onRedo} disabled={!canRedo} className={`${iconButtonClass} ${canRedo ? enabledClass : disabledClass}`} title="重做 (⌘⇧Z)" aria-label="重做">
                   <RedoIcon className="w-5 h-5" />
               </button>
               <div className="w-px h-5 bg-border-color mx-1"></div>
-              <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title={exportLabel}>
+              <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title={exportLabel} aria-label={exportLabel}>
                   <ExportIcon className="w-5 h-5" />
               </button>
-              <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="AI 金鑰設定">
+              <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="AI 金鑰設定" aria-label="AI 金鑰設定">
                   <SettingsIcon className="w-5 h-5" />
               </button>
-               <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title="幫助 (?)">
+               <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title="幫助 (?)" aria-label="幫助">
                   <HelpIcon className="w-5 h-5" />
               </button>
           </div>

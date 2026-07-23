@@ -82,13 +82,14 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
                     ref={ref}
                     type="text"
                     placeholder="搜尋所有筆記... (⌘F)"
+                    aria-label="搜尋所有筆記"
                     value={query}
                     onChange={(e) => onQueryChange(e.target.value)}
                     onFocus={() => setIsFocused(true)}
                     className="bg-transparent focus:outline-none text-text-main w-full text-sm placeholder:text-text-secondary"
                 />
                 {query.length > 0 && (
-                    <button onClick={onClear} className="p-1 rounded-full hover:bg-border-color/60 transition-colors" title="清除搜尋">
+                    <button onClick={onClear} className="p-1 rounded-full hover:bg-border-color/60 transition-colors" title="清除搜尋" aria-label="清除搜尋">
                         <XIcon className="w-3.5 h-3.5 text-text-secondary" />
                     </button>
                 )}

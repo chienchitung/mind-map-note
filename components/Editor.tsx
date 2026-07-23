@@ -274,6 +274,7 @@ const Editor: React.FC<EditorProps> = ({
           onClick={() => fileInputRef.current?.click()}
           className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
           title="上傳圖片"
+          aria-label="上傳圖片"
         >
           <ImageIcon className="w-4 h-4" />
         </button>
@@ -281,6 +282,7 @@ const Editor: React.FC<EditorProps> = ({
           onClick={handleCopy}
           className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
           title={isCopied ? "已複製！" : "複製內容"}
+          aria-label={isCopied ? "已複製" : "複製內容"}
         >
           {isCopied ? (
             <CheckIcon className="w-4 h-4 text-green-500" />

@@ -65,11 +65,11 @@ const MoveToModal: React.FC<{
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content text-text-main" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="Close (Esc)">
+      <div className="modal-content text-text-main" role="dialog" aria-modal="true" aria-labelledby="move-modal-title" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="Close (Esc)" aria-label="Close">
           <XIcon className="w-5 h-5" />
         </button>
-        <h2 className="text-lg font-semibold mb-4 tracking-tight">Move "<span className="text-accent">{nodeToMove.name}</span>" to...</h2>
+        <h2 id="move-modal-title" className="text-lg font-semibold mb-4 tracking-tight">Move "<span className="text-accent">{nodeToMove.name}</span>" to...</h2>
         
         <div className="max-h-[60vh] overflow-y-auto pr-2">
             <div
@@ -231,8 +231,8 @@ const Node: React.FC<{
         )}
         {isHovering && !isRenaming && (
           <div className="flex-shrink-0 ml-auto flex items-center gap-0.5">
-            <button onClick={(e) => { e.stopPropagation(); setRenamingNodeId(node.id); }} className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><PencilIcon className="w-3.5 h-3.5" /></button>
-            {node.parentId !== null && <button onClick={(e) => { e.stopPropagation(); if(confirm(`確定要刪除 "${node.name}" 嗎？`)) onDeleteNode(node.id); }} className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><TrashIcon className="w-3.5 h-3.5" /></button>}
+            <button onClick={(e) => { e.stopPropagation(); setRenamingNodeId(node.id); }} title="重新命名" aria-label="重新命名" className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><PencilIcon className="w-3.5 h-3.5" /></button>
+            {node.parentId !== null && <button onClick={(e) => { e.stopPropagation(); if(confirm(`確定要刪除 "${node.name}" 嗎？`)) onDeleteNode(node.id); }} title="刪除" aria-label="刪除" className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><TrashIcon className="w-3.5 h-3.5" /></button>}
           </div>
         )}
       </div>

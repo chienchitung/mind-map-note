@@ -103,7 +103,7 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
             <ChatbotIcon className="w-5 h-5 text-accent" />
             <h2 className="text-[15px] font-semibold text-text-main tracking-tight">AI 學習夥伴</h2>
         </div>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90" title="收合側邊欄 (Esc)">
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90" title="收合側邊欄 (Esc)" aria-label="收合 AI 面板">
           <ChevronDoubleRightIcon className="w-4 h-4" />
         </button>
       </div>
@@ -159,6 +159,7 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
                 }
             }}
             placeholder="在這裡問問題...（Enter 傳送，Shift + Enter 換行）"
+            aria-label="向 AI 學習夥伴提問"
             className="w-full pl-4 pr-14 py-3.5 bg-transparent focus:outline-none text-[14.5px] leading-relaxed text-text-main placeholder:text-text-secondary/70 resize-none"
             rows={1}
             style={{ maxHeight: '200px', minHeight: '52px' }}
@@ -168,6 +169,7 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
             type="submit"
             disabled={isLoading || !input.trim()}
             title="傳送 (Enter)"
+            aria-label="傳送訊息"
             className="absolute right-2 bottom-2 w-9 h-9 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/35 disabled:cursor-not-allowed transition-all duration-150 ease-apple active:scale-90 hover:opacity-90"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">

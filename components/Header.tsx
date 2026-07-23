@@ -126,7 +126,7 @@ const Header: React.FC<HeaderProps> = ({
     { key: 'undo', onClick: onUndo, disabled: !canUndo, icon: UndoIcon, label: '復原' },
     { key: 'redo', onClick: onRedo, disabled: !canRedo, icon: RedoIcon, label: '重做' },
     { key: 'export', onClick: onExport, disabled: !activeNoteId, icon: ExportIcon, label: exportLabel },
-    { key: 'settings', onClick: onOpenSettings, disabled: false, icon: SettingsIcon, label: 'AI 金鑰設定' },
+    { key: 'settings', onClick: onOpenSettings, disabled: false, icon: SettingsIcon, label: '設定' },
     { key: 'help', onClick: onShowHelp, disabled: false, icon: HelpIcon, label: '幫助' },
   ];
 
@@ -299,7 +299,7 @@ const Header: React.FC<HeaderProps> = ({
               <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title={exportLabel} aria-label={exportLabel}>
                   <ExportIcon className="w-5 h-5" />
               </button>
-              <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="AI 金鑰設定" aria-label="AI 金鑰設定">
+              <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="設定" aria-label="設定">
                   <SettingsIcon className="w-5 h-5" />
               </button>
                <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title="幫助 (?)" aria-label="幫助">

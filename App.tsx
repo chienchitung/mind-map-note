@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
-import { ViewMode, MindMapNode, MindMapLayout } from './types';
+import { ViewMode, MindMapNode, MindMapLayout, FileSystemTree, NotesContent, Images } from './types';
 import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
 import useLocalStorage from './hooks/useLocalStorage';
@@ -24,6 +24,11 @@ import { escapeRegExp } from './utils/escapeRegExp';
 // instead of padding out everyone's initial bundle.
 const AIPanel = lazy(() => import('./components/AIPanel'));
 
+// Identifies exported workspace backup files so imports can sanity-check
+// they're not some unrelated JSON file.
+const BACKUP_APP_ID = 'mind-map-note';
+const BACKUP_VERSION = 1;
+
 // Custom hook to debounce a value.
 const useDebounce = <T,>(value: T, delay: number): T => {
     const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -40,7 +45,7 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 
 
 const App: React.FC = () => {
-  const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, storageError, dismissStorageError } = useFileSystem();
+  const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError } = useFileSystem();
   
   const findFirstFile = () => {
       const root = tree['root'];
@@ -158,6 +163,16 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // Transient confirmation/error feedback (e.g. backup exported/imported),
+  // distinct from storageError which persists until the underlying problem
+  // is resolved.
+  const [actionMessage, setActionMessage] = useState<{ text: string; variant: 'success' | 'warning' } | null>(null);
+  useEffect(() => {
+    if (!actionMessage) return;
+    const timeoutId = setTimeout(() => setActionMessage(null), 5000);
+    return () => clearTimeout(timeoutId);
+  }, [actionMessage]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const mindMapRef = useRef<MindMapHandle>(null);
@@ -313,6 +328,74 @@ const App: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportBackup = () => {
+    // Include the active note's latest keystrokes even if the typing-pause
+    // debounce hasn't flushed them into `notes` yet.
+    const notesToExport: NotesContent = activeNoteId
+      ? { ...notes, [activeNoteId]: markdown }
+      : notes;
+
+    const backup = {
+      app: BACKUP_APP_ID,
+      version: BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      tree,
+      notes: notesToExport,
+      images,
+    };
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.download = `mindmap-note-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    setActionMessage({ text: '已匯出備份檔案。', variant: 'success' });
+  };
+
+  const handleImportBackup = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      let data: any;
+      try {
+        data = JSON.parse(reader.result as string);
+      } catch (error) {
+        console.error('Failed to parse backup file', error);
+        setActionMessage({ text: '無法讀取備份檔案，請確認檔案格式正確。', variant: 'warning' });
+        return;
+      }
+
+      const isValid = data && typeof data === 'object' &&
+        data.tree && typeof data.tree === 'object' &&
+        data.notes && typeof data.notes === 'object';
+
+      if (!isValid) {
+        setActionMessage({ text: '這不是有效的備份檔案。', variant: 'warning' });
+        return;
+      }
+
+      if (!window.confirm('匯入備份將會取代目前所有的筆記與資料夾，此動作無法復原。確定要繼續嗎？')) {
+        return;
+      }
+
+      restoreFromBackup({
+        tree: data.tree as FileSystemTree,
+        notes: data.notes as NotesContent,
+        images: (data.images && typeof data.images === 'object') ? data.images as Images : {},
+      });
+      setActionMessage({ text: '已成功匯入備份。', variant: 'success' });
+    };
+    reader.onerror = () => {
+      setActionMessage({ text: '讀取檔案時發生錯誤。', variant: 'warning' });
+    };
+    reader.readAsText(file);
   };
 
   const handleNodeUpdate = (nodeId: string, newName: string) => {
@@ -571,8 +654,17 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         apiKey={apiKey}
         onSaveApiKey={setApiKey}
+        onExportBackup={handleExportBackup}
+        onImportBackup={handleImportBackup}
       />
-      {storageError && <Toast message={storageError} onDismiss={dismissStorageError} />}
+      {(actionMessage || storageError) && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-md flex flex-col gap-2">
+          {actionMessage && (
+            <Toast message={actionMessage.text} variant={actionMessage.variant} onDismiss={() => setActionMessage(null)} />
+          )}
+          {storageError && <Toast message={storageError} onDismiss={dismissStorageError} />}
+        </div>
+      )}
     </div>
   );
 };

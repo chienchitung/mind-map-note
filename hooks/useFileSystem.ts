@@ -247,5 +247,11 @@ export const useFileSystem = () => {
         });
     }, []);
 
-    return { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, storageError, dismissStorageError: () => setStorageError(null) };
+    // Wholesale replace of the workspace, used to restore a backup. Callers
+    // are responsible for confirming with the user first — this has no undo.
+    const restoreFromBackup = useCallback((data: { tree: FileSystemTree; notes: NotesContent; images: Images }) => {
+        setState(data);
+    }, []);
+
+    return { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError: () => setStorageError(null) };
 };

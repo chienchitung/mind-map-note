@@ -494,30 +494,11 @@ const App: React.FC = () => {
     setSearchQuery('');
   };
 
-  const handleToggleAIPanel = async () => {
-    if (isAIPanelOpen) {
-      setIsAIPanelOpen(false);
-      return;
-    }
+  // Shared by the initial open (when no session exists yet) and the panel's
+  // own "clear conversation, start over" button.
+  const startNewChatSession = async () => {
+    if (!activeNoteId || !markdown || !apiKey) return;
 
-    if (!activeNoteId || !markdown) return;
-
-    if (!apiKey) {
-      setIsSettingsOpen(true);
-      return;
-    }
-
-    // A session for this note is already active — the user is just
-    // re-expanding a collapsed panel, not starting over. Show the existing
-    // conversation as-is instead of discarding it and re-priming a brand
-    // new session (the note-switch effect above already clears chatSession
-    // when it's genuinely time to start fresh).
-    if (chatSession) {
-      setIsAIPanelOpen(true);
-      return;
-    }
-
-    setIsAIPanelOpen(true);
     setIsAILoading(true);
     setChatMessages([]);
 
@@ -548,6 +529,38 @@ const App: React.FC = () => {
     } finally {
       setIsAILoading(false);
     }
+  };
+
+  const handleToggleAIPanel = async () => {
+    if (isAIPanelOpen) {
+      setIsAIPanelOpen(false);
+      return;
+    }
+
+    if (!activeNoteId || !markdown) return;
+
+    if (!apiKey) {
+      setIsSettingsOpen(true);
+      return;
+    }
+
+    setIsAIPanelOpen(true);
+
+    // A session for this note is already active — the user is just
+    // re-expanding a collapsed panel, not starting over. Show the existing
+    // conversation as-is instead of discarding it and re-priming a brand
+    // new session (the note-switch effect above already clears chatSession
+    // when it's genuinely time to start fresh).
+    if (chatSession) return;
+
+    await startNewChatSession();
+  };
+
+  // The AI panel's own "clear conversation" button — explicitly discards
+  // the current conversation and primes a fresh session for the active note.
+  const handleNewConversation = () => {
+    chatSessionTokenRef.current++; // invalidate any in-flight callback from the old session
+    startNewChatSession();
   };
 
   const handleSendChatMessage = async (message: string) => {
@@ -592,6 +605,7 @@ const App: React.FC = () => {
     <Suspense fallback={<div className="h-full flex items-center justify-center"><Spinner className="w-6 h-6 text-accent" /></div>}>
       <AIPanel
         onToggleCollapse={() => setIsAIPanelOpen(false)}
+        onNewConversation={handleNewConversation}
         messages={chatMessages}
         onSendMessage={handleSendChatMessage}
         isLoading={isAILoading}

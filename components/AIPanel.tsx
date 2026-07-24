@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { ChevronDoubleRightIcon, ChatbotIcon } from './icons';
+import { ChevronDoubleRightIcon, ChatbotIcon, RestartIcon } from './icons';
 import MarkdownPreview from './MarkdownPreview';
 import { Images } from '../types';
 import Spinner from './Spinner';
@@ -11,6 +11,7 @@ export interface ChatMessage {
 
 interface AIPanelProps {
   onToggleCollapse: () => void;
+  onNewConversation: () => void;
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
   isLoading: boolean;
@@ -47,7 +48,7 @@ const TypewriterMessage: React.FC<{ text: string; images: Images, scrollRef: Rea
 };
 
 
-const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMessage, isLoading, images }) => {
+const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, messages, onSendMessage, isLoading, images }) => {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -103,9 +104,20 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, messages, onSendMes
             <ChatbotIcon className="w-5 h-5 text-accent" />
             <h2 className="text-[15px] font-semibold text-text-main tracking-tight">AI 學習夥伴</h2>
         </div>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90" title="收合側邊欄 (Esc)" aria-label="收合 AI 面板">
-          <ChevronDoubleRightIcon className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onNewConversation}
+            disabled={isLoading || messages.length === 0}
+            className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            title="清除對話並開始新對話"
+            aria-label="清除對話並開始新對話"
+          >
+            <RestartIcon className="w-4 h-4" />
+          </button>
+          <button onClick={onToggleCollapse} className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90" title="收合側邊欄 (Esc)" aria-label="收合 AI 面板">
+            <ChevronDoubleRightIcon className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex-grow overflow-y-auto p-6 space-y-6">

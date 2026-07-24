@@ -42,9 +42,16 @@ export const extractGeminiErrorMessage = (error: unknown): string => {
  *
  * @param noteContent The text of the current note to provide as context.
  * @param apiKey The user's Gemini API key.
+ * @param onContextError Called if the context-priming message below fails —
+ *   the caller doesn't wait for it (see comment), so a failure can't just
+ *   throw; it has to be reported out-of-band once it happens.
  * @returns A promise that resolves to a Chat instance.
  */
-export const createChatSession = async (noteContent: string, apiKey: string): Promise<Chat> => {
+export const createChatSession = async (
+    noteContent: string,
+    apiKey: string,
+    onContextError?: (message: string) => void,
+): Promise<Chat> => {
     if (!apiKey) {
         throw new MissingApiKeyError();
     }
@@ -60,8 +67,14 @@ export const createChatSession = async (noteContent: string, apiKey: string): Pr
 
         // Send the note content as the first message to establish context for the conversation.
         // We don't need to wait for this response before returning the chat object. The user's first
-        // visible message will be the one that gets the first visible response.
-        chat.sendMessage({ message: `Here are my notes, please use them as the context for our conversation:\n\n---\n\n${noteContent}` });
+        // visible message will be the one that gets the first visible response. A failure here must
+        // still be caught, though — left unhandled, the user has no idea the AI never actually saw
+        // their note and just silently answers with no context.
+        chat.sendMessage({ message: `Here are my notes, please use them as the context for our conversation:\n\n---\n\n${noteContent}` })
+            .catch((error) => {
+                console.error('Failed to prime chat session with note context:', error);
+                onContextError?.(extractGeminiErrorMessage(error));
+            });
 
         return chat;
     } catch (error) {

@@ -225,6 +225,30 @@ const App: React.FC = () => {
     if (isAIPanelOpen) setHasOpenedAIPanel(true);
   }, [isAIPanelOpen]);
 
+  // Bumped on every new session and on note switch, so a fire-and-forget
+  // callback from an old/abandoned session (e.g. a context-priming failure
+  // that lands after the user has already moved on) can recognize it's
+  // stale and skip updating state for whatever session is current now.
+  const chatSessionTokenRef = useRef(0);
+  const previousNoteIdForChatRef = useRef(activeNoteId);
+  useEffect(() => {
+    // The AI session was primed with the *previous* note's content — if it
+    // stayed open across a note switch, it would otherwise keep answering
+    // as if the old note were still active, with nothing telling the user
+    // anything changed. Closing it makes that obvious; reopening starts a
+    // fresh session for whatever note is active now.
+    if (previousNoteIdForChatRef.current !== activeNoteId) {
+      if (isAIPanelOpen) {
+        chatSessionTokenRef.current++;
+        setIsAIPanelOpen(false);
+        setChatSession(null);
+        setChatMessages([]);
+      }
+      previousNoteIdForChatRef.current = activeNoteId;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNoteId]);
+
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   const activeNoteName = activeNoteId ? tree[activeNoteId]?.name ?? '筆記' : '筆記';
@@ -489,9 +513,18 @@ const App: React.FC = () => {
     setIsAILoading(true);
     setChatMessages([]);
 
+    const sessionToken = ++chatSessionTokenRef.current;
+
     try {
       const { createChatSession } = await import('./services/geminiChatService');
-      const session = await createChatSession(markdown, apiKey);
+      const session = await createChatSession(markdown, apiKey, (errorMessage) => {
+        // Fire-and-forget context priming can fail well after this function
+        // returns — only surface it if the user hasn't since closed the
+        // panel or switched to a different note's session in the meantime.
+        if (chatSessionTokenRef.current !== sessionToken) return;
+        setChatMessages(prev => [...prev, { role: 'model', text: `（提醒：讀取這篇筆記的內容時發生錯誤，後續回答可能沒有參考到筆記內容：${errorMessage}）` }]);
+      });
+      if (chatSessionTokenRef.current !== sessionToken) return;
       setChatSession(session);
       setChatMessages([{ role: 'model', text: `你好！我已經閱讀完 **${activeNoteName}** 的內容了。我可以協助你做什麼呢？試試看問我：\n\n- 幫我總結這份筆記\n- 根據筆記內容出幾道練習題\n- 用更簡單的方式解釋第二段` }]);
     } catch (error) {

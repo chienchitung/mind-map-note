@@ -243,7 +243,10 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   const { links, nodes } = useMemo(() => {
     if (!data || nodeSizes.size === 0) return { links: [], nodes: [] };
 
-    const fullRoot = d3.hierarchy(JSON.parse(JSON.stringify(data)));
+    // structuredClone avoids the string-serialize round trip JSON.parse(JSON.stringify(...))
+    // does — same result for this plain-object tree, meaningfully cheaper on
+    // every collapse/expand toggle (this memo depends on collapsedNodes).
+    const fullRoot = d3.hierarchy(structuredClone(data));
     
     const getNodeHeight = (node: d3.HierarchyNode<MindMapNode>) => nodeSizes.get(node.data.id)?.height || 0;
     const getNodeWidth = (node: d3.HierarchyNode<MindMapNode>) => nodeSizes.get(node.data.id)?.width || 0;
@@ -321,6 +324,12 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         rootNode.x = 0;
         rootNode.y = 0;
 
+        // Built once and reused for every node below instead of re-scanning
+        // fullRoot.descendants() per node (which made this whole block
+        // O(n²) for the two-sided layout — noticeable with hundreds of nodes).
+        const fullRootById = new Map<string, d3.HierarchyNode<MindMapNode>>();
+        fullRoot.each(node => fullRootById.set(node.data.id, node));
+
         const children = rootNode.children || [];
         const midIndex = Math.ceil(children.length / 2);
         const leftChildren = children.slice(0, midIndex);
@@ -332,27 +341,27 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
 
             const dummyRootData: MindMapNode = { id: `dummy-root-${isLeftSide ? 'l' : 'r'}`, name: 'dummy', children: childGroup.map(c => c.data), level: 0, lineNumber: -1, originalLine: '', prefix: '' };
             const groupRoot = d3.hierarchy(dummyRootData);
-            
+
             computeHorizontalLayout(groupRoot);
 
             const rootNodeWidth = getNodeWidth(rootNode);
             groupRoot.descendants().forEach(node => {
                 if (node.depth === 0) return; // Skip the dummy root
                 const pointNode = node as d3.HierarchyPointNode<MindMapNode>;
-                
+
                 // Find the original node from the full hierarchy to preserve animations
-                const originalNode = fullRoot.descendants().find(n => n.data.id === node.data.id) as d3.HierarchyPointNode<MindMapNode>;
+                const originalNode = fullRootById.get(node.data.id) as d3.HierarchyPointNode<MindMapNode>;
                 if (originalNode) {
                     // Adjust position to account for the root node's width
                     const finalY = pointNode.y + (rootNodeWidth / 2);
-                    
+
                     originalNode.x = pointNode.x;
                     originalNode.y = isLeftSide ? -finalY : finalY;
                     originalNode.data.side = isLeftSide ? 'left' : 'right';
                 }
             });
         });
-        
+
     } else if (layout === MindMapLayout.Logic) {
         computeHorizontalLayout(fullRoot);
     } else if (layout === MindMapLayout.Organizational) {

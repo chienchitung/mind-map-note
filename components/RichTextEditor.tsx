@@ -1,4 +1,4 @@
-import React, { useContext, useEffect } from 'react';
+import React, { useContext, useEffect, useRef } from 'react';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import type { NodeViewProps } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -6,7 +6,7 @@ import TiptapImage from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Markdown } from 'tiptap-markdown';
 import { Images } from '../types';
-import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon } from './icons';
+import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
 
 interface RichTextEditorProps {
   value: string;
@@ -87,6 +87,8 @@ const getMarkdownStorage = (editor: ReturnType<typeof useEditor>): { getMarkdown
   (editor?.storage as any)?.markdown ?? null;
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -145,6 +147,12 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
     reader.readAsDataURL(file);
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) insertImageFile(file);
+    e.target.value = ''; // allow uploading the same file again
+  };
+
   // Keep the editor in sync with external changes (undo/redo, switching
   // notes) without fighting the user's own typing: only push `value` in
   // when it actually differs from what the editor would itself produce,
@@ -190,8 +198,19 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
         <ToolbarButton title="編號清單" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
           <OrderedListIcon className="w-4 h-4" />
         </ToolbarButton>
+        <div className="w-px h-5 bg-border-color mx-1"></div>
+        <ToolbarButton title="插入圖片" active={false} onClick={() => fileInputRef.current?.click()}>
+          <ImageIcon className="w-4 h-4" />
+        </ToolbarButton>
         {toolbarExtras && <div className="ml-auto flex items-center gap-1.5">{toolbarExtras}</div>}
       </div>
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        className="hidden"
+      />
       <div className="flex-grow overflow-y-auto">
         <ImagesContext.Provider value={images}>
           <EditorContent editor={editor} className="h-full" />

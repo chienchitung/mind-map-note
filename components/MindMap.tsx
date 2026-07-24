@@ -115,6 +115,14 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  // Mirrors dropTargetId for the drag effect's 'end' handler to read. The
+  // handler is created once per gesture (see the drag-attach effect below,
+  // which deliberately does NOT depend on dropTargetId) and keeps running
+  // until mouseup, so it can't see later dropTargetId state updates through
+  // its own closure — hovering over a target during the drag would
+  // otherwise never be visible to the handler that fires on drop.
+  const dropTargetIdRef = useRef<string | null>(null);
+  useEffect(() => { dropTargetIdRef.current = dropTargetId; }, [dropTargetId]);
   const [nodeSizes, setNodeSizes] = useState<Map<string, { width: number; height: number }>>(new Map());
   
   useImperativeHandle(ref, () => ({
@@ -460,8 +468,19 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     if (!gRef.current) return;
     const g = d3.select(gRef.current);
 
+    // Deliberately unkeyed: these <g class="node"> elements are rendered by
+    // React, not appended by d3's own enter/exit lifecycle, so they never
+    // have __data__ set on them going into this join. A keyed join reads
+    // each existing element's __data__ to compute its "old" key — since
+    // that's always undefined here, every element resolves to the same
+    // empty key, none of them match the incoming nodes' real keys, and the
+    // resulting "update" selection is silently empty every single time
+    // (drag never actually gets attached to anything). A positional join
+    // just re-binds by DOM/array order on every run instead, which is
+    // exactly right here since React guarantees the rendered <g> order
+    // matches the `nodes` array order.
     const nodeSelection = g.selectAll<SVGGElement, d3.HierarchyPointNode<MindMapNode>>('g.node')
-      .data(nodes, (d) => d?.data?.id ?? '');
+      .data(nodes);
 
     if (isTouchPrimary) {
         // Dragging a node to reparent it relies on mouse hover to highlight the
@@ -473,15 +492,25 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     }
 
     const drag = d3.drag<SVGGElement, d3.HierarchyPointNode<MindMapNode>>()
-        .on('start', (event, d) => {
+        // Regular functions, not arrow functions: d3 binds `this` to the
+        // element the drag behavior was attached to (the dragged <g>) for
+        // every phase of the gesture. `event.sourceEvent.currentTarget`
+        // looks equivalent but isn't — for the 'drag'/'end' phases the
+        // underlying native mousemove/mouseup listener is registered on
+        // `window` (so the drag can keep tracking even once the cursor
+        // leaves the node), so sourceEvent.currentTarget there is `window`,
+        // not the node — calling .attr()/.classed() on it throws.
+        .on('start', function (event, d) {
             if (!d?.data || d.depth === 0) return;
             setDraggedNodeId(d.data.id);
-            d3.select(event.sourceEvent.currentTarget).raise().classed('dragging', true);
+            d3.select(this).raise().classed('dragging', true);
         })
-        .on('drag', (event, d) => d3.select(event.sourceEvent.currentTarget).attr('transform', `translate(${event.x},${event.y})`))
-        .on('end', (event, draggedNode) => {
-            d3.select(event.sourceEvent.currentTarget).classed('dragging', false);
-            const currentDropTargetId = dropTargetId;
+        .on('drag', function (event) {
+            d3.select(this).attr('transform', `translate(${event.x},${event.y})`);
+        })
+        .on('end', function (event, draggedNode) {
+            d3.select(this).classed('dragging', false);
+            const currentDropTargetId = dropTargetIdRef.current;
             setDraggedNodeId(null);
             setDropTargetId(null);
             
@@ -510,7 +539,14 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         });
 
     nodeSelection.call(drag);
-  }, [data, nodes, onStructureUpdate, dropTargetId, isTouchPrimary]);
+    // dropTargetId is deliberately excluded: it's read from dropTargetIdRef
+    // (always current) inside the 'end' handler instead, specifically so
+    // hovering over drop targets during a drag doesn't tear down and
+    // rebuild the whole drag behavior mid-gesture — which previously
+    // orphaned the in-progress gesture on a stale 'end' closure and made
+    // dropping onto a target silently do nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, nodes, onStructureUpdate, isTouchPrimary]);
   
   useEffect(() => {
     const container = svgContainerRef.current;

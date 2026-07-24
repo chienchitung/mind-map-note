@@ -18,6 +18,7 @@ import type { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { mindMapToMarkdown } from './utils/markdownGenerator';
 import { escapeRegExp } from './utils/escapeRegExp';
+import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 
 // The AI chat panel (and the @google/genai SDK it pulls in) is only ever
 // needed once a user with an API key opens it, so it's loaded on demand
@@ -506,9 +507,16 @@ const App: React.FC = () => {
       return;
     }
 
-    // Only start a new session if one isn't already active for this note,
-    // or if the note content has significantly changed. For simplicity,
-    // we'll start a new one each time it's opened for now.
+    // A session for this note is already active — the user is just
+    // re-expanding a collapsed panel, not starting over. Show the existing
+    // conversation as-is instead of discarding it and re-priming a brand
+    // new session (the note-switch effect above already clears chatSession
+    // when it's genuinely time to start fresh).
+    if (chatSession) {
+      setIsAIPanelOpen(true);
+      return;
+    }
+
     setIsAIPanelOpen(true);
     setIsAILoading(true);
     setChatMessages([]);
@@ -551,7 +559,7 @@ const App: React.FC = () => {
 
     try {
       const response = await chatSession.sendMessage({ message });
-      const modelMessage: ChatMessage = { role: 'model', text: response.text };
+      const modelMessage: ChatMessage = { role: 'model', text: normalizeAiMarkdown(response.text ?? '') };
       setChatMessages(prev => [...prev, modelMessage]);
     } catch (error) {
       console.error("Chat error:", error);

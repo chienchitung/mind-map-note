@@ -26,6 +26,17 @@ const MoveToModal: React.FC<{
 
   const disabledIds = nodeToMove.type === 'folder' ? getDescendantIds(nodeToMove.id) : new Set<string>();
 
+  // The close button's own tooltip promises "關閉 (Esc)" — actually wire it
+  // up; App.tsx's global Escape handler doesn't know about this modal's
+  // local state.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   // A recursive component to render the folder hierarchy.
   const FolderTree: React.FC<{ parentId: string, level: number }> = ({ parentId, level }) => {
     const parent = tree[parentId];
@@ -116,8 +127,24 @@ interface IFileExplorerContext {
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
+  draggingNodeId: string | null;
   setDraggingNodeId: (id: string | null) => void;
 }
+
+// Whether `targetId` is `draggedId` itself or one of its descendants — used
+// to reject a drop before it happens rather than after, since dropping a
+// folder into itself/its own descendant would either no-op or create a
+// cycle depending on where the check lived.
+const isNodeOrDescendant = (tree: FileSystemTree, draggedId: string, targetId: string): boolean => {
+  if (draggedId === targetId) return true;
+  const queue = [...(tree[draggedId]?.childrenIds ?? [])];
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (currentId === targetId) return true;
+    if (tree[currentId]) queue.push(...tree[currentId].childrenIds);
+  }
+  return false;
+};
 
 const FileExplorerContext = React.createContext<IFileExplorerContext | null>(null);
 
@@ -132,7 +159,7 @@ const Node: React.FC<{
   const context = useContext(FileExplorerContext);
   if (!context) throw new Error("Node must be used within a FileExplorerContext");
 
-  const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu, setDraggingNodeId } = context;
+  const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu, draggingNodeId, setDraggingNodeId } = context;
 
   const [isExpanded, setIsExpanded] = useState(true);
   const [name, setName] = useState(node.name);
@@ -184,15 +211,23 @@ const Node: React.FC<{
     setDraggingNodeId(null);
   };
 
+  // Only claim the drop (preventDefault) when it would actually be valid —
+  // dropping a folder into itself or one of its own descendants used to
+  // still show the green "valid drop" highlight and then silently no-op on
+  // release, with nothing telling the user why. Skipping preventDefault()
+  // here instead makes the browser show its native "not allowed" cursor and
+  // refuses the drop outright.
+  const isValidDropTarget = node.type === 'folder' && draggingNodeId !== null && !isNodeOrDescendant(tree, draggingNodeId, node.id);
+
   const handleDragOver = (e: React.DragEvent) => {
-    if (node.type === 'folder') {
+    if (isValidDropTarget) {
       e.preventDefault();
       setIsDropTarget(true);
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    if (node.type === 'folder') {
+    if (isValidDropTarget) {
       e.preventDefault();
       const droppedNodeId = e.dataTransfer.getData('text/plain');
       if (droppedNodeId) onMoveNode(droppedNodeId, node.id);
@@ -293,7 +328,7 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const closeContextMenu = () => setContextMenu(null);
 
   const contextNode = contextMenu ? tree[contextMenu.nodeId] : null;
-  const contextValue: IFileExplorerContext = { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu: handleContextMenu, setDraggingNodeId };
+  const contextValue: IFileExplorerContext = { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu: handleContextMenu, draggingNodeId, setDraggingNodeId };
 
   // Only nested items (not already at root) need a way back out — dropping
   // a folder's contents anywhere but onto another folder previously did

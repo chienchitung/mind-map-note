@@ -10,21 +10,26 @@ interface MarkdownPreviewProps {
 
 const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ markdown, images }) => {
     const html = useMemo(() => {
-        // Pre-process the markdown to replace custom "image://" protocol with actual base64 data URLs.
-        // This is more robust than using a custom renderer, as it provides a standard markdown
-        // string to the 'marked' library, avoiding potential issues with its internal URL handling.
-        const processedMarkdown = markdown.replace(/!\[(.*?)\]\(image:\/\/(.*?)\)/g, (match, altText, imageId) => {
-            const dataUrl = images?.[imageId];
-            if (dataUrl) {
-                // Return a standard markdown image link with the data URL
-                return `![${altText}](${dataUrl})`;
+        // Resolve the custom "image://" protocol to its base64 data URL only inside
+        // the renderer callback, never by substituting it into the markdown string
+        // itself. A real photo's data URL can be tens of millions of characters on
+        // a single line, and handing that to marked's lexer as literal text can
+        // overflow its regex-based block tokenizer ("Maximum call stack size
+        // exceeded") — which, with no error boundary to catch it, unmounts the
+        // entire app to a blank screen.
+        const renderer = new marked.Renderer();
+        renderer.image = ({ href, title, text }) => {
+            const resolvedHref = href.startsWith('image://') ? images?.[href.slice('image://'.length)] : href;
+            if (!resolvedHref) {
+                return `<!-- Image not found: ${href} -->`;
             }
-            // If the image ID is not found, return a comment or the original text
-            return `<!-- Image not found: ${imageId} -->`;
-        });
+            let out = `<img src="${resolvedHref}" alt="${text}"`;
+            if (title) out += ` title="${title}"`;
+            out += '>';
+            return out;
+        };
 
-        // Parse the processed markdown without any custom renderers.
-        const parsedHtml = marked.parse(processedMarkdown);
+        const parsedHtml = marked.parse(markdown, { renderer });
         const rawHtml = typeof parsedHtml === 'string' ? parsedHtml : '';
 
         // Notes may contain content pasted from untrusted sources, so the rendered

@@ -42,6 +42,10 @@ interface MindMapProps {
   setSelectedNodeId: (id: string | null) => void;
   images: Images;
   theme: 'light' | 'dark';
+  // Used only to detect an actual note switch (see the view-reset effect
+  // below) — `data` itself is a fresh object on every keystroke, so keying
+  // the reset off it would recenter the canvas on every single edit.
+  noteId: string | null;
 }
 
 export interface MindMapHandle {
@@ -101,7 +105,7 @@ const getNodeStyles = (depth: number, theme: 'light' | 'dark') => {
     }
 };
 
-const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId, images, theme }, ref) => {
+const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId, images, theme, noteId }, ref) => {
   const isTouchPrimary = useIsTouchPrimary();
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
@@ -455,10 +459,22 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
           .scaleExtent([0.1, 3])
           .on('zoom', (event) => g.attr('transform', event.transform.toString()));
         svg.call(zoomRef.current);
+        // Double-clicking a node is how you rename it (see handleTextClick),
+        // not a "zoom in here" gesture — but d3-zoom binds its own
+        // dblclick-to-zoom by default, natively, directly on the <svg>. That
+        // fires on the way up regardless of the node's own onDoubleClick
+        // calling stopPropagation(), since React's synthetic event system
+        // only intercepts bubbling at its root container, well after native
+        // bubbling has already passed through the <svg> and triggered d3's
+        // listener. Disable it explicitly instead.
+        svg.on('dblclick.zoom', null);
     }
   }, []);
 
-  useEffect(() => { if (dimensions.width > 0) resetView(); }, [resetView, data, dimensions.width]);
+  // Keyed off noteId (and dimensions/layout, via resetView's own deps) —
+  // not `data`, which is a fresh object on every single edit and would
+  // otherwise recenter/re-zoom the canvas out from under the user mid-edit.
+  useEffect(() => { if (dimensions.width > 0) resetView(); }, [resetView, noteId, dimensions.width]);
   useEffect(() => { if (editingNodeId && inputRef.current) {
         inputRef.current.focus();
         inputRef.current.select();

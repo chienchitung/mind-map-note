@@ -685,6 +685,7 @@ const App: React.FC = () => {
                       setSelectedNodeId={setSelectedNodeId}
                       images={images}
                       theme={theme}
+                      noteId={activeNoteId}
                   />
               ) : <div className="text-center text-text-secondary text-sm">請在編輯器中新增內容以生成思維導圖。</div>}
             </div>

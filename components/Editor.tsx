@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
 import { CopyIcon, CheckIcon, ImageIcon } from './icons';
 import Spinner from './Spinner';
 import { Images } from '../types';
+import { compressImageFile } from '../utils/imageCompression';
 
 // TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
 // a user opts into rich mode, so keep them out of the initial bundle that
@@ -187,32 +188,26 @@ const Editor: React.FC<EditorProps> = ({
     }
   };
   
-  const processAndInsertImage = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
-        const imageId = onImagePasted(dataUrl);
-        const markdownImage = `![${file.name}](image://${imageId})\n`;
-        
-        const textarea = textareaRef.current;
-        if (textarea) {
-          const { selectionStart, selectionEnd, value } = textarea;
-          const newValue = 
-            value.substring(0, selectionStart) + 
-            markdownImage + 
-            value.substring(selectionEnd);
-          
-          onChange(newValue);
+  const processAndInsertImage = async (file: File) => {
+    const dataUrl = await compressImageFile(file);
+    const imageId = onImagePasted(dataUrl);
+    const markdownImage = `![${file.name}](image://${imageId})\n`;
 
-          // Move cursor after the inserted markdown
-          setTimeout(() => {
-            textarea.selectionStart = textarea.selectionEnd = selectionStart + markdownImage.length;
-          }, 0);
-        }
-      }
-    };
-    reader.readAsDataURL(file);
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const { selectionStart, selectionEnd, value } = textarea;
+      const newValue =
+        value.substring(0, selectionStart) +
+        markdownImage +
+        value.substring(selectionEnd);
+
+      onChange(newValue);
+
+      // Move cursor after the inserted markdown
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = selectionStart + markdownImage.length;
+      }, 0);
+    }
   };
 
   // FIX: Using a traditional for-loop to iterate over clipboard items. This can be more
@@ -310,9 +305,20 @@ const Editor: React.FC<EditorProps> = ({
     </button>
   );
 
+  const uploadButton = (
+    <button
+      onClick={() => fileInputRef.current?.click()}
+      className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
+      title="上傳圖片"
+      aria-label="上傳圖片"
+    >
+      <ImageIcon className="w-4 h-4" />
+    </button>
+  );
+
   return (
     <div
-      className="h-full w-full editor-wrapper relative"
+      className="h-full w-full editor-wrapper relative flex flex-col"
       onDragOver={mode === 'plain' ? handleDragOver : undefined}
       onDragLeave={mode === 'plain' ? handleDragLeave : undefined}
       onDrop={mode === 'plain' ? handleDrop : undefined}
@@ -324,18 +330,23 @@ const Editor: React.FC<EditorProps> = ({
       )}
 
       {mode === 'plain' && (
-        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
-          {modeToggle}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
-            title="上傳圖片"
-            aria-label="上傳圖片"
-          >
-            <ImageIcon className="w-4 h-4" />
-          </button>
-          {copyButton}
-        </div>
+        <>
+          {/* Mobile: a normal in-flow toolbar row above the text, so it
+              never sits on top of the first line the user is writing —
+              unlike the floating desktop version, narrow screens have no
+              margin for it to float in without covering content. */}
+          <div className="flex md:hidden items-center gap-1.5 px-3 pt-3 pb-1 flex-shrink-0">
+            {modeToggle}
+            {uploadButton}
+            <div className="flex-grow" />
+            {copyButton}
+          </div>
+          <div className="hidden md:flex absolute top-3 right-3 z-10 items-center gap-1.5">
+            {modeToggle}
+            {uploadButton}
+            {copyButton}
+          </div>
+        </>
       )}
 
       <input
@@ -347,7 +358,7 @@ const Editor: React.FC<EditorProps> = ({
       />
 
       {mode === 'plain' ? (
-        <>
+        <div className="relative flex-1 min-h-0">
           <div ref={backdropRef} className="editor-backdrop">
             {renderHighlightedText()}
           </div>
@@ -366,17 +377,19 @@ const Editor: React.FC<EditorProps> = ({
             autoCapitalize="off"
             autoCorrect="off"
           />
-        </>
+        </div>
       ) : (
-        <Suspense fallback={<div className="h-full flex items-center justify-center"><Spinner className="w-6 h-6 text-accent" /></div>}>
-          <RichTextEditor
-            value={value}
-            onChange={onChange}
-            onImagePasted={onImagePasted}
-            images={images}
-            toolbarExtras={<>{modeToggle}{copyButton}</>}
-          />
-        </Suspense>
+        <div className="flex-1 min-h-0">
+          <Suspense fallback={<div className="h-full flex items-center justify-center"><Spinner className="w-6 h-6 text-accent" /></div>}>
+            <RichTextEditor
+              value={value}
+              onChange={onChange}
+              onImagePasted={onImagePasted}
+              images={images}
+              toolbarExtras={<>{modeToggle}{copyButton}</>}
+            />
+          </Suspense>
+        </div>
       )}
     </div>
   );

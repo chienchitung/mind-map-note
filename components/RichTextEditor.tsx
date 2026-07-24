@@ -7,6 +7,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { Markdown } from 'tiptap-markdown';
 import { Images } from '../types';
 import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
+import { compressImageFile } from '../utils/imageCompression';
 
 interface RichTextEditorProps {
   value: string;
@@ -135,16 +136,12 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
     },
   }, []);
 
-  const insertImageFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl && editor) {
-        const imageId = onImagePasted(dataUrl);
-        editor.chain().focus().setImage({ src: `image://${imageId}`, alt: file.name }).run();
-      }
-    };
-    reader.readAsDataURL(file);
+  const insertImageFile = async (file: File) => {
+    const dataUrl = await compressImageFile(file);
+    if (editor) {
+      const imageId = onImagePasted(dataUrl);
+      editor.chain().focus().setImage({ src: `image://${imageId}`, alt: file.name }).run();
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -41,6 +41,24 @@ const extractReferencedImageIds = (content: string): string[] => {
     return ids;
 };
 
+// Removes any image no longer referenced by any note's content. Previously
+// this only ran when a whole note was deleted, so an image orphaned by a
+// regular edit — deleting just the image line, or undoing a paste — never
+// got cleaned up and sat in storage forever. Returns the same `images`
+// reference when nothing changed, so callers can skip an update.
+const garbageCollectImages = (notes: NotesContent, images: Images): Images => {
+    if (Object.keys(images).length === 0) return images;
+    const stillReferenced = new Set<string>();
+    Object.keys(notes).forEach(id => {
+        extractReferencedImageIds(notes[id]).forEach(imageId => stillReferenced.add(imageId));
+    });
+    const orphanedIds = Object.keys(images).filter(id => !stillReferenced.has(id));
+    if (orphanedIds.length === 0) return images;
+    const newImages = { ...images };
+    orphanedIds.forEach(id => delete newImages[id]);
+    return newImages;
+};
+
 const getInitialFileSystem = () => {
     const savedTree = localStorage.getItem(TREE_STORAGE_KEY);
     const savedNotes = localStorage.getItem(NOTES_STORAGE_KEY);
@@ -150,10 +168,17 @@ export const useFileSystem = () => {
     }, []);
 
     const updateNote = useCallback((noteId: string, content: string) => {
-        setState(prevState => ({
-            ...prevState,
-            notes: { ...prevState.notes, [noteId]: content },
-        }));
+        setState(prevState => {
+            // Guard against resurrecting a note that's been deleted since this
+            // update was queued (e.g. a debounced flush racing a deletion) —
+            // without this, a stale write silently recreates an orphaned
+            // entry in `notes` with no corresponding tree node, which then
+            // persists to storage forever with no way to see or remove it.
+            if (!prevState.tree[noteId]) return prevState;
+            const newNotes = { ...prevState.notes, [noteId]: content };
+            const newImages = garbageCollectImages(newNotes, prevState.images);
+            return { ...prevState, notes: newNotes, images: newImages };
+        });
     }, []);
 
     const renameNode = useCallback((nodeId: string, newName: string) => {
@@ -196,20 +221,8 @@ export const useFileSystem = () => {
                 newTree[parent.id] = { ...parent, childrenIds: parent.childrenIds.filter(id => id !== nodeId) };
             }
 
-            // Garbage-collect any images that were only referenced by the deleted note(s),
-            // so pasted screenshots don't silently accumulate in storage forever.
-            let newImages = prevState.images;
-            if (Object.keys(prevState.images).length > 0) {
-                const stillReferenced = new Set<string>();
-                Object.keys(newNotes).forEach(id => {
-                    extractReferencedImageIds(newNotes[id]).forEach(imageId => stillReferenced.add(imageId));
-                });
-                const orphanedIds = Object.keys(prevState.images).filter(id => !stillReferenced.has(id));
-                if (orphanedIds.length > 0) {
-                    newImages = { ...prevState.images };
-                    orphanedIds.forEach(id => delete newImages[id]);
-                }
-            }
+            // Garbage-collect any images that were only referenced by the deleted note(s).
+            const newImages = garbageCollectImages(newNotes, prevState.images);
 
             return { tree: newTree, notes: newNotes, images: newImages };
         });

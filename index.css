@@ -316,6 +316,58 @@ body {
   font-style: italic;
 }
 
+/* PDF export (App.tsx's #print-only-content, triggered via window.print()).
+ * Colors are hardcoded to the light palette with !important: this content
+ * needs to read correctly on paper regardless of which theme is active on
+ * screen, and the CSS variables it would otherwise inherit come from a
+ * `.dark`/`.light` class (specificity 0,1,0) that a plain `@media print`
+ * override can't outrank any other way. */
+@media print {
+  @page {
+    margin: 2cm;
+  }
+
+  body {
+    background-color: #ffffff !important;
+  }
+
+  #print-only-content {
+    color: #1d1d1f !important;
+  }
+
+  #print-only-content .markdown-preview h1,
+  #print-only-content .markdown-preview h2,
+  #print-only-content .markdown-preview h3,
+  #print-only-content .markdown-preview h4,
+  #print-only-content .markdown-preview h5,
+  #print-only-content .markdown-preview h6 {
+    color: #1d1d1f !important;
+    border-bottom-color: #d2d2d7 !important;
+    break-after: avoid;
+  }
+
+  #print-only-content .markdown-preview a {
+    color: #0071e3 !important;
+  }
+
+  #print-only-content .markdown-preview code,
+  #print-only-content .markdown-preview pre {
+    background-color: #f5f5f7 !important;
+    border-color: #d2d2d7 !important;
+    color: #1d1d1f !important;
+  }
+
+  #print-only-content .markdown-preview blockquote {
+    border-left-color: #0071e3 !important;
+    color: #6e6e73 !important;
+  }
+
+  #print-only-content img,
+  #print-only-content pre {
+    break-inside: avoid;
+  }
+}
+
 /* Modal Styles */
 .modal-overlay {
   position: fixed;

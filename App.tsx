@@ -328,12 +328,11 @@ const App: React.FC = () => {
   }, [viewMode, mindMapData]);
 
 
-  const handleExport = () => {
-    if (viewMode === ViewMode.MindMap) {
-      mindMapRef.current?.exportAsJPG();
-      return;
-    }
+  const handleExportMindMapImage = () => {
+    mindMapRef.current?.exportAsJPG();
+  };
 
+  const handleExportMarkdown = () => {
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -343,6 +342,15 @@ const App: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  // PDF export leans on the browser's native print-to-PDF instead of a
+  // client-side PDF library: the hidden #print-only container (rendered
+  // below) is styled to show only itself under `@media print` (see
+  // index.css), so triggering print produces a real, text-searchable PDF
+  // with no added dependency.
+  const handleExportPDF = () => {
+    window.print();
   };
 
   const handleExportBackup = () => {
@@ -552,13 +560,16 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-screen font-sans bg-primary">
+    <div className="flex flex-col h-screen font-sans bg-primary print:h-auto print:overflow-visible print:bg-white">
+    <div className="print:hidden flex flex-col h-full">
       <Header
         viewMode={viewMode}
         onViewChange={setViewMode}
         mindMapLayout={mindMapLayout}
         onLayoutChange={setMindMapLayout}
-        onExport={handleExport}
+        onExportMindMapImage={handleExportMindMapImage}
+        onExportMarkdown={handleExportMarkdown}
+        onExportPDF={handleExportPDF}
         onUndo={undo}
         onRedo={redo}
         canUndo={canUndo}
@@ -680,6 +691,16 @@ const App: React.FC = () => {
           {storageError && <Toast message={storageError} onDismiss={dismissStorageError} />}
         </div>
       )}
+    </div>
+
+    {/* Rendered only under @media print (see index.css) — window.print()
+        in handleExportPDF turns this into the entire page, giving a real,
+        text-searchable "PDF" via the browser's own print-to-PDF instead of
+        pulling in a client-side PDF library. */}
+    <div id="print-only-content" className="hidden print:block">
+      <h1 className="text-3xl font-semibold mb-6">{activeNoteName}</h1>
+      <MarkdownPreview markdown={markdown} images={images} />
+    </div>
     </div>
   );
 };

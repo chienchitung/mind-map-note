@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ViewMode, MindMapLayout, SearchResultItem } from '../types';
-import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon, ChatbotIcon, SettingsIcon, MenuIcon, MoreIcon, SearchIcon } from './icons';
+import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, DocumentIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon, ChatbotIcon, SettingsIcon, MenuIcon, MoreIcon, SearchIcon } from './icons';
 import SearchBar from './SearchBar';
 import MobileSearchOverlay from './MobileSearchOverlay';
 import Spinner from './Spinner';
@@ -10,7 +10,9 @@ interface HeaderProps {
   onViewChange: (mode: ViewMode) => void;
   mindMapLayout: MindMapLayout;
   onLayoutChange: (layout: MindMapLayout) => void;
-  onExport: () => void;
+  onExportMindMapImage: () => void;
+  onExportMarkdown: () => void;
+  onExportPDF: () => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -44,7 +46,9 @@ const Header: React.FC<HeaderProps> = ({
   onViewChange,
   mindMapLayout,
   onLayoutChange,
-  onExport,
+  onExportMindMapImage,
+  onExportMarkdown,
+  onExportPDF,
   onUndo,
   onRedo,
   canUndo,
@@ -71,9 +75,11 @@ const Header: React.FC<HeaderProps> = ({
   const disabledClass = "text-text-secondary/30 cursor-not-allowed";
 
   const [isLayoutDropdownOpen, setIsLayoutDropdownOpen] = useState(false);
+  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const layoutDropdownRef = useRef<HTMLDivElement>(null);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
 
@@ -81,6 +87,9 @@ const Header: React.FC<HeaderProps> = ({
     const handleClickOutside = (event: MouseEvent) => {
       if (layoutDropdownRef.current && !layoutDropdownRef.current.contains(event.target as Node)) {
         setIsLayoutDropdownOpen(false);
+      }
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target as Node)) {
+        setIsExportDropdownOpen(false);
       }
       if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
         setIsMoreMenuOpen(false);
@@ -120,13 +129,22 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const CurrentLayoutIcon = layoutOptions.find(opt => opt.id === mindMapLayout)?.Icon || MindMapLayoutIcon;
-  const exportLabel = viewMode === ViewMode.MindMap ? '匯出心智圖圖片 (JPG)' : '導出筆記 (Markdown)';
+  const isMindMapView = viewMode === ViewMode.MindMap;
+
+  // In Mind Map view there's only one export format, so it's a direct
+  // click; in Editor/Preview there's a choice, so it's a small dropdown.
+  const exportMenuItems = isMindMapView
+    ? [{ key: 'export-jpg', onClick: onExportMindMapImage, icon: ExportIcon, label: '匯出心智圖圖片 (JPG)' }]
+    : [
+        { key: 'export-md', onClick: onExportMarkdown, icon: ExportIcon, label: '匯出為 Markdown (.md)' },
+        { key: 'export-pdf', onClick: onExportPDF, icon: DocumentIcon, label: '匯出為 PDF' },
+      ];
 
   const moreMenuItems = [
     { key: 'theme', onClick: handleThemeToggle, disabled: false, icon: theme === 'dark' ? SunIcon : MoonIcon, label: '切換主題' },
     { key: 'undo', onClick: onUndo, disabled: !canUndo, icon: UndoIcon, label: '復原' },
     { key: 'redo', onClick: onRedo, disabled: !canRedo, icon: RedoIcon, label: '重做' },
-    { key: 'export', onClick: onExport, disabled: !activeNoteId, icon: ExportIcon, label: exportLabel },
+    ...exportMenuItems.map(item => ({ ...item, disabled: !activeNoteId })),
     { key: 'settings', onClick: onOpenSettings, disabled: false, icon: SettingsIcon, label: '設定' },
     { key: 'help', onClick: onShowHelp, disabled: false, icon: HelpIcon, label: '幫助' },
   ];
@@ -298,9 +316,39 @@ const Header: React.FC<HeaderProps> = ({
                   <RedoIcon className="w-5 h-5" />
               </button>
               <div className="w-px h-5 bg-border-color mx-1"></div>
-              <button onClick={onExport} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title={exportLabel} aria-label={exportLabel}>
-                  <ExportIcon className="w-5 h-5" />
-              </button>
+              {isMindMapView ? (
+                <button onClick={onExportMindMapImage} disabled={!activeNoteId} className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`} title={exportMenuItems[0].label} aria-label={exportMenuItems[0].label}>
+                    <ExportIcon className="w-5 h-5" />
+                </button>
+              ) : (
+                <div ref={exportDropdownRef} className="relative">
+                  <button
+                    onClick={() => setIsExportDropdownOpen(prev => !prev)}
+                    disabled={!activeNoteId}
+                    className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`}
+                    title="匯出筆記"
+                    aria-label="匯出筆記"
+                    aria-haspopup="menu"
+                    aria-expanded={isExportDropdownOpen}
+                  >
+                    <ExportIcon className="w-5 h-5" />
+                  </button>
+                  {isExportDropdownOpen && (
+                    <div className="absolute top-full right-0 mt-2 w-56 glass-surface-solid border border-border-color/70 rounded-2xl shadow-apple-md z-20 p-1.5 overflow-hidden">
+                      {exportMenuItems.map(({ key, onClick, icon: Icon, label }) => (
+                        <button
+                          key={key}
+                          onClick={() => { onClick(); setIsExportDropdownOpen(false); }}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-sm text-left rounded-xl transition-colors duration-150 ease-apple text-text-secondary hover:bg-secondary hover:text-text-main"
+                        >
+                          <Icon className="w-5 h-5" />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="設定" aria-label="設定">
                   <SettingsIcon className="w-5 h-5" />
               </button>

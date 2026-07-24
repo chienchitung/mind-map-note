@@ -1,10 +1,18 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
 import { CopyIcon, CheckIcon, ImageIcon } from './icons';
+import Spinner from './Spinner';
+import { Images } from '../types';
+
+// TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
+// a user opts into rich mode, so keep them out of the initial bundle that
+// every load — including plain-text-only users — would otherwise pay for.
+const RichTextEditor = lazy(() => import('./RichTextEditor'));
 
 interface EditorProps {
   value: string;
   onChange: (value: string) => void;
   onImagePasted: (dataUrl: string) => string;
+  images: Images;
   scrollToLine?: number | null;
   onScrollComplete: () => void;
   onCursorActivity: (lineNumber: number) => void;
@@ -12,10 +20,13 @@ interface EditorProps {
 
 const LINE_HEIGHT = 24; // Approximation of line height in pixels for scrolling
 
+type EditMode = 'plain' | 'rich';
+
 const Editor: React.FC<EditorProps> = ({
   value,
   onChange,
   onImagePasted,
+  images,
   scrollToLine,
   onScrollComplete,
   onCursorActivity,
@@ -25,6 +36,11 @@ const Editor: React.FC<EditorProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  // Plain mode is the existing raw-Markdown textarea; rich mode is a
+  // toolbar-driven WYSIWYG view (headings/bold/lists/quote buttons) backed
+  // by the same underlying Markdown string — neither replaces the other,
+  // both edit the identical `value`/`onChange`.
+  const [mode, setMode] = useState<EditMode>('plain');
 
 
   useEffect(() => {
@@ -256,12 +272,50 @@ const Editor: React.FC<EditorProps> = ({
     }
   };
 
+  const modeToggle = (
+    <div className="flex items-center bg-elevated rounded-full p-0.5 shadow-apple-xs">
+      <button
+        onClick={() => setMode('plain')}
+        className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors duration-150 ease-apple ${mode === 'plain' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-main'}`}
+        title="純文字模式（Markdown 原始語法）"
+        aria-label="純文字模式"
+        aria-pressed={mode === 'plain'}
+      >
+        MD
+      </button>
+      <button
+        onClick={() => setMode('rich')}
+        className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors duration-150 ease-apple ${mode === 'rich' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-main'}`}
+        title="格式化模式（所見即所得）"
+        aria-label="格式化模式"
+        aria-pressed={mode === 'rich'}
+      >
+        Aa
+      </button>
+    </div>
+  );
+
+  const copyButton = (
+    <button
+      onClick={handleCopy}
+      className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
+      title={isCopied ? "已複製！" : "複製內容"}
+      aria-label={isCopied ? "已複製" : "複製內容"}
+    >
+      {isCopied ? (
+        <CheckIcon className="w-4 h-4 text-green-500" />
+      ) : (
+        <CopyIcon className="w-4 h-4" />
+      )}
+    </button>
+  );
+
   return (
     <div
       className="h-full w-full editor-wrapper relative"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDragOver={mode === 'plain' ? handleDragOver : undefined}
+      onDragLeave={mode === 'plain' ? handleDragLeave : undefined}
+      onDrop={mode === 'plain' ? handleDrop : undefined}
     >
       {isDraggingOver && (
         <div className="absolute inset-0 bg-accent/40 backdrop-blur-sm border-2 border-dashed border-white rounded-2xl flex items-center justify-center z-20 pointer-events-none">
@@ -269,28 +323,20 @@ const Editor: React.FC<EditorProps> = ({
         </div>
       )}
 
-      <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
-          title="上傳圖片"
-          aria-label="上傳圖片"
-        >
-          <ImageIcon className="w-4 h-4" />
-        </button>
-        <button
-          onClick={handleCopy}
-          className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
-          title={isCopied ? "已複製！" : "複製內容"}
-          aria-label={isCopied ? "已複製" : "複製內容"}
-        >
-          {isCopied ? (
-            <CheckIcon className="w-4 h-4 text-green-500" />
-          ) : (
-            <CopyIcon className="w-4 h-4" />
-          )}
-        </button>
-      </div>
+      {mode === 'plain' && (
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+          {modeToggle}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
+            title="上傳圖片"
+            aria-label="上傳圖片"
+          >
+            <ImageIcon className="w-4 h-4" />
+          </button>
+          {copyButton}
+        </div>
+      )}
 
       <input
         type="file"
@@ -300,24 +346,38 @@ const Editor: React.FC<EditorProps> = ({
         className="hidden"
       />
 
-       <div ref={backdropRef} className="editor-backdrop">
-        {renderHighlightedText()}
-      </div>
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
-        onClick={handleCursorActivity}
-        onKeyUp={handleCursorActivity}
-        onScroll={handleScroll}
-        placeholder="在這裡開始您的筆記..."
-        className="editor-textarea"
-        spellCheck="false"
-        autoCapitalize="off"
-        autoCorrect="off"
-      />
+      {mode === 'plain' ? (
+        <>
+          <div ref={backdropRef} className="editor-backdrop">
+            {renderHighlightedText()}
+          </div>
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onClick={handleCursorActivity}
+            onKeyUp={handleCursorActivity}
+            onScroll={handleScroll}
+            placeholder="在這裡開始您的筆記..."
+            className="editor-textarea"
+            spellCheck="false"
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+        </>
+      ) : (
+        <Suspense fallback={<div className="h-full flex items-center justify-center"><Spinner className="w-6 h-6 text-accent" /></div>}>
+          <RichTextEditor
+            value={value}
+            onChange={onChange}
+            onImagePasted={onImagePasted}
+            images={images}
+            toolbarExtras={<>{modeToggle}{copyButton}</>}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

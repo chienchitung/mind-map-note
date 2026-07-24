@@ -238,6 +238,85 @@ body {
   color: inherit;
 }
 
+/* Rich (WYSIWYG) editor mode — the ProseMirror-managed contenteditable
+ * root rendered by RichTextEditor.tsx. Typography intentionally mirrors
+ * .markdown-preview below so switching modes doesn't change how the note
+ * looks, only how it's edited. */
+.rich-editor-content {
+  height: 100%;
+  padding: 1.25rem;
+  overflow-y: auto;
+  outline: none;
+  color: var(--color-text-main);
+  line-height: 1.65;
+}
+
+.rich-editor-content p {
+  margin-bottom: 1em;
+}
+
+.rich-editor-content h1,
+.rich-editor-content h2,
+.rich-editor-content h3 {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  border-bottom: 1px solid var(--color-border-color);
+  padding-bottom: 0.35em;
+  margin-top: 1.5em;
+  margin-bottom: 1em;
+}
+.rich-editor-content h1 { font-size: 1.9em; }
+.rich-editor-content h2 { font-size: 1.45em; }
+.rich-editor-content h3 { font-size: 1.2em; }
+
+.rich-editor-content ul,
+.rich-editor-content ol {
+  padding-left: 1.6em;
+  margin-bottom: 1em;
+}
+.rich-editor-content ul { list-style-type: disc; }
+.rich-editor-content ol { list-style-type: decimal; }
+.rich-editor-content li { margin-bottom: 0.4em; }
+.rich-editor-content li p { margin-bottom: 0; }
+
+.rich-editor-content blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 1em;
+  margin-left: 0;
+  margin-bottom: 1em;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.rich-editor-content code {
+  background-color: var(--color-secondary);
+  padding: 0.2em 0.45em;
+  font-size: 85%;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.rich-editor-content pre {
+  background-color: var(--color-secondary);
+  padding: 1em;
+  border-radius: 12px;
+  overflow-x: auto;
+  margin-bottom: 1em;
+  border: 1px solid var(--color-border-color);
+}
+.rich-editor-content pre code {
+  padding: 0;
+  background-color: transparent;
+}
+
+.rich-editor-content .is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-secondary);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
 .editor-backdrop mark.active-match {
   background-color: rgba(255, 149, 0, 0.55);
 }

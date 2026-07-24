@@ -623,6 +623,7 @@ const App: React.FC = () => {
                             value={markdown}
                             onChange={setMarkdown}
                             onImagePasted={addImage}
+                            images={images}
                             scrollToLine={scrollToLine}
                             onScrollComplete={() => {
                               setScrollToLine(null)

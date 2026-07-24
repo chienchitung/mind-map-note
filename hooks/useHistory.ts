@@ -1,4 +1,4 @@
-import { Reducer, useReducer, useCallback } from 'react';
+import { useReducer, useCallback } from 'react';
 
 interface HistoryState<T> {
   past: T[];
@@ -64,8 +64,8 @@ const historyReducer = <T>(state: HistoryState<T>, action: HistoryAction<T>): Hi
 };
 
 export const useHistory = <T>(initialPresent: T, limit: number = DEFAULT_HISTORY_LIMIT) => {
-    const [state, dispatch] = useReducer<Reducer<HistoryState<T>, HistoryAction<T>>>(
-        historyReducer,
+    const [state, dispatch] = useReducer(
+        historyReducer<T>,
         {
             past: [],
             present: initialPresent,

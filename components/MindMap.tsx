@@ -107,7 +107,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   const gRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const measurementRef = useRef<HTMLDivElement>(null);
-  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown>>();
+  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown>>(undefined);
 
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -722,7 +722,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                   </foreignObject>
                 ) : (
                   <foreignObject x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight}>
-                    <div xmlns="http://www.w3.org/1999/xhtml"
+                    <div
                         className={`w-full h-full flex flex-col items-center justify-center text-center select-none ${!isRoot ? 'cursor-text' : ''}`}
                         onDoubleClick={!isRoot ? (e) => handleTextClick(e, node.data.id) : undefined}
                         style={{ ...textStyle, padding: padding }}
@@ -748,7 +748,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                   >
                     <circle r="10" style={{ fill: 'var(--color-elevated)', stroke: 'var(--color-border-color)', filter: CARD_SHADOW }} className="stroke-1 transition-all duration-150 ease-apple group-hover:stroke-accent" />
                     <foreignObject x="-8" y="-8" width="16" height="16">
-                        <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full flex items-center justify-center text-text-secondary">
+                        <div className="w-full h-full flex items-center justify-center text-text-secondary">
                            {isCollapsed ? (
                                 <PlusIcon className="w-4 h-4" />
                             ) : (

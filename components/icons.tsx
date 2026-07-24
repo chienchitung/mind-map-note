@@ -274,3 +274,37 @@ export const ChatbotIcon: React.FC<IconProps> = ({ className }) => (
         <path fillRule="evenodd" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.452-2.452L14.25 6l1.036-.259a3.375 3.375 0 002.452-2.452L18 2.25l.259 1.035a3.375 3.375 0 002.452 2.452L21.75 6l-1.035.259a3.375 3.375 0 00-2.452 2.452z" clipRule="evenodd" />
     </svg>
 );
+
+export const BoldIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <text x="6" y="18" fontSize="17" fontWeight="700" fontFamily="sans-serif">B</text>
+    </svg>
+);
+
+export const ItalicIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <text x="7" y="18" fontSize="17" fontStyle="italic" fontFamily="serif">I</text>
+    </svg>
+);
+
+export const QuoteIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5v15M9.75 8.25h9M9.75 13.5h6" />
+    </svg>
+);
+
+export const BulletListIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.75h.008v.008H4.5V6.75zM4.5 12h.008v.008H4.5V12zM4.5 17.25h.008v.008H4.5v-.008z" />
+    </svg>
+);
+
+export const OrderedListIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12" />
+        <text x="2" y="8.5" fontSize="6" fill="currentColor" stroke="none" fontFamily="sans-serif">1</text>
+        <text x="2" y="13.75" fontSize="6" fill="currentColor" stroke="none" fontFamily="sans-serif">2</text>
+        <text x="2" y="19" fontSize="6" fill="currentColor" stroke="none" fontFamily="sans-serif">3</text>
+    </svg>
+);

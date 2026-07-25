@@ -723,13 +723,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                  const dx = endY - startY;
                  d = `M${startY},${sourceNode.x}C${startY + dx / 2},${sourceNode.x} ${startY + dx / 2},${targetNode.x} ${endY},${targetNode.x}`;
              }
-             // The opacity fade is deliberately much shorter than the position
-             // transition below: a collapsed link's endpoint snaps toward its
-             // parent over the full 500ms, but it's only actually visible for
-             // the first ~130ms of that — by the time it's mid-flight it's
-             // already transparent, instead of drifting across the canvas as
-             // a lingering translucent afterimage for the whole animation.
-             return <path key={`link-${i}`} style={{ fill: 'none', stroke: 'var(--color-border-color)', strokeWidth: 1.5, opacity: isTargetCollapsed ? 0 : 1, transition: 'd 500ms var(--ease-apple), opacity 130ms ease-out' }} d={d!} />;
+             return <path key={`link-${i}`} style={{ fill: 'none', stroke: 'var(--color-border-color)', strokeWidth: 1.5, opacity: isTargetCollapsed ? 0 : 1, transition: 'd 500ms var(--ease-apple), opacity 500ms var(--ease-apple)' }} d={d!} />;
           })}
           {nodes.map((node) => {
             const isEditing = editingNodeId === node.data.id;
@@ -772,14 +766,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                  style={{
                      opacity: isCollapsedChild ? 0 : 1,
                      pointerEvents: isCollapsedChild ? 'none' : 'auto',
-                     // A collapsed node's children snap toward the parent's
-                     // position over the full 500ms (so still-visible siblings
-                     // keep reflowing smoothly), but only fade over the first
-                     // 130ms of that — by the time they're actually mid-flight
-                     // they're already transparent, instead of visibly sliding
-                     // across the canvas as a translucent afterimage for the
-                     // whole animation.
-                     transition: 'transform 500ms var(--ease-apple), opacity 130ms ease-out',
+                     transition: 'transform 500ms var(--ease-apple), opacity 500ms var(--ease-apple)',
                  }}
                  onClick={() => setSelectedNodeId(node.data.id)}
                  onMouseOver={() => draggedNodeId && setDropTargetId(node.data.id)} onMouseOut={() => draggedNodeId && setDropTargetId(null)}>

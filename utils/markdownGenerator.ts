@@ -8,7 +8,17 @@ import { MindMapNode } from '../types';
 const generateNodeMarkdown = (node: MindMapNode, parentHeadingLevel: number, parentListIndent: number): string => {
     const markdownLines: string[] = [];
 
-    const isHeading = node.prefix.trim().startsWith('#');
+    // A node only renders as a `#` heading if it's still in heading context
+    // (top of the document, or directly under another heading —
+    // parentListIndent === -1 both times). Once a list has started
+    // (parentListIndent >= 0), a heading line has no way to nest inside it —
+    // plain Markdown can't represent a heading block as a list item's child —
+    // so a heading node dragged to become a descendant of a list item must
+    // be demoted to a plain list item instead. Without this, regenerating
+    // the document would emit a stray top-level `#…` line that silently
+    // swallows every following sibling into its own section when reparsed,
+    // corrupting the rest of the document.
+    const isHeading = parentListIndent === -1 && node.prefix.trim().startsWith('#');
     let currentPrefix: string;
     let newHeadingLevel = parentHeadingLevel;
     let newListIndent = parentListIndent;

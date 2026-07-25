@@ -535,10 +535,28 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         })
         .on('end', function (event, draggedNode) {
             d3.select(this).classed('dragging', false);
+            // The 'drag' handler above imperatively overwrote this node's
+            // transform with the raw mouse position, bypassing React. React
+            // only re-applies the `transform` prop when its *computed* value
+            // actually changes between renders — if this drag doesn't result
+            // in a reparent (invalid drop, dropped on itself/its own
+            // descendant, or released with no target under the cursor), the
+            // computed value is identical to before the drag, so React skips
+            // rewriting it and the node is left visually stranded wherever
+            // the mouse let go, disconnected from its link lines. Always
+            // snap it back to its correct layout position here — mirrors the
+            // `nodeTransform` computation in the render below — so a
+            // successful reparent still animates smoothly from the right
+            // starting point via the CSS transition once React takes over.
+            const restoredTransform = layout === MindMapLayout.Organizational
+                ? `translate(${draggedNode.x},${draggedNode.y})`
+                : `translate(${draggedNode.y},${draggedNode.x})`;
+            d3.select(this).attr('transform', restoredTransform);
+
             const currentDropTargetId = dropTargetIdRef.current;
             setDraggedNodeId(null);
             setDropTargetId(null);
-            
+
             if (!draggedNode?.data || !currentDropTargetId || currentDropTargetId === draggedNode.data.id || draggedNode.depth === 0) return;
 
             let isDescendant = false;

@@ -16,7 +16,6 @@ import Toast from './components/Toast';
 import Spinner from './components/Spinner';
 import type { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
-import { mindMapToMarkdown } from './utils/markdownGenerator';
 import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 
@@ -471,11 +470,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStructureUpdate = (newRootNode: MindMapNode) => {
-    const newMarkdown = mindMapToMarkdown(newRootNode);
-    commitMarkdownNow(newMarkdown);
-  };
-  
   const handleOutlineNodeClick = (lineNumber: number) => {
     setScrollToLine(lineNumber);
     setSearchQuery('');
@@ -702,7 +696,6 @@ const App: React.FC = () => {
                       data={mindMapData}
                       layout={mindMapLayout}
                       onNodeUpdate={handleNodeUpdate}
-                      onStructureUpdate={handleStructureUpdate}
                       selectedNodeId={selectedNodeId}
                       setSelectedNodeId={setSelectedNodeId}
                       images={images}

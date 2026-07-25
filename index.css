@@ -92,10 +92,6 @@ body {
   backdrop-filter: blur(24px) saturate(180%);
 }
 
-.node.dragging {
-  opacity: 0.5;
-}
-
 /* Hover / selection affordances for MindMap nodes */
 .node:hover > rect {
   stroke: var(--color-accent);

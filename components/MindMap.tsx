@@ -3,7 +3,6 @@ import * as d3 from 'd3';
 import { MindMapNode, MindMapLayout, Images } from '../types';
 import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
 import { stripInlineMarkdown } from '../utils/markdownParser';
-import { useIsTouchPrimary } from '../hooks/useMediaQuery';
 
 const PADDING_X = 24;
 const PADDING_Y = 16;
@@ -37,7 +36,6 @@ interface MindMapProps {
   data: MindMapNode;
   layout: MindMapLayout;
   onNodeUpdate: (nodeId: string, newName: string) => void;
-  onStructureUpdate: (newRoot: MindMapNode) => void;
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string | null) => void;
   images: Images;
@@ -105,8 +103,7 @@ const getNodeStyles = (depth: number, theme: 'light' | 'dark') => {
     }
 };
 
-const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onStructureUpdate, selectedNodeId, setSelectedNodeId, images, theme, noteId }, ref) => {
-  const isTouchPrimary = useIsTouchPrimary();
+const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, selectedNodeId, setSelectedNodeId, images, theme, noteId }, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -117,16 +114,6 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  // Mirrors dropTargetId for the drag effect's 'end' handler to read. The
-  // handler is created once per gesture (see the drag-attach effect below,
-  // which deliberately does NOT depend on dropTargetId) and keeps running
-  // until mouseup, so it can't see later dropTargetId state updates through
-  // its own closure — hovering over a target during the drag would
-  // otherwise never be visible to the handler that fires on drop.
-  const dropTargetIdRef = useRef<string | null>(null);
-  useEffect(() => { dropTargetIdRef.current = dropTargetId; }, [dropTargetId]);
   const [nodeSizes, setNodeSizes] = useState<Map<string, { width: number; height: number }>>(new Map());
   
   useImperativeHandle(ref, () => ({
@@ -466,6 +453,19 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     if (!zoomRef.current) {
         zoomRef.current = d3.zoom<SVGSVGElement, unknown>()
           .scaleExtent([0.1, 3])
+          // Nodes are click-to-select/edit, not drag handles, so a mousedown
+          // starting on one shouldn't pan the whole canvas out from under
+          // it. Previously this was implicitly prevented by each node's own
+          // d3-drag behavior swallowing the mousedown before it could bubble
+          // up to this zoom behavior's pan handler; now that node dragging
+          // is disabled entirely, nothing else stops it. Wheel/touch zoom
+          // and panning that starts on empty canvas are untouched.
+          .filter((event) => {
+              if (event.type === 'mousedown' && (event.target as Element)?.closest?.('.node')) {
+                  return false;
+              }
+              return (!event.ctrlKey || event.type === 'wheel') && !event.button;
+          })
           .on('zoom', (event) => g.attr('transform', event.transform.toString()));
         svg.call(zoomRef.current);
         // Double-clicking a node is how you rename it (see handleTextClick),
@@ -489,108 +489,6 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         inputRef.current.select();
     } }, [editingNodeId]);
 
-  useEffect(() => {
-    if (!gRef.current) return;
-    const g = d3.select(gRef.current);
-
-    // Deliberately unkeyed: these <g class="node"> elements are rendered by
-    // React, not appended by d3's own enter/exit lifecycle, so they never
-    // have __data__ set on them going into this join. A keyed join reads
-    // each existing element's __data__ to compute its "old" key — since
-    // that's always undefined here, every element resolves to the same
-    // empty key, none of them match the incoming nodes' real keys, and the
-    // resulting "update" selection is silently empty every single time
-    // (drag never actually gets attached to anything). A positional join
-    // just re-binds by DOM/array order on every run instead, which is
-    // exactly right here since React guarantees the rendered <g> order
-    // matches the `nodes` array order.
-    const nodeSelection = g.selectAll<SVGGElement, d3.HierarchyPointNode<MindMapNode>>('g.node')
-      .data(nodes);
-
-    if (isTouchPrimary) {
-        // Dragging a node to reparent it relies on mouse hover to highlight the
-        // drop target, which doesn't exist on touch, and a touch-drag starting
-        // on a node would otherwise fight with pinch/pan on the same surface.
-        // Skip attaching drag entirely so touch users get reliable pan/zoom/tap.
-        nodeSelection.on('.drag', null);
-        return;
-    }
-
-    const drag = d3.drag<SVGGElement, d3.HierarchyPointNode<MindMapNode>>()
-        // Regular functions, not arrow functions: d3 binds `this` to the
-        // element the drag behavior was attached to (the dragged <g>) for
-        // every phase of the gesture. `event.sourceEvent.currentTarget`
-        // looks equivalent but isn't — for the 'drag'/'end' phases the
-        // underlying native mousemove/mouseup listener is registered on
-        // `window` (so the drag can keep tracking even once the cursor
-        // leaves the node), so sourceEvent.currentTarget there is `window`,
-        // not the node — calling .attr()/.classed() on it throws.
-        .on('start', function (event, d) {
-            if (!d?.data || d.depth === 0) return;
-            setDraggedNodeId(d.data.id);
-            d3.select(this).raise().classed('dragging', true);
-        })
-        .on('drag', function (event) {
-            d3.select(this).attr('transform', `translate(${event.x},${event.y})`);
-        })
-        .on('end', function (event, draggedNode) {
-            d3.select(this).classed('dragging', false);
-            // The 'drag' handler above imperatively overwrote this node's
-            // transform with the raw mouse position, bypassing React. React
-            // only re-applies the `transform` prop when its *computed* value
-            // actually changes between renders — if this drag doesn't result
-            // in a reparent (invalid drop, dropped on itself/its own
-            // descendant, or released with no target under the cursor), the
-            // computed value is identical to before the drag, so React skips
-            // rewriting it and the node is left visually stranded wherever
-            // the mouse let go, disconnected from its link lines. Always
-            // snap it back to its correct layout position here — mirrors the
-            // `nodeTransform` computation in the render below — so a
-            // successful reparent still animates smoothly from the right
-            // starting point via the CSS transition once React takes over.
-            const restoredTransform = layout === MindMapLayout.Organizational
-                ? `translate(${draggedNode.x},${draggedNode.y})`
-                : `translate(${draggedNode.y},${draggedNode.x})`;
-            d3.select(this).attr('transform', restoredTransform);
-
-            const currentDropTargetId = dropTargetIdRef.current;
-            setDraggedNodeId(null);
-            setDropTargetId(null);
-
-            if (!draggedNode?.data || !currentDropTargetId || currentDropTargetId === draggedNode.data.id || draggedNode.depth === 0) return;
-
-            let isDescendant = false;
-            draggedNode.each(node => { if (node?.data?.id === currentDropTargetId) isDescendant = true; });
-
-            if (!isDescendant) {
-                const newRoot = JSON.parse(JSON.stringify(data));
-                let draggedInfo: { node: MindMapNode, parent: MindMapNode } | null = null;
-                let targetInfo: { node: MindMapNode } | null = null;
-                const findNode = (node: MindMapNode, parent: MindMapNode | null): void => {
-                    if (node.id === draggedNode.data.id && parent) draggedInfo = { node, parent };
-                    if (node.id === currentDropTargetId) targetInfo = { node };
-                    if (node.children) node.children.forEach(child => findNode(child, node));
-                };
-                findNode(newRoot, null);
-                if (draggedInfo && targetInfo) {
-                    draggedInfo.parent.children = draggedInfo.parent.children?.filter(c => c.id !== draggedInfo!.node.id);
-                    targetInfo.node.children = targetInfo.node.children || [];
-                    targetInfo.node.children.push(draggedInfo.node);
-                    onStructureUpdate(newRoot);
-                }
-            }
-        });
-
-    nodeSelection.call(drag);
-    // dropTargetId is deliberately excluded: it's read from dropTargetIdRef
-    // (always current) inside the 'end' handler instead, specifically so
-    // hovering over drop targets during a drag doesn't tear down and
-    // rebuild the whole drag behavior mid-gesture — which previously
-    // orphaned the in-progress gesture on a stale 'end' closure and made
-    // dropping onto a target silently do nothing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, nodes, onStructureUpdate, isTouchPrimary]);
-  
   useEffect(() => {
     const container = svgContainerRef.current;
     if (!container) return;
@@ -750,7 +648,6 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
             const isCollapsed = collapsedNodes.has(node.data.id);
             const isCollapsedChild = (node as any).isCollapsedChild;
             const canToggle = (hasChildren || isCollapsed) && !isRoot;
-            const isDropTarget = dropTargetId === node.data.id && draggedNodeId && dropTargetId !== draggedNodeId;
             const isSelected = selectedNodeId === node.data.id;
             
             const size = nodeSizes.get(node.data.id) || { width: 100, height: 38 };
@@ -786,11 +683,10 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                      pointerEvents: isCollapsedChild ? 'none' : 'auto',
                      transition: 'transform 500ms var(--ease-apple), opacity 500ms var(--ease-apple)',
                  }}
-                 onClick={() => setSelectedNodeId(node.data.id)}
-                 onMouseOver={() => draggedNodeId && setDropTargetId(node.data.id)} onMouseOut={() => draggedNodeId && setDropTargetId(null)}>
+                 onClick={() => setSelectedNodeId(node.data.id)}>
 
                 <rect x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight} rx={rectRadius}
-                      className={`transition-all duration-200 ease-apple stroke-2 ${ isDropTarget ? '!stroke-green-400' : ''}`} style={rectStyle} />
+                      className="transition-all duration-200 ease-apple stroke-2" style={rectStyle} />
 
                 {isEditing ? (
                   <foreignObject x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight}>

@@ -26,7 +26,8 @@ const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClic
   if (stage === 'recording') {
     label = `錄音中 ${formatDuration(elapsedSeconds)}`;
   } else if (stage === 'processing') {
-    if (processingPhase === 'uploading') label = '上傳音檔中...';
+    if (processingPhase === 'splitting') label = '分段處理中...';
+    else if (processingPhase === 'uploading') label = '上傳音檔中...';
     else if (processingPhase === 'transcribing') {
       label = totalSegments > 1 ? `轉錄中 ${completedSegments}/${totalSegments} 段` : '辨識語音中...';
     } else if (processingPhase === 'generating') {

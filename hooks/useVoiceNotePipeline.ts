@@ -4,13 +4,13 @@ import {
   extensionForMimeType,
   isSupportedAudioFile,
   MAX_UPLOAD_BYTES,
-  FileTooLargeError,
 } from '../services/groqTranscriptionService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
+import { splitAudioFileIntoSegments, MAX_SPLITTABLE_FILE_BYTES } from '../utils/audioSplitter';
 
 export type VoiceNoteStage = 'idle' | 'recording' | 'processing' | 'error';
 export type VoiceNoteInputMode = 'record' | 'upload';
-export type VoiceNoteProcessingPhase = 'uploading' | 'transcribing' | 'generating';
+export type VoiceNoteProcessingPhase = 'splitting' | 'uploading' | 'transcribing' | 'generating';
 
 export interface VoiceNoteState {
   stage: VoiceNoteStage;
@@ -336,54 +336,93 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     mediaRecorderRef.current.stop();
   }, []);
 
+  // A file under Groq's cap uploads directly; a larger one is decoded and
+  // re-encoded into a series of smaller WAV segments client-side (see
+  // utils/audioSplitter.ts), then fed through the exact same segment queue
+  // used for chunked live recording — drainQueue's own "nothing left and
+  // not still recording" check picks up from there and finalizes once
+  // they've all been transcribed.
   const selectFile = useCallback(async (file: File) => {
     setState(s => ({ ...s, errorMessage: '' }));
     if (!isSupportedAudioFile(file)) {
       handlePipelineError(new Error('不支援的檔案格式，請上傳 mp3、wav、m4a、webm 等常見音訊格式。'));
       return;
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      handlePipelineError(new FileTooLargeError());
+    if (file.size > MAX_SPLITTABLE_FILE_BYTES) {
+      handlePipelineError(new Error(`檔案超過 ${Math.round(MAX_SPLITTABLE_FILE_BYTES / (1024 * 1024))} MB，瀏覽器端無法處理這麼大的音檔，請先壓縮或改用「錄音」功能分段錄製。`));
       return;
     }
 
     cancelledRef.current = false;
     finalizedRef.current = false;
     transcriptPartsRef.current = [];
+    segmentQueueRef.current = [];
+
+    if (file.size <= MAX_UPLOAD_BYTES) {
+      setState(s => ({
+        ...s,
+        stage: 'processing',
+        processingPhase: 'uploading',
+        totalSegments: 1,
+        completedSegments: 0,
+        currentUploadFraction: 0,
+        transcriptSoFar: '',
+      }));
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      try {
+        const text = await transcribeAudio(file, file.name, groqApiKeyRef.current, {
+          signal: controller.signal,
+          onUploadProgress: (fraction) => {
+            if (cancelledRef.current) return;
+            setState(s => ({
+              ...s,
+              currentUploadFraction: fraction,
+              processingPhase: fraction >= 1 ? 'transcribing' : 'uploading',
+            }));
+          },
+        });
+        if (cancelledRef.current) return;
+        transcriptPartsRef.current.push(text);
+        setState(s => ({ ...s, completedSegments: 1, transcriptSoFar: text }));
+        finalizedRef.current = true;
+        await finalizeAndGenerate();
+      } catch (error) {
+        if (cancelledRef.current) return;
+        handlePipelineError(error);
+      }
+      return;
+    }
+
+    // Too large to upload as a single file — split it first.
     setState(s => ({
       ...s,
       stage: 'processing',
-      processingPhase: 'uploading',
-      totalSegments: 1,
+      processingPhase: 'splitting',
+      totalSegments: 0,
       completedSegments: 0,
       currentUploadFraction: 0,
       transcriptSoFar: '',
     }));
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
     try {
-      const text = await transcribeAudio(file, file.name, groqApiKeyRef.current, {
-        signal: controller.signal,
-        onUploadProgress: (fraction) => {
-          if (cancelledRef.current) return;
-          setState(s => ({
-            ...s,
-            currentUploadFraction: fraction,
-            processingPhase: fraction >= 1 ? 'transcribing' : 'uploading',
-          }));
-        },
-      });
+      const segments = await splitAudioFileIntoSegments(file, MAX_UPLOAD_BYTES);
       if (cancelledRef.current) return;
-      transcriptPartsRef.current.push(text);
-      setState(s => ({ ...s, completedSegments: 1, transcriptSoFar: text }));
-      finalizedRef.current = true;
-      await finalizeAndGenerate();
+      if (segments.length === 0) {
+        handlePipelineError(new Error('無法解析這個音訊檔案，請確認檔案未損毀。'));
+        return;
+      }
+      segmentQueueRef.current = segments;
+      setState(s => ({ ...s, processingPhase: 'transcribing', totalSegments: segments.length }));
+      void drainQueue();
     } catch (error) {
       if (cancelledRef.current) return;
+      // splitAudioFileIntoSegments always rejects with an already
+      // user-presentable message (it wraps the browser's own terse decode
+      // errors itself), so it's safe to surface directly here.
       handlePipelineError(error);
     }
-  }, [finalizeAndGenerate, handlePipelineError]);
+  }, [drainQueue, finalizeAndGenerate, handlePipelineError]);
 
   // Aborts everything in flight and returns to a clean idle state — used
   // both for "discard this recording" (mid-recording) and "cancel" (mid

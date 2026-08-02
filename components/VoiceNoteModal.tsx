@@ -114,7 +114,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
                 >
                   <UploadIcon className="w-6 h-6 mx-auto mb-2 text-text-secondary" />
                   <p className="text-sm text-text-main font-medium">點擊或拖曳音檔到這裡</p>
-                  <p className="text-xs text-text-secondary mt-1">支援 mp3、wav、m4a、webm 等常見格式，單檔上限 25 MB</p>
+                  <p className="text-xs text-text-secondary mt-1">支援 mp3、wav、m4a、webm 等常見格式，超過 25 MB 會自動分段處理</p>
                 </div>
                 <input
                   ref={fileInputRef}
@@ -160,7 +160,8 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
         const segmentFraction = totalSegments > 0 ? (completedSegments + currentUploadFraction) / totalSegments : 0;
 
         let label = 'AI 正在整理筆記內容...';
-        if (processingPhase === 'uploading') label = '正在上傳音檔...';
+        if (processingPhase === 'splitting') label = '檔案較大，正在自動分段處理...';
+        else if (processingPhase === 'uploading') label = '正在上傳音檔...';
         else if (processingPhase === 'transcribing') {
           label = showSegmentProgress
             ? `正在轉錄語音（${completedSegments} / ${totalSegments} 段）...`

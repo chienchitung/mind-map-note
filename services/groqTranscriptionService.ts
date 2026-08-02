@@ -30,8 +30,9 @@ const extractGroqErrorMessage = async (response: Response): Promise<string> => {
 
 // Maps a MediaRecorder mimeType (e.g. "audio/webm;codecs=opus") to the file
 // extension Groq's transcription endpoint expects to see on the uploaded
-// filename, which it uses as its main hint for how to decode the audio.
-const extensionForMimeType = (mimeType: string): string => {
+// filename, which it uses as its main hint for how to decode the audio. Only
+// needed for live recordings — an uploaded file already has a real filename.
+export const extensionForMimeType = (mimeType: string): string => {
     const base = mimeType.split(';')[0].trim().toLowerCase();
     const map: Record<string, string> = {
         'audio/webm': 'webm',
@@ -43,20 +44,36 @@ const extensionForMimeType = (mimeType: string): string => {
     return map[base] ?? 'webm';
 };
 
+// File extensions Groq's transcription endpoint documents support for.
+// Checked client-side on upload so a wrong file type is rejected instantly
+// with a clear message instead of round-tripping to the API first — drag-
+// and-drop in particular bypasses the file picker's own `accept` filter.
+const SUPPORTED_UPLOAD_EXTENSIONS = ['flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'wav', 'webm'];
+
+export const isSupportedAudioFile = (file: File): boolean => {
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    if (extension && SUPPORTED_UPLOAD_EXTENSIONS.includes(extension)) return true;
+    return file.type.startsWith('audio/');
+};
+
 /**
- * Sends a locally recorded audio clip to Groq's Whisper transcription API
- * and returns the resulting plain-text transcript.
+ * Sends an audio clip — either a live recording or an uploaded file — to
+ * Groq's Whisper transcription API and returns the resulting plain-text
+ * transcript.
  *
- * @param audioBlob The recorded audio (from MediaRecorder).
- * @param mimeType The MediaRecorder mimeType the blob was recorded with —
- *   used to pick a matching file extension for the upload.
+ * @param audioBlob The audio to transcribe (a MediaRecorder Blob, or an
+ *   uploaded File — File extends Blob).
+ * @param filename The filename to upload it as. Groq uses this extension as
+ *   its main hint for how to decode the audio, so it must be a real one —
+ *   an uploaded File's own `.name` works as-is; a live recording needs one
+ *   synthesized from its MediaRecorder mimeType (see `extensionForMimeType`).
  * @param apiKey The user's Groq API key.
  * @param signal Optional AbortSignal so an in-flight request can be
  *   cancelled if the user closes the recording dialog early.
  */
 export const transcribeAudio = async (
     audioBlob: Blob,
-    mimeType: string,
+    filename: string,
     apiKey: string,
     signal?: AbortSignal,
 ): Promise<string> => {
@@ -65,7 +82,7 @@ export const transcribeAudio = async (
     }
 
     const formData = new FormData();
-    formData.append('file', audioBlob, `recording.${extensionForMimeType(mimeType)}`);
+    formData.append('file', audioBlob, filename);
     formData.append('model', GROQ_WHISPER_MODEL);
     formData.append('response_format', 'json');
 

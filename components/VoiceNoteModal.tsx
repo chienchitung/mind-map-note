@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { XIcon, MicIcon, StopCircleIcon, WarningIcon } from './icons';
+import { XIcon, MicIcon, StopCircleIcon, WarningIcon, UploadIcon } from './icons';
 import Spinner from './Spinner';
 
 interface VoiceNoteModalProps {
@@ -11,6 +11,7 @@ interface VoiceNoteModalProps {
 }
 
 type Stage = 'idle' | 'recording' | 'transcribing' | 'generating' | 'error';
+type InputMode = 'record' | 'upload';
 
 const formatDuration = (totalSeconds: number): string => {
   const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
@@ -29,6 +30,8 @@ const pickSupportedMimeType = (): string | undefined => {
 
 const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, groqApiKey, geminiApiKey, onNoteGenerated }) => {
   const [stage, setStage] = useState<Stage>('idle');
+  const [inputMode, setInputMode] = useState<InputMode>('record');
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [transcript, setTranscript] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -39,6 +42,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, groqAp
   const timerRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const discardRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Guards the async transcribe/generate chain against updating state (or
   // creating a note) after the modal has already been closed mid-flight.
   const cancelledRef = useRef(false);
@@ -61,6 +65,8 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, groqAp
       cancelledRef.current = false;
       discardRef.current = false;
       setStage('idle');
+      setInputMode('record');
+      setIsDraggingFile(false);
       setElapsedSeconds(0);
       setTranscript('');
       setErrorMessage('');
@@ -120,7 +126,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, groqAp
           }
           return;
         }
-        void runPipeline(audioBlob, capturedMimeType);
+        void runPipeline(audioBlob, capturedMimeType, 'record');
       };
 
       mediaRecorderRef.current = recorder;
@@ -142,21 +148,25 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, groqAp
     }
   };
 
-  const runPipeline = async (audioBlob: Blob, mimeType: string) => {
+  // `nameHint` is either the MediaRecorder mimeType (source: 'record', needs
+  // translating to a synthetic "recording.<ext>" filename) or the uploaded
+  // File's own real filename (source: 'upload', already usable as-is).
+  const runPipeline = async (audioBlob: Blob, nameHint: string, source: 'record' | 'upload') => {
     setStage('transcribing');
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
     try {
-      const [{ transcribeAudio, MissingGroqApiKeyError }, { generateNoteFromTranscript, MissingApiKeyError }, { normalizeAiMarkdown }] = await Promise.all([
+      const [{ transcribeAudio, MissingGroqApiKeyError, extensionForMimeType }, { generateNoteFromTranscript, MissingApiKeyError }, { normalizeAiMarkdown }] = await Promise.all([
         import('../services/groqTranscriptionService'),
         import('../services/geminiChatService'),
         import('../utils/normalizeAiMarkdown'),
       ]);
+      const filename = source === 'record' ? `recording.${extensionForMimeType(nameHint)}` : nameHint;
 
       let transcriptText: string;
       try {
-        transcriptText = await transcribeAudio(audioBlob, mimeType, groqApiKey, controller.signal);
+        transcriptText = await transcribeAudio(audioBlob, filename, groqApiKey, controller.signal);
       } catch (error) {
         if (cancelledRef.current) return;
         if (error instanceof MissingGroqApiKeyError) {
@@ -210,6 +220,31 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, groqAp
     recorder.stop(); // same onstop handler, but it sees discardRef and skips the pipeline
   };
 
+  const handleFileSelected = async (file: File) => {
+    setErrorMessage('');
+    const { isSupportedAudioFile } = await import('../services/groqTranscriptionService');
+    if (cancelledRef.current) return;
+    if (!isSupportedAudioFile(file)) {
+      setStage('error');
+      setErrorMessage('不支援的檔案格式，請上傳 mp3、wav、m4a、webm 等常見音訊格式。');
+      return;
+    }
+    void runPipeline(file, file.name, 'upload');
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file next time
+    if (file) void handleFileSelected(file);
+  };
+
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingFile(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void handleFileSelected(file);
+  };
+
   if (!isOpen) return null;
 
   const renderBody = () => {
@@ -217,17 +252,74 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, groqAp
       case 'idle':
         return (
           <div className="flex flex-col items-center text-center py-4">
-            <p className="text-sm text-text-secondary mb-6 leading-relaxed">
-              錄下你想整理的內容，AI 會自動轉成逐字稿並生成一篇結構化的筆記。
-            </p>
-            <button
-              onClick={handleStartRecording}
-              className="w-16 h-16 rounded-full bg-accent text-white flex items-center justify-center shadow-apple-md hover:opacity-90 active:scale-95 transition-all duration-150 ease-apple"
-              title="開始錄音"
-              aria-label="開始錄音"
-            >
-              <MicIcon className="w-7 h-7" />
-            </button>
+            <div className="flex rounded-full bg-secondary p-1 mb-6" role="tablist" aria-label="語音來源">
+              <button
+                role="tab"
+                aria-selected={inputMode === 'record'}
+                onClick={() => setInputMode('record')}
+                className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
+                  inputMode === 'record' ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
+                }`}
+              >
+                錄音
+              </button>
+              <button
+                role="tab"
+                aria-selected={inputMode === 'upload'}
+                onClick={() => setInputMode('upload')}
+                className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
+                  inputMode === 'upload' ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
+                }`}
+              >
+                上傳檔案
+              </button>
+            </div>
+
+            {inputMode === 'record' ? (
+              <>
+                <p className="text-sm text-text-secondary mb-6 leading-relaxed">
+                  錄下你想整理的內容，AI 會自動轉成逐字稿並生成一篇結構化的筆記。
+                </p>
+                <button
+                  onClick={handleStartRecording}
+                  className="w-16 h-16 rounded-full bg-accent text-white flex items-center justify-center shadow-apple-md hover:opacity-90 active:scale-95 transition-all duration-150 ease-apple"
+                  title="開始錄音"
+                  aria-label="開始錄音"
+                >
+                  <MicIcon className="w-7 h-7" />
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-text-secondary mb-4 leading-relaxed">
+                  上傳一段錄音檔案，AI 會自動轉成逐字稿並生成一篇結構化的筆記。
+                </p>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+                  onDragLeave={() => setIsDraggingFile(false)}
+                  onDrop={handleFileDrop}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+                  className={`w-full border-2 border-dashed rounded-2xl py-8 px-4 cursor-pointer transition-colors duration-150 ease-apple ${
+                    isDraggingFile ? 'border-accent bg-accent/5' : 'border-border-color hover:border-accent/50'
+                  }`}
+                >
+                  <UploadIcon className="w-6 h-6 mx-auto mb-2 text-text-secondary" />
+                  <p className="text-sm text-text-main font-medium">點擊或拖曳音檔到這裡</p>
+                  <p className="text-xs text-text-secondary mt-1">支援 mp3、wav、m4a、webm 等常見格式</p>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={handleFileInputChange}
+                  aria-label="選擇音訊檔案"
+                />
+              </>
+            )}
           </div>
         );
       case 'recording':

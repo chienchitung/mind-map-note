@@ -6,32 +6,44 @@ interface SettingsModalProps {
   onClose: () => void;
   apiKey: string;
   onSaveApiKey: (key: string) => void;
+  groqApiKey: string;
+  onSaveGroqApiKey: (key: string) => void;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, onSaveApiKey, onExportBackup, onImportBackup }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, onSaveApiKey, groqApiKey, onSaveGroqApiKey, onExportBackup, onImportBackup }) => {
   const [draftKey, setDraftKey] = useState(apiKey);
   const [isRevealed, setIsRevealed] = useState(false);
+  const [draftGroqKey, setDraftGroqKey] = useState(groqApiKey);
+  const [isGroqRevealed, setIsGroqRevealed] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setDraftKey(apiKey);
       setIsRevealed(false);
+      setDraftGroqKey(groqApiKey);
+      setIsGroqRevealed(false);
     }
-  }, [isOpen, apiKey]);
+  }, [isOpen, apiKey, groqApiKey]);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
     onSaveApiKey(draftKey.trim());
+    onSaveGroqApiKey(draftGroqKey.trim());
     onClose();
   };
 
   const handleClear = () => {
     setDraftKey('');
     onSaveApiKey('');
+  };
+
+  const handleClearGroq = () => {
+    setDraftGroqKey('');
+    onSaveGroqApiKey('');
   };
 
   const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -100,7 +112,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
             還沒有金鑰？前往 Google AI Studio 免費取得 →
           </a>
 
-          <div className="flex items-center justify-between mt-5">
+          <div className="mt-3">
             <button
               type="button"
               onClick={handleClear}
@@ -109,24 +121,83 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
             >
               清除金鑰
             </button>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium rounded-full text-text-secondary hover:bg-secondary transition-all duration-150 ease-apple active:scale-95"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                className="px-4 py-2 text-sm font-medium rounded-full bg-accent text-white hover:opacity-90 transition-all duration-150 ease-apple active:scale-95"
-              >
-                儲存
-              </button>
-            </div>
           </div>
         </section>
+
+        <div className="h-px bg-border-color my-6"></div>
+
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <KeyIcon className="w-4 h-4 text-accent" />
+            <h3 className="text-sm font-semibold text-text-main">語音筆記</h3>
+          </div>
+
+          <p className="text-sm text-text-secondary mb-4 leading-relaxed">
+            語音轉錄功能由 Groq 提供。您的金鑰只會保存在
+            <strong className="text-text-main"> 這台裝置的瀏覽器</strong>
+            裡，不會上傳到任何伺服器。
+          </p>
+
+          <label htmlFor="groq-api-key" className="block text-sm font-medium text-text-main mb-1.5">
+            Groq API 金鑰
+          </label>
+          <div className="flex items-center gap-2 mb-2">
+            <input
+              id="groq-api-key"
+              type={isGroqRevealed ? 'text' : 'password'}
+              value={draftGroqKey}
+              onChange={(e) => setDraftGroqKey(e.target.value)}
+              placeholder="貼上您的 API 金鑰..."
+              autoComplete="off"
+              spellCheck={false}
+              className="flex-grow px-3.5 py-2.5 bg-secondary border border-transparent rounded-xl text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors duration-150 ease-apple"
+            />
+            <button
+              type="button"
+              onClick={() => setIsGroqRevealed(prev => !prev)}
+              className="px-3 py-2.5 text-xs font-medium rounded-xl bg-secondary hover:bg-border-color/60 text-text-secondary transition-colors duration-150 ease-apple flex-shrink-0"
+            >
+              {isGroqRevealed ? '隱藏' : '顯示'}
+            </button>
+          </div>
+
+          <a
+            href="https://console.groq.com/keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-accent hover:underline"
+          >
+            還沒有金鑰？前往 Groq Console 免費取得 →
+          </a>
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleClearGroq}
+              disabled={!groqApiKey}
+              className="text-sm text-red-500 hover:text-red-400 disabled:text-text-secondary/40 disabled:cursor-not-allowed transition-colors duration-150 ease-apple"
+            >
+              清除金鑰
+            </button>
+          </div>
+        </section>
+
+        <div className="flex items-center justify-end gap-2 mt-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium rounded-full text-text-secondary hover:bg-secondary transition-all duration-150 ease-apple active:scale-95"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="px-4 py-2 text-sm font-medium rounded-full bg-accent text-white hover:opacity-90 transition-all duration-150 ease-apple active:scale-95"
+          >
+            儲存
+          </button>
+        </div>
 
         <div className="h-px bg-border-color my-6"></div>
 

@@ -23,6 +23,9 @@ import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 // needed once a user with an API key opens it, so it's loaded on demand
 // instead of padding out everyone's initial bundle.
 const AIPanel = lazy(() => import('./components/AIPanel'));
+// Same reasoning: the voice note recorder is only needed once a user with
+// both API keys configured actually opens it.
+const VoiceNoteModal = lazy(() => import('./components/VoiceNoteModal'));
 
 // Identifies exported workspace backup files so imports can sanity-check
 // they're not some unrelated JSON file.
@@ -177,6 +180,8 @@ const App: React.FC = () => {
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
+  const [groqApiKey, setGroqApiKey] = useLocalStorage<string>('groq-api-key', '');
+  const [isVoiceNoteModalOpen, setIsVoiceNoteModalOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // Transient confirmation/error feedback (e.g. backup exported/imported),
@@ -335,13 +340,14 @@ const App: React.FC = () => {
         if (isHelpModalOpen) setIsHelpModalOpen(false);
         if (isAIPanelOpen) setIsAIPanelOpen(false);
         if (isSettingsOpen) setIsSettingsOpen(false);
+        if (isVoiceNoteModalOpen) setIsVoiceNoteModalOpen(false);
         if (isMobile && isMobileSidebarOpen) setIsMobileSidebarOpen(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, isHelpModalOpen, isAIPanelOpen, isSettingsOpen, isMobile, isMobileSidebarOpen]);
+  }, [canUndo, canRedo, undo, redo, isHelpModalOpen, isAIPanelOpen, isSettingsOpen, isVoiceNoteModalOpen, isMobile, isMobileSidebarOpen]);
 
   useEffect(() => {
     if (viewMode === ViewMode.MindMap && mindMapData) {
@@ -474,6 +480,34 @@ const App: React.FC = () => {
     setScrollToLine(lineNumber);
     setSearchQuery('');
     if (isMobile) setIsMobileSidebarOpen(false);
+  };
+
+  // Gated the same way as the AI panel: rather than opening the recorder and
+  // only then discovering a key is missing, send the user straight to
+  // Settings with an explanation. Both keys are required up front since the
+  // pipeline needs Groq for transcription and Gemini for note generation.
+  const handleOpenVoiceNote = () => {
+    if (!apiKey || !groqApiKey) {
+      setIsSettingsOpen(true);
+      setActionMessage({ text: '請先在設定中填入 Groq 與 Gemini API 金鑰，才能使用語音筆記功能。', variant: 'warning' });
+      return;
+    }
+    setIsVoiceNoteModalOpen(true);
+  };
+
+  // Creates a new note from the AI-generated Markdown once the record →
+  // transcribe → generate pipeline finishes, naming it after the note's own
+  // first heading when there is one (falling back to the default name the
+  // same way a blank new note does).
+  const handleVoiceNoteGenerated = (generatedMarkdown: string) => {
+    const newNoteId = createNode('file', 'root');
+    updateNote(newNoteId, generatedMarkdown);
+    const firstHeadingMatch = generatedMarkdown.match(/^#{1,6}\s+(.+)$/m);
+    if (firstHeadingMatch) {
+      renameNode(newNoteId, firstHeadingMatch[1].trim());
+    }
+    setActiveNoteId(newNoteId);
+    setActionMessage({ text: '已從錄音建立新筆記。', variant: 'success' });
   };
 
   // On mobile the sidebar is a full-screen drawer, so picking a note should
@@ -636,6 +670,7 @@ const App: React.FC = () => {
         onToggleAIPanel={handleToggleAIPanel}
         isAILoading={isAILoading && !isAIPanelOpen}
         isAIPanelOpen={isAIPanelOpen}
+        onOpenVoiceNote={handleOpenVoiceNote}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onToggleSidebar={toggleSidebar}
         isMobile={isMobile}
@@ -730,9 +765,22 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         apiKey={apiKey}
         onSaveApiKey={setApiKey}
+        groqApiKey={groqApiKey}
+        onSaveGroqApiKey={setGroqApiKey}
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
       />
+      {isVoiceNoteModalOpen && (
+        <Suspense fallback={null}>
+          <VoiceNoteModal
+            isOpen={isVoiceNoteModalOpen}
+            onClose={() => setIsVoiceNoteModalOpen(false)}
+            groqApiKey={groqApiKey}
+            geminiApiKey={apiKey}
+            onNoteGenerated={handleVoiceNoteGenerated}
+          />
+        </Suspense>
+      )}
       {(actionMessage || storageError) && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-md flex flex-col gap-2">
           {actionMessage && (

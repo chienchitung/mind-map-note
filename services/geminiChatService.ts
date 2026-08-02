@@ -82,3 +82,38 @@ export const createChatSession = async (
         throw new Error("Failed to create a chat session with the AI model.");
     }
 };
+
+// A raw speech transcript reads as an unstructured stream of words — filler
+// words, false starts, no clear headings — so it isn't dropped straight into
+// a note as-is. This turns it into the same kind of structured Markdown
+// (headings + bullet points) the rest of the app expects to turn into a mind
+// map, via a single one-shot generation call rather than a chat session.
+export const generateNoteFromTranscript = async (transcript: string, apiKey: string): Promise<string> => {
+    if (!apiKey) {
+        throw new MissingApiKeyError();
+    }
+    if (!transcript.trim()) {
+        throw new Error('逐字稿是空的，無法生成筆記。');
+    }
+
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents: `請將以下語音逐字稿整理成一份結構清楚的筆記。使用「#」「##」等標題劃分主題，並用「-」列表呈現重點，保留原意與重要細節，並移除口語贅字、重複與離題內容。只輸出 Markdown 筆記本身，不要加上任何說明文字或 Markdown 程式碼區塊符號。\n\n逐字稿：\n${transcript}`,
+            config: {
+                systemInstruction: 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary.',
+            },
+        });
+
+        const noteMarkdown = response.text?.trim();
+        if (!noteMarkdown) {
+            throw new Error('AI 未能從逐字稿生成筆記內容，請再試一次。');
+        }
+        return noteMarkdown;
+    } catch (error) {
+        if (error instanceof MissingApiKeyError) throw error;
+        console.error('Error generating note from transcript:', error);
+        throw new Error(extractGeminiErrorMessage(error));
+    }
+};

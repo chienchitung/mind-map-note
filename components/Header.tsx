@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ViewMode, MindMapLayout, SearchResultItem } from '../types';
-import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, DocumentIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon, ChatbotIcon, SettingsIcon, MenuIcon, MoreIcon, SearchIcon } from './icons';
+import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, DocumentIcon, UndoIcon, RedoIcon, PreviewIcon, HelpIcon, MindMapLayoutIcon, LogicDiagramIcon, OrganizationalChartIcon, ChevronDownIcon, SunIcon, MoonIcon, ChatbotIcon, SettingsIcon, MenuIcon, MoreIcon, SearchIcon, MicIcon } from './icons';
 import SearchBar from './SearchBar';
 import MobileSearchOverlay from './MobileSearchOverlay';
 import Spinner from './Spinner';
@@ -30,6 +30,7 @@ interface HeaderProps {
   onToggleAIPanel: () => void;
   isAILoading: boolean;
   isAIPanelOpen: boolean;
+  onOpenVoiceNote: () => void;
   onOpenSettings: () => void;
   onToggleSidebar: () => void;
   isMobile: boolean;
@@ -66,6 +67,7 @@ const Header: React.FC<HeaderProps> = ({
   onToggleAIPanel,
   isAILoading,
   isAIPanelOpen,
+  onOpenVoiceNote,
   onOpenSettings,
   onToggleSidebar,
   isMobile,
@@ -145,6 +147,7 @@ const Header: React.FC<HeaderProps> = ({
     { key: 'undo', onClick: onUndo, disabled: !canUndo, icon: UndoIcon, label: '復原' },
     { key: 'redo', onClick: onRedo, disabled: !canRedo, icon: RedoIcon, label: '重做' },
     ...exportMenuItems.map(item => ({ ...item, disabled: !activeNoteId })),
+    { key: 'voice-note', onClick: onOpenVoiceNote, disabled: false, icon: MicIcon, label: '語音筆記' },
     { key: 'settings', onClick: onOpenSettings, disabled: false, icon: SettingsIcon, label: '設定' },
     { key: 'help', onClick: onShowHelp, disabled: false, icon: HelpIcon, label: '幫助' },
   ];
@@ -256,6 +259,17 @@ const Header: React.FC<HeaderProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {!isMobile && (
+          <button
+            onClick={onOpenVoiceNote}
+            className={`${iconButtonClass} bg-secondary ${enabledClass}`}
+            title="語音筆記"
+            aria-label="語音筆記"
+          >
+            <MicIcon className="w-5 h-5" />
+          </button>
         )}
 
         <button

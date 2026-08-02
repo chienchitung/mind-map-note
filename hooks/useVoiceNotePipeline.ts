@@ -29,10 +29,18 @@ export interface VoiceNoteState {
   errorMessage: string;
 }
 
+export interface VoiceRecordingData {
+  transcript: string;
+  segments: Blob[];
+}
+
 interface UseVoiceNotePipelineOptions {
   groqApiKey: string;
   geminiApiKey: string;
-  onNoteGenerated: (markdown: string) => void;
+  // `recording` carries the raw transcript and every audio segment that
+  // went into it, for callers that want to persist the source material
+  // alongside the generated note.
+  onNoteGenerated: (markdown: string, recording: VoiceRecordingData) => void;
   // Fired whenever the pipeline lands in the 'error' stage — App-level code
   // uses this to surface a toast when the modal isn't open to show it inline.
   onError?: (message: string) => void;
@@ -100,6 +108,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const segmentQueueRef = useRef<{ blob: Blob; filename: string }[]>([]);
   const queueRunningRef = useRef(false);
   const transcriptPartsRef = useRef<string[]>([]);
+  // Every segment successfully transcribed this session (recorded or
+  // split from an upload), kept around so the whole recording can be
+  // handed off to the caller alongside the generated note — not just the
+  // transcript.
+  const audioSegmentsRef = useRef<Blob[]>([]);
 
   const clearElapsedTimer = () => {
     if (elapsedTimerRef.current !== null) {
@@ -168,7 +181,10 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       try {
         const noteMarkdown = await generateNoteFromTranscript(combinedTranscript, geminiApiKeyRef.current);
         if (cancelledRef.current) return;
-        onNoteGeneratedRef.current(normalizeAiMarkdown(noteMarkdown));
+        onNoteGeneratedRef.current(normalizeAiMarkdown(noteMarkdown), {
+          transcript: combinedTranscript,
+          segments: audioSegmentsRef.current,
+        });
         resetToIdle();
       } catch (error) {
         if (cancelledRef.current) return;
@@ -203,6 +219,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
           });
           if (cancelledRef.current) return;
           transcriptPartsRef.current.push(text);
+          audioSegmentsRef.current.push(next.blob);
           setState(s => ({
             ...s,
             completedSegments: s.completedSegments + 1,
@@ -291,6 +308,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       isStillRecordingRef.current = true;
       transcriptPartsRef.current = [];
       segmentQueueRef.current = [];
+      audioSegmentsRef.current = [];
 
       setState(s => ({
         ...s,
@@ -357,6 +375,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     finalizedRef.current = false;
     transcriptPartsRef.current = [];
     segmentQueueRef.current = [];
+    audioSegmentsRef.current = [];
 
     if (file.size <= MAX_UPLOAD_BYTES) {
       setState(s => ({
@@ -385,6 +404,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         });
         if (cancelledRef.current) return;
         transcriptPartsRef.current.push(text);
+        audioSegmentsRef.current.push(file);
         setState(s => ({ ...s, completedSegments: 1, transcriptSoFar: text }));
         finalizedRef.current = true;
         await finalizeAndGenerate();
@@ -442,6 +462,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     }
     segmentQueueRef.current = [];
     transcriptPartsRef.current = [];
+    audioSegmentsRef.current = [];
     // Resets the visible UI state but deliberately does NOT flip
     // cancelledRef back to false the way resetToIdle() does — the abort()
     // call above doesn't reject its in-flight request synchronously, so

@@ -1,6 +1,7 @@
 // hooks/useFileSystem.ts
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { FileSystemTree, NotesContent, FileSystemNode, Images } from '../types';
+import { deleteVoiceRecording } from '../services/voiceRecordingStorage';
 
 const initialMarkdown = `# 歡迎使用思維導圖筆記工具
 
@@ -215,6 +216,12 @@ export const useFileSystem = () => {
                     delete newNotes[id];
                 }
             });
+
+            // Best-effort cleanup of any voice recording saved against a
+            // deleted note — most notes won't have one; IndexedDB deletes on
+            // a missing key are silent no-ops, so this is safe to fire for
+            // every deleted id without checking first.
+            nodesToDelete.forEach(id => { void deleteVoiceRecording(id); });
 
             if (nodeToDelete.parentId && newTree[nodeToDelete.parentId]) {
                 const parent = newTree[nodeToDelete.parentId];

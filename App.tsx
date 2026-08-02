@@ -4,7 +4,8 @@ import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
 import useLocalStorage from './hooks/useLocalStorage';
 import { useIsMobile } from './hooks/useMediaQuery';
-import { useVoiceNotePipeline } from './hooks/useVoiceNotePipeline';
+import { useVoiceNotePipeline, VoiceRecordingData } from './hooks/useVoiceNotePipeline';
+import { useVoiceRecordingsStorage } from './hooks/useVoiceRecordingsStorage';
 import Header from './components/Header';
 import Editor from './components/Editor';
 import MindMap, { MindMapHandle } from './components/MindMap';
@@ -499,12 +500,20 @@ const App: React.FC = () => {
     if (isMobile) setIsMobileSidebarOpen(false);
   };
 
+  const voiceRecordingsStorage = useVoiceRecordingsStorage();
+
   // Creates a new note from the AI-generated Markdown once the record →
   // transcribe → generate pipeline finishes, naming it after the note's own
   // first heading when there is one (falling back to the default name the
   // same way a blank new note does). Runs regardless of whether the voice
   // note modal is currently open or minimized to the background.
-  const handleVoiceNoteGenerated = (generatedMarkdown: string) => {
+  //
+  // Also persists the raw transcript and audio segments behind the note
+  // (see useVoiceRecordingsStorage) — this is best-effort: the note itself
+  // is already created and saved by this point, so a failure here (e.g. the
+  // browser's storage quota) is surfaced as a warning rather than treated
+  // as the whole operation failing.
+  const handleVoiceNoteGenerated = (generatedMarkdown: string, recording: VoiceRecordingData) => {
     const newNoteId = createNode('file', 'root');
     updateNote(newNoteId, generatedMarkdown);
     const firstHeadingMatch = generatedMarkdown.match(/^#{1,6}\s+(.+)$/m);
@@ -514,6 +523,11 @@ const App: React.FC = () => {
     setActiveNoteId(newNoteId);
     setIsVoiceNoteModalOpen(false);
     setActionMessage({ text: '已從錄音建立新筆記。', variant: 'success' });
+
+    voiceRecordingsStorage.saveRecording(newNoteId, recording.transcript, recording.segments).catch(error => {
+      console.error('Failed to save voice recording:', error);
+      setActionMessage({ text: '筆記已建立，但保存原始錄音與逐字稿時發生錯誤（可能是儲存空間不足）。', variant: 'warning' });
+    });
   };
 
   // Only toast a pipeline error if the modal isn't open to show it inline —
@@ -813,6 +827,16 @@ const App: React.FC = () => {
         onSaveGroqApiKey={setGroqApiKey}
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
+        voiceRecordingsBytes={voiceRecordingsStorage.totalBytes}
+        onClearVoiceRecordings={async () => {
+          try {
+            await voiceRecordingsStorage.clearAll();
+            setActionMessage({ text: '已清除所有已保存的語音錄音。', variant: 'success' });
+          } catch (error) {
+            console.error('Failed to clear voice recordings:', error);
+            setActionMessage({ text: '清除語音錄音時發生錯誤。', variant: 'warning' });
+          }
+        }}
       />
       {isVoiceNoteModalOpen && (
         <Suspense fallback={null}>

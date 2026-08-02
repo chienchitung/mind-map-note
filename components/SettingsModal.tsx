@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { XIcon, KeyIcon, SettingsIcon, ArchiveIcon, ExportIcon, ImportIcon } from './icons';
+import { XIcon, KeyIcon, SettingsIcon, ArchiveIcon, ExportIcon, ImportIcon, MicIcon, TrashIcon } from './icons';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,9 +10,25 @@ interface SettingsModalProps {
   onSaveGroqApiKey: (key: string) => void;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
+  // null while the initial storage read is still in flight.
+  voiceRecordingsBytes: number | null;
+  onClearVoiceRecordings: () => void;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, onSaveApiKey, groqApiKey, onSaveGroqApiKey, onExportBackup, onImportBackup }) => {
+const formatMB = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  onClose,
+  apiKey,
+  onSaveApiKey,
+  groqApiKey,
+  onSaveGroqApiKey,
+  onExportBackup,
+  onImportBackup,
+  voiceRecordingsBytes,
+  onClearVoiceRecordings,
+}) => {
   const [draftKey, setDraftKey] = useState(apiKey);
   const [isRevealed, setIsRevealed] = useState(false);
   const [draftGroqKey, setDraftGroqKey] = useState(groqApiKey);
@@ -52,6 +68,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
     if (!file) return;
     onImportBackup(file);
     onClose();
+  };
+
+  const handleClearVoiceRecordings = () => {
+    if (confirm('確定要清除所有已保存的語音錄音與逐字稿嗎？此動作無法復原（不會影響已生成的筆記內容）。')) {
+      onClearVoiceRecordings();
+    }
   };
 
   return (
@@ -237,6 +259,38 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
               onChange={handleImportFileChange}
             />
           </div>
+        </section>
+
+        <div className="h-px bg-border-color my-6"></div>
+
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <MicIcon className="w-4 h-4 text-accent" />
+            <h3 className="text-sm font-semibold text-text-main">語音錄音儲存</h3>
+          </div>
+
+          <p className="text-sm text-text-secondary mb-4 leading-relaxed">
+            每次用語音筆記生成筆記後，原始錄音與逐字稿都會完整保留在
+            <strong className="text-text-main"> 這台裝置的瀏覽器</strong>
+            裡（獨立於一般筆記資料，不含在上方的備份匯出中），方便之後核對內容。刪除對應的筆記時會一併清除。
+          </p>
+
+          <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-secondary rounded-xl mb-3">
+            <span className="text-sm text-text-main">目前使用空間</span>
+            <span className="text-sm font-medium text-text-main tabular-nums">
+              {voiceRecordingsBytes === null ? '讀取中...' : formatMB(voiceRecordingsBytes)}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleClearVoiceRecordings}
+            disabled={!voiceRecordingsBytes}
+            className="flex items-center gap-2 text-sm text-red-500 hover:text-red-400 disabled:text-text-secondary/40 disabled:cursor-not-allowed transition-colors duration-150 ease-apple"
+          >
+            <TrashIcon className="w-4 h-4" />
+            清除所有語音錄音
+          </button>
         </section>
       </div>
     </div>

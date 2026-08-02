@@ -381,7 +381,22 @@ const App: React.FC = () => {
   // below) is styled to show only itself under `@media print` (see
   // index.css), so triggering print produces a real, text-searchable PDF
   // with no added dependency.
+  //
+  // The note's name is deliberately not repeated as a heading inside that
+  // container (the note's own content almost always already starts with
+  // one) — instead this swaps `document.title` to the note's name for the
+  // duration of the print, so it shows up in the browser's own native print
+  // header instead of being duplicated in the page body. Restored via the
+  // `afterprint` event rather than immediately after `window.print()`
+  // returns, since some browsers treat the print dialog as async.
   const handleExportPDF = () => {
+    const previousTitle = document.title;
+    document.title = activeNoteName || previousTitle;
+    const restoreTitle = () => {
+      document.title = previousTitle;
+      window.removeEventListener('afterprint', restoreTitle);
+    };
+    window.addEventListener('afterprint', restoreTitle);
     window.print();
   };
 
@@ -827,7 +842,6 @@ const App: React.FC = () => {
         text-searchable "PDF" via the browser's own print-to-PDF instead of
         pulling in a client-side PDF library. */}
     <div id="print-only-content" className="hidden print:block">
-      <h1 className="text-3xl font-semibold mb-6">{activeNoteName}</h1>
       <MarkdownPreview markdown={markdown} images={images} />
     </div>
     </div>

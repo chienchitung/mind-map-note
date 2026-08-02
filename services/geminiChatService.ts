@@ -100,9 +100,9 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
         const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
             model: 'gemini-3.6-flash',
-            contents: `請將以下語音逐字稿整理成一份結構清楚的筆記。使用「#」「##」等標題劃分主題，並用「-」列表呈現重點，保留原意與重要細節，並移除口語贅字、重複與離題內容。只輸出 Markdown 筆記本身，不要加上任何說明文字或 Markdown 程式碼區塊符號。\n\n逐字稿：\n${transcript}`,
+            contents: `請將以下語音逐字稿整理成一份結構清楚的筆記。使用「#」「##」等標題劃分主題，並用「-」列表呈現重點，保留原意與重要細節，並移除口語贅字、重複與離題內容。標題本身就足以區隔段落，不要在段落之間插入「---」之類的分隔線。只輸出 Markdown 筆記本身，不要加上任何說明文字或 Markdown 程式碼區塊符號。\n\n逐字稿：\n${transcript}`,
             config: {
-                systemInstruction: 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary.',
+                systemInstruction: 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them.',
             },
         });
 

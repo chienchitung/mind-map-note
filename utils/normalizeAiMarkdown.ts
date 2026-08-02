@@ -9,6 +9,19 @@
 // emphasis (e.g. "*重要*：這是說明。") and must be left alone, since
 // inserting a space there would break the emphasis instead of fixing
 // anything.
+// AI-generated notes sometimes sprinkle "---" (or "***" / "___") divider
+// lines between sections as a stylistic habit, even when asked not to.
+// Beyond the visual clutter of a horizontal rule between every heading —
+// headings alone already separate sections — a "-"-based divider directly
+// under a text line is CommonMark-ambiguous with a Setext heading underline
+// (it can silently turn the line above it into a heading instead of
+// rendering as a rule), so these are stripped rather than just discouraged
+// in the prompt.
+const isDividerLine = (line: string): boolean => {
+  const compact = line.replace(/\s+/g, '');
+  return /^(-{3,}|\*{3,}|_{3,})$/.test(compact);
+};
+
 export const normalizeAiMarkdown = (text: string): string => {
   return text
     .split('\n')
@@ -19,5 +32,7 @@ export const normalizeAiMarkdown = (text: string): string => {
       if (rest.includes('*')) return line;
       return `${indent}* ${rest}`;
     })
-    .join('\n');
+    .filter(line => !isDividerLine(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n'); // collapse blank-line runs a removed divider leaves behind
 };

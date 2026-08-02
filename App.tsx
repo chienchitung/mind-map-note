@@ -4,6 +4,7 @@ import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
 import useLocalStorage from './hooks/useLocalStorage';
 import { useIsMobile } from './hooks/useMediaQuery';
+import { useVoiceNotePipeline } from './hooks/useVoiceNotePipeline';
 import Header from './components/Header';
 import Editor from './components/Editor';
 import MindMap, { MindMapHandle } from './components/MindMap';
@@ -14,6 +15,7 @@ import type { ChatMessage } from './components/AIPanel';
 import SettingsModal from './components/SettingsModal';
 import Toast from './components/Toast';
 import Spinner from './components/Spinner';
+import VoiceNoteStatusPill from './components/VoiceNoteStatusPill';
 import type { Chat } from '@google/genai';
 import { parseMarkdownToMindMap } from './utils/markdownParser';
 import { escapeRegExp } from './utils/escapeRegExp';
@@ -482,23 +484,11 @@ const App: React.FC = () => {
     if (isMobile) setIsMobileSidebarOpen(false);
   };
 
-  // Gated the same way as the AI panel: rather than opening the recorder and
-  // only then discovering a key is missing, send the user straight to
-  // Settings with an explanation. Both keys are required up front since the
-  // pipeline needs Groq for transcription and Gemini for note generation.
-  const handleOpenVoiceNote = () => {
-    if (!apiKey || !groqApiKey) {
-      setIsSettingsOpen(true);
-      setActionMessage({ text: '請先在設定中填入 Groq 與 Gemini API 金鑰，才能使用語音筆記功能。', variant: 'warning' });
-      return;
-    }
-    setIsVoiceNoteModalOpen(true);
-  };
-
   // Creates a new note from the AI-generated Markdown once the record →
   // transcribe → generate pipeline finishes, naming it after the note's own
   // first heading when there is one (falling back to the default name the
-  // same way a blank new note does).
+  // same way a blank new note does). Runs regardless of whether the voice
+  // note modal is currently open or minimized to the background.
   const handleVoiceNoteGenerated = (generatedMarkdown: string) => {
     const newNoteId = createNode('file', 'root');
     updateNote(newNoteId, generatedMarkdown);
@@ -507,7 +497,46 @@ const App: React.FC = () => {
       renameNode(newNoteId, firstHeadingMatch[1].trim());
     }
     setActiveNoteId(newNoteId);
+    setIsVoiceNoteModalOpen(false);
     setActionMessage({ text: '已從錄音建立新筆記。', variant: 'success' });
+  };
+
+  // Only toast a pipeline error if the modal isn't open to show it inline —
+  // this is what makes an error surfaceable while the recorder is minimized.
+  const handleVoiceNoteError = useCallback((message: string) => {
+    if (!isVoiceNoteModalOpen) {
+      setActionMessage({ text: `語音筆記發生錯誤：${message}`, variant: 'warning' });
+    }
+  }, [isVoiceNoteModalOpen]);
+
+  // Lives at the App level (not inside the modal) so recording and the
+  // transcribe/generate pipeline keep running even while the modal is
+  // minimized — closing the modal only hides the UI, never cancels it.
+  const voiceNotePipeline = useVoiceNotePipeline({
+    groqApiKey,
+    geminiApiKey: apiKey,
+    onNoteGenerated: handleVoiceNoteGenerated,
+    onError: handleVoiceNoteError,
+  });
+
+  // Gated the same way as the AI panel: rather than opening the recorder and
+  // only then discovering a key is missing, send the user straight to
+  // Settings with an explanation. Both keys are required up front since the
+  // pipeline needs Groq for transcription and Gemini for note generation —
+  // but only for a *fresh* session; reopening onto one that's already
+  // running (e.g. after minimizing) skips the check, since it was already
+  // validated when that session started.
+  const handleOpenVoiceNote = () => {
+    if (voiceNotePipeline.state.stage !== 'idle') {
+      setIsVoiceNoteModalOpen(true);
+      return;
+    }
+    if (!apiKey || !groqApiKey) {
+      setIsSettingsOpen(true);
+      setActionMessage({ text: '請先在設定中填入 Groq 與 Gemini API 金鑰，才能使用語音筆記功能。', variant: 'warning' });
+      return;
+    }
+    setIsVoiceNoteModalOpen(true);
   };
 
   // On mobile the sidebar is a full-screen drawer, so picking a note should
@@ -775,11 +804,13 @@ const App: React.FC = () => {
           <VoiceNoteModal
             isOpen={isVoiceNoteModalOpen}
             onClose={() => setIsVoiceNoteModalOpen(false)}
-            groqApiKey={groqApiKey}
-            geminiApiKey={apiKey}
-            onNoteGenerated={handleVoiceNoteGenerated}
+            state={voiceNotePipeline.state}
+            actions={voiceNotePipeline.actions}
           />
         </Suspense>
+      )}
+      {!isVoiceNoteModalOpen && voiceNotePipeline.state.stage !== 'idle' && (
+        <VoiceNoteStatusPill state={voiceNotePipeline.state} onClick={() => setIsVoiceNoteModalOpen(true)} />
       )}
       {(actionMessage || storageError) && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-md flex flex-col gap-2">

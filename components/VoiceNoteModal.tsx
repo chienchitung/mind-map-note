@@ -61,7 +61,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
 
   const {
     inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments, currentUploadFraction,
-    errorMessage, rateLimitRetrySeconds, hasVideo, canDownload, previewUrl,
+    errorMessage, rateLimitRetrySeconds, hasVideo, canDownload, previewUrl, awaitingVideoReview,
   } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
 
@@ -229,6 +229,49 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
           </div>
         );
       case 'processing': {
+        if (awaitingVideoReview) {
+          return (
+            <div className="flex flex-col items-center text-center py-6">
+              {previewUrl ? (
+                <video src={previewUrl} controls className="w-full max-h-48 rounded-lg mb-4 bg-black" />
+              ) : (
+                <Spinner className="w-8 h-8 text-accent mb-4" />
+              )}
+              <p className="text-sm font-medium text-text-main mb-1">錄製完成</p>
+              <p className="text-xs text-text-secondary leading-relaxed">
+                建議先下載影片備份，繼續後畫面就無法再取回。AI 仍會在背景整理逐字稿。
+              </p>
+              <div className="flex items-center gap-2 mt-4">
+                {canDownload && (
+                  <button
+                    onClick={() => actions.downloadRecording()}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full text-text-secondary hover:bg-secondary transition-all duration-150 ease-apple active:scale-95"
+                  >
+                    <ExportIcon className="w-4 h-4" />
+                    下載影片檔
+                  </button>
+                )}
+                <button
+                  onClick={() => actions.confirmVideoReviewed()}
+                  className="px-4 py-2 text-sm font-medium rounded-full bg-accent text-white hover:opacity-90 transition-all duration-150 ease-apple active:scale-95"
+                >
+                  繼續產生筆記
+                </button>
+              </div>
+              {showDiscardConfirm ? (
+                renderDiscardConfirm('確定要捨棄這段錄影嗎？此動作無法復原。')
+              ) : (
+                <button
+                  onClick={() => setShowDiscardConfirm(true)}
+                  className="mt-5 text-xs text-text-secondary hover:text-text-main transition-colors duration-150 ease-apple"
+                >
+                  取消並捨棄
+                </button>
+              )}
+            </div>
+          );
+        }
+
         const showSegmentProgress = processingPhase === 'transcribing' && totalSegments > 1;
         const showUploadProgress = processingPhase === 'uploading';
         const segmentFraction = totalSegments > 0 ? (completedSegments + currentUploadFraction) / totalSegments : 0;

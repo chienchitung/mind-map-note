@@ -4,6 +4,8 @@ import {
   deleteVoiceRecording,
   clearAllVoiceRecordings,
   getTotalVoiceRecordingsBytes,
+  getAllVoiceRecordings,
+  StoredVoiceRecording,
 } from '../services/voiceRecordingStorage';
 
 export const useVoiceRecordingsStorage = () => {
@@ -36,5 +38,9 @@ export const useVoiceRecordingsStorage = () => {
     void refreshUsage();
   }, [refreshUsage]);
 
-  return { totalBytes, saveRecording, deleteRecording, clearAll, refreshUsage };
+  const listRecordings = useCallback((): Promise<StoredVoiceRecording[]> => {
+    return getAllVoiceRecordings();
+  }, []);
+
+  return { totalBytes, saveRecording, deleteRecording, clearAll, refreshUsage, listRecordings };
 };

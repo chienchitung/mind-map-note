@@ -77,6 +77,14 @@ export const getVoiceRecording = async (noteId: string): Promise<StoredVoiceReco
     return runTransaction('readonly', store => store.get(noteId));
 };
 
+// Every stored recording's full record — including its segment Blobs, whose
+// bytes stay disk-backed until actually read (e.g. downloaded), so listing
+// them all doesn't pull the whole store into memory at once.
+export const getAllVoiceRecordings = async (): Promise<StoredVoiceRecording[]> => {
+    if (!isIndexedDbAvailable()) return [];
+    return (await runTransaction<StoredVoiceRecording[]>('readonly', store => store.getAll())) ?? [];
+};
+
 export const getTotalVoiceRecordingsBytes = async (): Promise<number> => {
     if (!isIndexedDbAvailable()) return 0;
     const db = await openDb();

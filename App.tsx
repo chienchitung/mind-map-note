@@ -837,6 +837,16 @@ const App: React.FC = () => {
             setActionMessage({ text: '清除語音錄音時發生錯誤。', variant: 'warning' });
           }
         }}
+        onListVoiceRecordings={voiceRecordingsStorage.listRecordings}
+        onDeleteVoiceRecording={async (noteId) => {
+          try {
+            await voiceRecordingsStorage.deleteRecording(noteId);
+          } catch (error) {
+            console.error('Failed to delete voice recording:', error);
+            setActionMessage({ text: '刪除語音錄音時發生錯誤。', variant: 'warning' });
+          }
+        }}
+        getNoteTitle={(noteId) => tree[noteId]?.name}
       />
       {isVoiceNoteModalOpen && (
         <Suspense fallback={null}>

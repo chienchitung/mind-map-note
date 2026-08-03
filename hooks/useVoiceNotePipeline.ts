@@ -9,6 +9,7 @@ import {
 } from '../services/groqTranscriptionService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
 import { splitAudioFileIntoSegments, MAX_SPLITTABLE_FILE_BYTES } from '../utils/audioSplitter';
+import { downloadBlob } from '../utils/downloadBlob';
 
 export type VoiceNoteStage = 'idle' | 'recording' | 'processing' | 'error';
 export type VoiceNoteInputMode = 'record' | 'upload';
@@ -44,6 +45,14 @@ export interface VoiceNoteState {
   // Object URL for the <video> preview when hasVideo is true; null otherwise
   // (including for audio-only sessions, which don't need a preview).
   previewUrl: string | null;
+  // True right after a video recording stops, until the user explicitly
+  // confirms they've had a chance to download it. Transcription still runs
+  // in the background during this wait, but the pipeline holds off calling
+  // finalizeAndGenerate() — which ends in resetToIdle() wiping the video —
+  // until that confirmation, so the video can't be silently lost to a note
+  // that finishes generating faster than the user reacts. Always false for
+  // audio-only sessions and uploads.
+  awaitingVideoReview: boolean;
 }
 
 export interface VoiceRecordingData {
@@ -137,6 +146,7 @@ const initialState: VoiceNoteState = {
   hasVideo: false,
   canDownload: false,
   previewUrl: null,
+  awaitingVideoReview: false,
 };
 
 export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated, onError }: UseVoiceNotePipelineOptions) => {
@@ -194,6 +204,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const rawRecordingBlobsRef = useRef<Blob[]>([]);
   const hasVideoRef = useRef(false);
   const previewUrlRef = useRef<string | null>(null);
+  // Gates finalizeAndGenerate() behind an explicit user confirmation after a
+  // video recording stops — see awaitingVideoReview on VoiceNoteState.
+  const videoReviewPendingRef = useRef(false);
 
   const clearElapsedTimer = () => {
     if (elapsedTimerRef.current !== null) {
@@ -262,6 +275,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     uploadedFileRef.current = null;
     rawRecordingBlobsRef.current = [];
     hasVideoRef.current = false;
+    videoReviewPendingRef.current = false;
     revokePreviewUrl();
     setState(s => ({
       ...s,
@@ -277,6 +291,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       hasVideo: false,
       canDownload: false,
       previewUrl: null,
+      awaitingVideoReview: false,
     }));
   }, []);
 
@@ -305,8 +320,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     // Deliberately leaves canDownload/hasVideo/previewUrl untouched — a
     // failed transcription shouldn't cost the user their raw recording too;
     // the error screen still offers a download of whatever was captured.
+    videoReviewPendingRef.current = false;
     const message = error instanceof Error ? error.message : '發生未知的錯誤，請再試一次。';
-    setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message, rateLimitRetrySeconds: null }));
+    setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message, rateLimitRetrySeconds: null, awaitingVideoReview: false }));
     onErrorRef.current?.(message);
   }, []);
 
@@ -423,6 +439,14 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     }
 
     if (!isStillRecordingRef.current && !cancelledRef.current && !finalizedRef.current) {
+      if (videoReviewPendingRef.current) {
+        // Transcription is done, but the user hasn't confirmed they've had
+        // a chance to download the video yet — hold off on generating the
+        // note (which ends in resetToIdle(), wiping it) until they do.
+        // confirmVideoReviewed() re-invokes drainQueue() once cleared, which
+        // immediately falls through to this same check again.
+        return;
+      }
       finalizedRef.current = true;
       await finalizeAndGenerate();
     }
@@ -483,12 +507,26 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     discardRef.current = false;
     clearSegmentTimer();
     clearElapsedTimer();
-    setState(s => ({ ...s, stage: 'processing', processingPhase: 'transcribing' }));
+    // A video recording pauses before generating the note — see
+    // awaitingVideoReview — so stopping it isn't a race against losing the
+    // video. Audio-only sessions are unaffected and proceed exactly as
+    // before.
+    videoReviewPendingRef.current = hasVideoRef.current;
+    setState(s => ({ ...s, stage: 'processing', processingPhase: 'transcribing', awaitingVideoReview: hasVideoRef.current }));
     mediaRecorderRef.current.stop();
     if (downloadRecorderRef.current && downloadRecorderRef.current.state !== 'inactive') {
       downloadRecorderRef.current.stop();
     }
   }, []);
+
+  // Lets a paused-for-video-review pipeline proceed to note generation —
+  // see awaitingVideoReview. A no-op if there's nothing pending.
+  const confirmVideoReviewed = useCallback(() => {
+    if (!videoReviewPendingRef.current) return;
+    videoReviewPendingRef.current = false;
+    setState(s => ({ ...s, awaitingVideoReview: false }));
+    void drainQueue();
+  }, [drainQueue]);
 
   const startRecording = useCallback(async (options?: StartRecordingOptions) => {
     setState(s => ({ ...s, errorMessage: '' }));
@@ -767,12 +805,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       return;
     }
 
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(blob, filename);
   }, []);
 
   // Aborts everything in flight and returns to a clean idle state — used
@@ -802,6 +835,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     rawRecordingBlobsRef.current = [];
     uploadedFileRef.current = null;
     hasVideoRef.current = false;
+    videoReviewPendingRef.current = false;
     revokePreviewUrl();
     // Resets the visible UI state but deliberately does NOT flip
     // cancelledRef back to false the way resetToIdle() does — the abort()
@@ -827,6 +861,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       hasVideo: false,
       canDownload: false,
       previewUrl: null,
+      awaitingVideoReview: false,
     }));
   }, []);
 
@@ -870,6 +905,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
 
   return {
     state,
-    actions: { startRecording, stopRecording, selectFile, cancel, retry, setInputMode, downloadRecording },
+    actions: { startRecording, stopRecording, selectFile, cancel, retry, setInputMode, downloadRecording, confirmVideoReviewed },
   };
 };

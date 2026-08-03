@@ -149,7 +149,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
                     <p className="text-[11px] text-text-secondary/70 mt-0.5 pl-5">此功能僅支援 Chrome / Edge 瀏覽器</p>
                   )}
                   {captureTabAudio && isDisplayCaptureSupported && (
-                    <label className="flex items-start gap-2 text-xs text-text-secondary leading-relaxed mt-2 pl-5">
+                    <label className="flex items-start gap-2 text-xs text-text-secondary leading-relaxed mt-2">
                       <input type="checkbox" className="mt-0.5 flex-shrink-0" checked={captureVideo} onChange={(e) => setCaptureVideo(e.target.checked)} />
                       <span>同時錄下分享的畫面影像</span>
                     </label>
@@ -308,7 +308,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
-        className="modal-content max-w-[420px]"
+        className="modal-content"
         role="dialog"
         aria-modal="true"
         aria-labelledby="voice-note-modal-title"

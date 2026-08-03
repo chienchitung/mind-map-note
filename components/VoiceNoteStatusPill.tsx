@@ -20,13 +20,13 @@ const formatDuration = (totalSeconds: number): string => {
 // the user keep browsing other notes without losing track of it, and
 // click back in at any time. Only rendered by App.tsx while stage !== 'idle'.
 const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClick }) => {
-  const { stage, elapsedSeconds, processingPhase, totalSegments, completedSegments, rateLimitRetrySeconds } = state;
+  const { stage, elapsedSeconds, processingPhase, totalSegments, completedSegments, rateLimitRetrySeconds, hasVideo } = state;
 
   let label = '處理中...';
   if (stage === 'recording') {
-    label = `錄音中 ${formatDuration(elapsedSeconds)}`;
+    label = hasVideo ? `錄影中 ${formatDuration(elapsedSeconds)}` : `錄音中 ${formatDuration(elapsedSeconds)}`;
   } else if (stage === 'processing') {
-    if (processingPhase === 'splitting') label = '分段處理中...';
+    if (processingPhase === 'splitting') label = hasVideo ? '抽取音軌中...' : '分段處理中...';
     else if (processingPhase === 'uploading') label = '上傳音檔中...';
     else if (processingPhase === 'transcribing') {
       label = totalSegments > 1 ? `轉錄中 ${completedSegments}/${totalSegments} 段` : '辨識語音中...';

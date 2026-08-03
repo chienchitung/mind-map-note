@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   transcribeAudio,
   extensionForMimeType,
-  isSupportedAudioFile,
+  isSupportedMediaFile,
+  isVideoFile,
   MAX_UPLOAD_BYTES,
   RateLimitError,
 } from '../services/groqTranscriptionService';
@@ -31,6 +32,18 @@ export interface VoiceNoteState {
   // Non-null while automatically waiting out a Groq rate-limit cooldown
   // before retrying the current segment, counting down the seconds left.
   rateLimitRetrySeconds: number | null;
+  // Whether the current session's source material includes a video track
+  // (an uploaded video file, or a screen recording that kept its video) —
+  // drives the "extracting audio" label, the <video> preview, and download
+  // filenames. Transcription itself is unaffected either way: it always
+  // runs on audio only.
+  hasVideo: boolean;
+  // Whether there's currently a raw recording/file available to download,
+  // independent of whether transcription has finished or even succeeded.
+  canDownload: boolean;
+  // Object URL for the <video> preview when hasVideo is true; null otherwise
+  // (including for audio-only sessions, which don't need a preview).
+  previewUrl: string | null;
 }
 
 export interface VoiceRecordingData {
@@ -48,6 +61,17 @@ interface UseVoiceNotePipelineOptions {
   // Fired whenever the pipeline lands in the 'error' stage — App-level code
   // uses this to surface a toast when the modal isn't open to show it inline.
   onError?: (message: string) => void;
+}
+
+export interface StartRecordingOptions {
+  // Also capture audio from a shared browser tab/window/screen (mixed with
+  // the microphone) via getDisplayMedia — lets the transcript include the
+  // other side of an online meeting, not just the user's own mic.
+  captureTabAudio?: boolean;
+  // Only meaningful alongside captureTabAudio: keep the shared video track
+  // too and record it in parallel (for preview/download), purely for the
+  // user's own reference — it's never sent for transcription.
+  captureVideo?: boolean;
 }
 
 // A long recording is split into segments that are transcribed as they
@@ -78,6 +102,27 @@ const pickSupportedMimeType = (): string | undefined => {
   return MIME_CANDIDATES.find(type => MediaRecorder.isTypeSupported?.(type));
 };
 
+// Candidates for the parallel recorder that captures shared-screen video
+// (plus mixed audio) purely for download/preview — kept separate from
+// MIME_CANDIDATES above because that list is audio-only and invalid for a
+// stream that includes a video track.
+const VIDEO_MIME_CANDIDATES = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+const pickSupportedVideoMimeType = (): string | undefined => {
+  if (typeof MediaRecorder === 'undefined') return undefined;
+  return VIDEO_MIME_CANDIDATES.find(type => MediaRecorder.isTypeSupported?.(type));
+};
+
+// Maps a recorded/uploaded Blob's mimeType to a download filename extension.
+// Deliberately different from extensionForMimeType (which picks an
+// extension Groq's API will accept as an upload hint) — this is purely
+// about what a user's OS/media player expects to see locally.
+const extensionForDownload = (mimeType: string): string => {
+  const isVideoMime = mimeType.startsWith('video/');
+  const hasMp4 = mimeType.includes('mp4');
+  if (isVideoMime) return hasMp4 ? 'mp4' : 'webm';
+  return hasMp4 ? 'm4a' : 'webm';
+};
+
 const initialState: VoiceNoteState = {
   stage: 'idle',
   inputMode: 'record',
@@ -89,6 +134,9 @@ const initialState: VoiceNoteState = {
   transcriptSoFar: '',
   errorMessage: '',
   rateLimitRetrySeconds: null,
+  hasVideo: false,
+  canDownload: false,
+  previewUrl: null,
 };
 
 export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated, onError }: UseVoiceNotePipelineOptions) => {
@@ -108,7 +156,17 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // The stream actually fed to the transcription recorder above — either
+  // the raw mic stream, or (when tab-audio capture is on) the mixed
+  // mic+display audio destination stream. Always audio-only.
   const streamRef = useRef<MediaStream | null>(null);
+  // The *original* captured streams, kept separately from streamRef because
+  // stopping tracks on a Web Audio destination stream doesn't release the
+  // underlying hardware capture — only stopping the original getUserMedia /
+  // getDisplayMedia tracks does.
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const displayStreamRef = useRef<MediaStream | null>(null);
+  const mixAudioContextRef = useRef<AudioContext | null>(null);
   const isStillRecordingRef = useRef(false);
   const discardRef = useRef(false);
   const cancelledRef = useRef(false);
@@ -125,6 +183,18 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   // transcript.
   const audioSegmentsRef = useRef<Blob[]>([]);
 
+  // The parallel recorder that captures shared-screen video (+ mixed
+  // audio) purely for download/preview — never touches transcription.
+  const downloadRecorderRef = useRef<MediaRecorder | null>(null);
+  const downloadChunksRef = useRef<Blob[]>([]);
+  // Source material for the "download this recording" action: either the
+  // originally uploaded file (kept as-is, at full original quality), or the
+  // raw MediaRecorder blob(s) from a live recording — mutually exclusive.
+  const uploadedFileRef = useRef<File | null>(null);
+  const rawRecordingBlobsRef = useRef<Blob[]>([]);
+  const hasVideoRef = useRef(false);
+  const previewUrlRef = useRef<string | null>(null);
+
   const clearElapsedTimer = () => {
     if (elapsedTimerRef.current !== null) {
       window.clearInterval(elapsedTimerRef.current);
@@ -140,10 +210,59 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const releaseStream = () => {
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
+    micStreamRef.current?.getTracks().forEach(track => track.stop());
+    micStreamRef.current = null;
+    displayStreamRef.current?.getTracks().forEach(track => track.stop());
+    displayStreamRef.current = null;
+    if (mixAudioContextRef.current) {
+      void mixAudioContextRef.current.close();
+      mixAudioContextRef.current = null;
+    }
+  };
+  const revokePreviewUrl = () => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+  };
+
+  // Starts a second, independent MediaRecorder over the shared video track
+  // (plus the same mixed audio the transcription recorder is using) so the
+  // user can preview/download what was on screen — entirely separate from
+  // the audio-only segment queue that feeds transcription.
+  const startDownloadRecorder = (audioStream: MediaStream, capturedVideoTrack: MediaStreamTrack) => {
+    const combinedStream = new MediaStream([...audioStream.getAudioTracks(), capturedVideoTrack]);
+    const mimeType = pickSupportedVideoMimeType();
+    const recorder = mimeType
+      ? new MediaRecorder(combinedStream, { mimeType })
+      : new MediaRecorder(combinedStream);
+    downloadChunksRef.current = [];
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) downloadChunksRef.current.push(event.data);
+    };
+    recorder.onstop = () => {
+      if (discardRef.current || cancelledRef.current) return;
+      const capturedMimeType = recorder.mimeType || 'video/webm';
+      const blob = new Blob(downloadChunksRef.current, { type: capturedMimeType });
+      if (blob.size > 0) {
+        rawRecordingBlobsRef.current = [blob];
+        revokePreviewUrl();
+        previewUrlRef.current = URL.createObjectURL(blob);
+        setState(s => ({ ...s, canDownload: true, previewUrl: previewUrlRef.current }));
+      }
+    };
+
+    downloadRecorderRef.current = recorder;
+    recorder.start();
   };
 
   const resetToIdle = useCallback(() => {
     cancelledRef.current = false;
+    uploadedFileRef.current = null;
+    rawRecordingBlobsRef.current = [];
+    hasVideoRef.current = false;
+    revokePreviewUrl();
     setState(s => ({
       ...s,
       stage: 'idle',
@@ -155,6 +274,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       transcriptSoFar: '',
       errorMessage: '',
       rateLimitRetrySeconds: null,
+      hasVideo: false,
+      canDownload: false,
+      previewUrl: null,
     }));
   }, []);
 
@@ -175,6 +297,14 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       recorder.onstop = null;
       recorder.stop();
     }
+    const downloadRecorder = downloadRecorderRef.current;
+    if (downloadRecorder && downloadRecorder.state !== 'inactive') {
+      downloadRecorder.onstop = null;
+      downloadRecorder.stop();
+    }
+    // Deliberately leaves canDownload/hasVideo/previewUrl untouched — a
+    // failed transcription shouldn't cost the user their raw recording too;
+    // the error screen still offers a download of whatever was captured.
     const message = error instanceof Error ? error.message : '發生未知的錯誤，請再試一次。';
     setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message, rateLimitRetrySeconds: null }));
     onErrorRef.current?.(message);
@@ -323,6 +453,15 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         const filename = `segment-${Date.now()}.${extensionForMimeType(capturedMimeType)}`;
         segmentQueueRef.current.push({ blob, filename });
         setState(s => ({ ...s, totalSegments: s.totalSegments + 1 }));
+
+        // Only treat these audio-only segments as the downloadable source
+        // when there's no separate video recording running — when there
+        // is, startDownloadRecorder's own onstop is the canonical source
+        // instead, so as not to clobber it with audio-only chunks.
+        if (!hasVideoRef.current) {
+          rawRecordingBlobsRef.current.push(blob);
+          setState(s => ({ ...s, canDownload: true }));
+        }
       }
 
       if (isStillRecordingRef.current) {
@@ -338,10 +477,28 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     recorder.start();
   }, [drainQueue]);
 
-  const startRecording = useCallback(async () => {
+  const stopRecording = useCallback(() => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
+    isStillRecordingRef.current = false;
+    discardRef.current = false;
+    clearSegmentTimer();
+    clearElapsedTimer();
+    setState(s => ({ ...s, stage: 'processing', processingPhase: 'transcribing' }));
+    mediaRecorderRef.current.stop();
+    if (downloadRecorderRef.current && downloadRecorderRef.current.state !== 'inactive') {
+      downloadRecorderRef.current.stop();
+    }
+  }, []);
+
+  const startRecording = useCallback(async (options?: StartRecordingOptions) => {
     setState(s => ({ ...s, errorMessage: '' }));
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       handlePipelineError(new Error('這個瀏覽器不支援錄音功能，請改用最新版的 Chrome、Edge 或 Safari。'));
+      return;
+    }
+    const wantsTabAudio = !!options?.captureTabAudio;
+    if (wantsTabAudio && typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+      handlePipelineError(new Error('這個瀏覽器不支援分享分頁擷取，請改用 Chrome 或 Edge，或取消勾選該選項。'));
       return;
     }
 
@@ -353,18 +510,89 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     // very call is in flight, without being confused by a stale one.
     cancelledRef.current = false;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (cancelledRef.current) {
-        stream.getTracks().forEach(track => track.stop());
+        micStream.getTracks().forEach(track => track.stop());
         return;
       }
-      streamRef.current = stream;
+      micStreamRef.current = micStream;
+
+      let mixedAudioStream = micStream;
+      let videoTrack: MediaStreamTrack | undefined;
+
+      if (wantsTabAudio) {
+        let displayStream: MediaStream;
+        try {
+          // Chrome only shows a "Share tab audio" checkbox in its share
+          // picker when video is requested — even when only the audio is
+          // wanted, video: true must be passed or the tab-sharing option
+          // (and its audio checkbox) never appears at all. The video track
+          // this unavoidably grants is simply discarded below unless the
+          // caller also asked to keep it.
+          displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        } catch (shareError) {
+          micStream.getTracks().forEach(track => track.stop());
+          micStreamRef.current = null;
+          if (cancelledRef.current) return;
+          if (shareError instanceof DOMException && shareError.name === 'NotAllowedError') {
+            // User backed out of the share picker — quietly stay idle
+            // rather than surfacing this as an error.
+            return;
+          }
+          throw shareError;
+        }
+        if (cancelledRef.current) {
+          micStream.getTracks().forEach(track => track.stop());
+          displayStream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        displayStreamRef.current = displayStream;
+
+        const displayVideoTrack = displayStream.getVideoTracks()[0];
+        if (options?.captureVideo && displayVideoTrack) {
+          videoTrack = displayVideoTrack;
+        } else {
+          displayStream.getVideoTracks().forEach(track => track.stop());
+        }
+
+        // If the user stops sharing via the browser's own "Stop sharing"
+        // bar instead of our own stop button, treat it exactly like
+        // pressing stop ourselves rather than leaving the pipeline
+        // recording from now-dead tracks indefinitely.
+        const trackedTracks = videoTrack ? [...displayStream.getAudioTracks(), videoTrack] : displayStream.getAudioTracks();
+        trackedTracks.forEach(track => { track.onended = () => stopRecording(); });
+
+        const displayAudioTrack = displayStream.getAudioTracks()[0];
+        if (displayAudioTrack) {
+          // Mixes mic + shared-tab audio into one track via Web Audio —
+          // both are spoken voice, so no special channel handling needed.
+          const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+          if (AudioContextClass) {
+            const audioContext = new AudioContextClass();
+            mixAudioContextRef.current = audioContext;
+            const destination = audioContext.createMediaStreamDestination();
+            audioContext.createMediaStreamSource(micStream).connect(destination);
+            audioContext.createMediaStreamSource(new MediaStream([displayAudioTrack])).connect(destination);
+            mixedAudioStream = destination.stream;
+          }
+        }
+        // If the shared source has no audio track at all (e.g. a window or
+        // whole screen was shared instead of a tab, which don't offer
+        // "share tab audio"), mixedAudioStream just stays mic-only — video,
+        // if kept, still gets recorded for download.
+      }
+
+      streamRef.current = mixedAudioStream;
       discardRef.current = false;
       finalizedRef.current = false;
       isStillRecordingRef.current = true;
       transcriptPartsRef.current = [];
       segmentQueueRef.current = [];
       audioSegmentsRef.current = [];
+      rawRecordingBlobsRef.current = [];
+      uploadedFileRef.current = null;
+      hasVideoRef.current = !!videoTrack;
+      revokePreviewUrl();
 
       setState(s => ({
         ...s,
@@ -376,9 +604,15 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         currentUploadFraction: 0,
         transcriptSoFar: '',
         rateLimitRetrySeconds: null,
+        hasVideo: !!videoTrack,
+        canDownload: false,
+        previewUrl: null,
       }));
 
       startSegment();
+      if (videoTrack) {
+        startDownloadRecorder(mixedAudioStream, videoTrack);
+      }
       elapsedTimerRef.current = window.setInterval(() => {
         setState(s => ({ ...s, elapsedSeconds: s.elapsedSeconds + 1 }));
       }, 1000);
@@ -399,42 +633,40 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         handlePipelineError(new Error('無法啟動錄音，請確認麥克風已連接並授權存取。'));
       }
     }
-  }, [handlePipelineError, startSegment]);
+  }, [handlePipelineError, startSegment, stopRecording]);
 
-  const stopRecording = useCallback(() => {
-    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
-    isStillRecordingRef.current = false;
-    discardRef.current = false;
-    clearSegmentTimer();
-    clearElapsedTimer();
-    setState(s => ({ ...s, stage: 'processing', processingPhase: 'transcribing' }));
-    mediaRecorderRef.current.stop();
-  }, []);
-
-  // A file under Groq's cap uploads directly; a larger one is decoded and
-  // re-encoded into a series of smaller WAV segments client-side (see
-  // utils/audioSplitter.ts), then fed through the exact same segment queue
-  // used for chunked live recording — drainQueue's own "nothing left and
-  // not still recording" check picks up from there and finalizes once
-  // they've all been transcribed.
+  // A file under Groq's cap uploads directly; a larger one — or a video
+  // file of any size, since its audio track needs extracting first — is
+  // decoded and re-encoded into a series of smaller WAV segments
+  // client-side (see utils/audioSplitter.ts), then fed through the exact
+  // same segment queue used for chunked live recording — drainQueue's own
+  // "nothing left and not still recording" check picks up from there and
+  // finalizes once they've all been transcribed.
   const selectFile = useCallback(async (file: File) => {
     setState(s => ({ ...s, errorMessage: '' }));
-    if (!isSupportedAudioFile(file)) {
-      handlePipelineError(new Error('不支援的檔案格式，請上傳 mp3、wav、m4a、webm 等常見音訊格式。'));
+    if (!isSupportedMediaFile(file)) {
+      handlePipelineError(new Error('不支援的檔案格式，請上傳 mp3、wav、m4a、webm 等常見音訊格式，或 mp4、mov、webm 等常見影片格式。'));
       return;
     }
     if (file.size > MAX_SPLITTABLE_FILE_BYTES) {
-      handlePipelineError(new Error(`檔案超過 ${Math.round(MAX_SPLITTABLE_FILE_BYTES / (1024 * 1024))} MB，瀏覽器端無法處理這麼大的音檔，請先壓縮或改用「錄音」功能分段錄製。`));
+      handlePipelineError(new Error(`檔案超過 ${Math.round(MAX_SPLITTABLE_FILE_BYTES / (1024 * 1024))} MB，瀏覽器端無法處理這麼大的檔案，請先壓縮或改用「錄音」功能分段錄製。`));
       return;
     }
+
+    const fileIsVideo = isVideoFile(file);
 
     cancelledRef.current = false;
     finalizedRef.current = false;
     transcriptPartsRef.current = [];
     segmentQueueRef.current = [];
     audioSegmentsRef.current = [];
+    rawRecordingBlobsRef.current = [];
+    uploadedFileRef.current = file;
+    hasVideoRef.current = fileIsVideo;
+    revokePreviewUrl();
+    if (fileIsVideo) previewUrlRef.current = URL.createObjectURL(file);
 
-    if (file.size <= MAX_UPLOAD_BYTES) {
+    if (!fileIsVideo && file.size <= MAX_UPLOAD_BYTES) {
       setState(s => ({
         ...s,
         stage: 'processing',
@@ -444,6 +676,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         currentUploadFraction: 0,
         transcriptSoFar: '',
         rateLimitRetrySeconds: null,
+        hasVideo: false,
+        canDownload: true,
+        previewUrl: null,
       }));
 
       try {
@@ -468,7 +703,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       return;
     }
 
-    // Too large to upload as a single file — split it first.
+    // Too large to upload as-is, or a video file whose audio track needs
+    // extracting first — either way, split it client-side. For a video
+    // file under the size cap this typically produces a single segment;
+    // splitAudioFileIntoSegments handles that exactly like any other
+    // single-segment case.
     setState(s => ({
       ...s,
       stage: 'processing',
@@ -478,12 +717,15 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       currentUploadFraction: 0,
       transcriptSoFar: '',
       rateLimitRetrySeconds: null,
+      hasVideo: fileIsVideo,
+      canDownload: true,
+      previewUrl: previewUrlRef.current,
     }));
     try {
       const segments = await splitAudioFileIntoSegments(file, MAX_UPLOAD_BYTES);
       if (cancelledRef.current) return;
       if (segments.length === 0) {
-        handlePipelineError(new Error('無法解析這個音訊檔案，請確認檔案未損毀。'));
+        handlePipelineError(new Error('無法解析這個檔案，請確認檔案未損毀。'));
         return;
       }
       segmentQueueRef.current = segments;
@@ -497,6 +739,41 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       handlePipelineError(error);
     }
   }, [drainQueue, finalizeAndGenerate, handlePipelineError, transcribeWithRateLimitRetry]);
+
+  // Downloads whatever raw source material is currently available —
+  // the originally uploaded file at full quality, or the raw recorded
+  // blob(s) — regardless of whether transcription has finished or even
+  // succeeded. A no-op if nothing is available yet.
+  const downloadRecording = useCallback(() => {
+    let blob: Blob;
+    let filename: string;
+
+    if (uploadedFileRef.current) {
+      blob = uploadedFileRef.current;
+      filename = uploadedFileRef.current.name;
+    } else if (rawRecordingBlobsRef.current.length > 0) {
+      const mimeType = rawRecordingBlobsRef.current[0].type || 'audio/webm';
+      // Concatenating multiple independent recorder blobs isn't a fully
+      // well-formed single container (each carries its own header) — in
+      // practice this only affects recordings long enough to rotate past
+      // SEGMENT_DURATION_MS (15 minutes by default), where some players may
+      // only play the first segment. The common case (one segment) is a
+      // perfectly valid file.
+      blob = rawRecordingBlobsRef.current.length === 1
+        ? rawRecordingBlobsRef.current[0]
+        : new Blob(rawRecordingBlobsRef.current, { type: mimeType });
+      filename = `recording-${Date.now()}.${extensionForDownload(mimeType)}`;
+    } else {
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, []);
 
   // Aborts everything in flight and returns to a clean idle state — used
   // both for "discard this recording" (mid-recording) and "cancel" (mid
@@ -514,9 +791,18 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       recorder.onstop = null;
       recorder.stop();
     }
+    const downloadRecorder = downloadRecorderRef.current;
+    if (downloadRecorder && downloadRecorder.state !== 'inactive') {
+      downloadRecorder.onstop = null;
+      downloadRecorder.stop();
+    }
     segmentQueueRef.current = [];
     transcriptPartsRef.current = [];
     audioSegmentsRef.current = [];
+    rawRecordingBlobsRef.current = [];
+    uploadedFileRef.current = null;
+    hasVideoRef.current = false;
+    revokePreviewUrl();
     // Resets the visible UI state but deliberately does NOT flip
     // cancelledRef back to false the way resetToIdle() does — the abort()
     // call above doesn't reject its in-flight request synchronously, so
@@ -538,6 +824,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       transcriptSoFar: '',
       errorMessage: '',
       rateLimitRetrySeconds: null,
+      hasVideo: false,
+      canDownload: false,
+      previewUrl: null,
     }));
   }, []);
 
@@ -570,11 +859,17 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         recorder.onstop = null;
         recorder.stop();
       }
+      const downloadRecorder = downloadRecorderRef.current;
+      if (downloadRecorder && downloadRecorder.state !== 'inactive') {
+        downloadRecorder.onstop = null;
+        downloadRecorder.stop();
+      }
+      revokePreviewUrl();
     };
   }, []);
 
   return {
     state,
-    actions: { startRecording, stopRecording, selectFile, cancel, retry, setInputMode },
+    actions: { startRecording, stopRecording, selectFile, cancel, retry, setInputMode, downloadRecording },
   };
 };

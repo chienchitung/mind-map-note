@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { XIcon, MicIcon, StopCircleIcon, WarningIcon, UploadIcon } from './icons';
+import React, { useEffect, useRef, useState } from 'react';
+import { XIcon, MicIcon, StopCircleIcon, WarningIcon, UploadIcon, ExportIcon } from './icons';
 import Spinner from './Spinner';
 import type { VoiceNoteState, useVoiceNotePipeline } from '../hooks/useVoiceNotePipeline';
 
@@ -22,6 +22,12 @@ const formatDuration = (totalSeconds: number): string => {
   return `${m}:${s}`;
 };
 
+// getDisplayMedia (tab/window/screen sharing) has inconsistent support
+// outside Chromium browsers — detected once here so the checkbox that
+// depends on it can be disabled with an explanation instead of silently
+// doing nothing when clicked.
+const isDisplayCaptureSupported = typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+
 const ProgressBar: React.FC<{ fraction: number }> = ({ fraction }) => (
   <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
     <div
@@ -31,13 +37,32 @@ const ProgressBar: React.FC<{ fraction: number }> = ({ fraction }) => (
   </div>
 );
 
+const DownloadButton: React.FC<{ hasVideo: boolean; onClick: () => void }> = ({ hasVideo, onClick }) => (
+  <button
+    onClick={onClick}
+    className="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-all duration-150 ease-apple active:scale-95"
+  >
+    <ExportIcon className="w-3.5 h-3.5" />
+    下載{hasVideo ? '影片' : '錄音'}檔
+  </button>
+);
+
 const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state, actions }) => {
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [captureTabAudio, setCaptureTabAudio] = useState(false);
+  const [captureVideo, setCaptureVideo] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { stage } = state;
+  useEffect(() => { setShowDiscardConfirm(false); }, [stage]);
 
   if (!isOpen) return null;
 
-  const { stage, inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments, currentUploadFraction, errorMessage, rateLimitRetrySeconds } = state;
+  const {
+    inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments, currentUploadFraction,
+    errorMessage, rateLimitRetrySeconds, hasVideo, canDownload, previewUrl,
+  } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,6 +77,26 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
     const file = e.dataTransfer.files?.[0];
     if (file) actions.selectFile(file);
   };
+
+  const renderDiscardConfirm = (label: string) => (
+    <div className="flex flex-col items-center gap-2 mt-5">
+      <p className="text-xs text-text-secondary">{label}</p>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowDiscardConfirm(false)}
+          className="px-3 py-1.5 text-xs font-medium rounded-full text-text-secondary hover:bg-secondary transition-all duration-150 ease-apple active:scale-95"
+        >
+          保留
+        </button>
+        <button
+          onClick={() => { setShowDiscardConfirm(false); actions.cancel(); }}
+          className="px-3 py-1.5 text-xs font-medium rounded-full bg-red-500 text-white hover:opacity-90 transition-all duration-150 ease-apple active:scale-95"
+        >
+          確定捨棄
+        </button>
+      </div>
+    </div>
+  );
 
   const renderBody = () => {
     switch (stage) {
@@ -83,11 +128,34 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
 
             {inputMode === 'record' ? (
               <>
-                <p className="text-sm text-text-secondary mb-6 leading-relaxed">
+                <p className="text-sm text-text-secondary mb-4 leading-relaxed">
                   錄下你想整理的內容，AI 會自動轉成逐字稿並生成一篇結構化的筆記。長時間錄音會自動分段即時轉錄，錄多久都不怕。
                 </p>
+                <div className="w-full mb-4 text-left">
+                  <label className="flex items-center gap-2 text-xs text-text-secondary">
+                    <input
+                      type="checkbox"
+                      checked={captureTabAudio}
+                      disabled={!isDisplayCaptureSupported}
+                      onChange={(e) => {
+                        setCaptureTabAudio(e.target.checked);
+                        if (!e.target.checked) setCaptureVideo(false);
+                      }}
+                    />
+                    同時擷取分享分頁的聲音（例如視訊會議對話）
+                  </label>
+                  {!isDisplayCaptureSupported && (
+                    <p className="text-[11px] text-text-secondary/70 mt-0.5 pl-5">此功能僅支援 Chrome / Edge 瀏覽器</p>
+                  )}
+                  {captureTabAudio && isDisplayCaptureSupported && (
+                    <label className="flex items-center gap-2 text-xs text-text-secondary mt-2 pl-5">
+                      <input type="checkbox" checked={captureVideo} onChange={(e) => setCaptureVideo(e.target.checked)} />
+                      同時錄下分享的畫面影像
+                    </label>
+                  )}
+                </div>
                 <button
-                  onClick={() => actions.startRecording()}
+                  onClick={() => actions.startRecording({ captureTabAudio, captureVideo })}
                   className="w-16 h-16 rounded-full bg-accent text-white flex items-center justify-center shadow-apple-md hover:opacity-90 active:scale-95 transition-all duration-150 ease-apple"
                   title="開始錄音"
                   aria-label="開始錄音"
@@ -98,7 +166,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
             ) : (
               <>
                 <p className="text-sm text-text-secondary mb-4 leading-relaxed">
-                  上傳一段錄音檔案，AI 會自動轉成逐字稿並生成一篇結構化的筆記。
+                  上傳一段錄音或影片檔案，AI 會自動轉成逐字稿並生成一篇結構化的筆記。
                 </p>
                 <div
                   onClick={() => fileInputRef.current?.click()}
@@ -113,16 +181,16 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
                   }`}
                 >
                   <UploadIcon className="w-6 h-6 mx-auto mb-2 text-text-secondary" />
-                  <p className="text-sm text-text-main font-medium">點擊或拖曳音檔到這裡</p>
-                  <p className="text-xs text-text-secondary mt-1">支援 mp3、wav、m4a、webm 等常見格式，超過 25 MB 會自動分段處理</p>
+                  <p className="text-sm text-text-main font-medium">點擊或拖曳音訊或影片檔到這裡</p>
+                  <p className="text-xs text-text-secondary mt-1">影片檔會自動抽取音軌，超過 25 MB 會自動分段處理</p>
                 </div>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="audio/*"
+                  accept="audio/*,video/*"
                   className="hidden"
                   onChange={handleFileInputChange}
-                  aria-label="選擇音訊檔案"
+                  aria-label="選擇音訊或影片檔案"
                 />
               </>
             )}
@@ -135,6 +203,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
               <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
               <span className="text-2xl font-semibold tabular-nums text-text-main">{formatDuration(elapsedSeconds)}</span>
             </div>
+            {hasVideo && <p className="text-xs text-text-secondary mb-1">同時錄製畫面中</p>}
             {completedSegments > 0 && (
               <p className="text-xs text-text-secondary mb-4">背景已即時轉錄 {completedSegments} 段，繼續錄音中...</p>
             )}
@@ -146,12 +215,16 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
             >
               <StopCircleIcon className="w-7 h-7" />
             </button>
-            <button
-              onClick={() => actions.cancel()}
-              className="mt-5 text-xs text-text-secondary hover:text-text-main transition-colors duration-150 ease-apple"
-            >
-              取消並捨棄這段錄音
-            </button>
+            {showDiscardConfirm ? (
+              renderDiscardConfirm(`確定要捨棄這段${hasVideo ? '錄影' : '錄音'}嗎？此動作無法復原。`)
+            ) : (
+              <button
+                onClick={() => setShowDiscardConfirm(true)}
+                className="mt-5 text-xs text-text-secondary hover:text-text-main transition-colors duration-150 ease-apple"
+              >
+                取消並捨棄這段錄音
+              </button>
+            )}
           </div>
         );
       case 'processing': {
@@ -160,7 +233,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
         const segmentFraction = totalSegments > 0 ? (completedSegments + currentUploadFraction) / totalSegments : 0;
 
         let label = 'AI 正在整理筆記內容...';
-        if (processingPhase === 'splitting') label = '檔案較大，正在自動分段處理...';
+        if (processingPhase === 'splitting') label = hasVideo ? '正在從影片抽取音軌...' : '檔案較大，正在自動分段處理...';
         else if (processingPhase === 'uploading') label = '正在上傳音檔...';
         else if (processingPhase === 'transcribing') {
           label = showSegmentProgress
@@ -176,6 +249,9 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
 
         return (
           <div className="flex flex-col items-center text-center py-6">
+            {hasVideo && previewUrl && (
+              <video src={previewUrl} controls className="w-full max-h-40 rounded-lg mb-4 bg-black" />
+            )}
             {showUploadProgress || showSegmentProgress ? (
               <div className="w-full mb-4">
                 <ProgressBar fraction={showUploadProgress ? currentUploadFraction : segmentFraction} />
@@ -187,12 +263,17 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
             <p className="text-xs text-text-secondary">
               {elapsedSeconds > 0 ? `錄音長度 ${formatDuration(elapsedSeconds)}，` : ''}請稍候，這可能需要幾秒到十幾秒不等。
             </p>
-            <button
-              onClick={() => actions.cancel()}
-              className="mt-5 text-xs text-text-secondary hover:text-text-main transition-colors duration-150 ease-apple"
-            >
-              取消
-            </button>
+            {canDownload && <DownloadButton hasVideo={hasVideo} onClick={() => actions.downloadRecording()} />}
+            {showDiscardConfirm ? (
+              renderDiscardConfirm(`確定要取消並捨棄這段${hasVideo ? '錄影' : '錄音'}嗎？此動作無法復原。`)
+            ) : (
+              <button
+                onClick={() => setShowDiscardConfirm(true)}
+                className="mt-5 text-xs text-text-secondary hover:text-text-main transition-colors duration-150 ease-apple"
+              >
+                取消
+              </button>
+            )}
           </div>
         );
       }
@@ -202,8 +283,9 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
             <div className="w-10 h-10 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mb-3">
               <WarningIcon className="w-5 h-5" />
             </div>
-            <p className="text-sm text-text-main mb-6 leading-relaxed">{errorMessage}</p>
-            <div className="flex items-center gap-2">
+            <p className="text-sm text-text-main mb-2 leading-relaxed">{errorMessage}</p>
+            {canDownload && <DownloadButton hasVideo={hasVideo} onClick={() => actions.downloadRecording()} />}
+            <div className="flex items-center gap-2 mt-4">
               <button
                 onClick={onClose}
                 className="px-4 py-2 text-sm font-medium rounded-full text-text-secondary hover:bg-secondary transition-all duration-150 ease-apple active:scale-95"

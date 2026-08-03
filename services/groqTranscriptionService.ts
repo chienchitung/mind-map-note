@@ -30,16 +30,39 @@ export const extensionForMimeType = (mimeType: string): string => {
     return map[base] ?? 'webm';
 };
 
-// File extensions Groq's transcription endpoint documents support for.
-// Checked client-side on upload so a wrong file type is rejected instantly
-// with a clear message instead of round-tripping to the API first — drag-
-// and-drop in particular bypasses the file picker's own `accept` filter.
-const SUPPORTED_UPLOAD_EXTENSIONS = ['flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'wav', 'webm'];
+// File extensions Groq's transcription endpoint documents support for, plus
+// common video containers — a video file's audio track is extracted
+// client-side (see isVideoFile / audioSplitter.ts) before ever reaching
+// Groq, so the video container itself never needs to be something Groq
+// understands. Checked client-side on upload so a wrong file type is
+// rejected instantly with a clear message instead of round-tripping to the
+// API first — drag-and-drop in particular bypasses the file picker's own
+// `accept` filter.
+const SUPPORTED_UPLOAD_EXTENSIONS = [
+    'flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'wav', 'webm',
+    'mov', 'mkv', 'm4v', 'avi',
+];
 
-export const isSupportedAudioFile = (file: File): boolean => {
+export const isSupportedMediaFile = (file: File): boolean => {
     const extension = file.name.split('.').pop()?.toLowerCase();
     if (extension && SUPPORTED_UPLOAD_EXTENSIONS.includes(extension)) return true;
-    return file.type.startsWith('audio/');
+    return file.type.startsWith('audio/') || file.type.startsWith('video/');
+};
+
+// `.mp4`/`.webm` are ambiguous (audio-only or audio+video), so this prefers
+// the browser-reported MIME type when available — it's sniffed from the
+// actual file content, not just the extension — and only falls back to
+// extension-based guessing when the type is empty (some drag-and-drop
+// sources omit it). A file classified as video is always routed through
+// client-side audio extraction rather than uploaded as-is (see
+// useVoiceNotePipeline's selectFile), so a false positive here just costs a
+// bit of extra local processing, never a correctness problem.
+const VIDEO_ONLY_EXTENSIONS = ['mov', 'mkv', 'm4v', 'avi', 'mp4', 'webm', 'ogv'];
+
+export const isVideoFile = (file: File): boolean => {
+    if (file.type) return file.type.startsWith('video/');
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    return extension ? VIDEO_ONLY_EXTENSIONS.includes(extension) : false;
 };
 
 // Groq's documented per-file cap for the free tier (paid "dev tier" allows

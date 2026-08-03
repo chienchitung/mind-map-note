@@ -132,9 +132,10 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
                   錄下你想整理的內容，AI 會自動轉成逐字稿並生成一篇結構化的筆記。長時間錄音會自動分段即時轉錄，錄多久都不怕。
                 </p>
                 <div className="w-full mb-4 text-left">
-                  <label className="flex items-center gap-2 text-xs text-text-secondary">
+                  <label className="flex items-start gap-2 text-xs text-text-secondary leading-relaxed">
                     <input
                       type="checkbox"
+                      className="mt-0.5 flex-shrink-0"
                       checked={captureTabAudio}
                       disabled={!isDisplayCaptureSupported}
                       onChange={(e) => {
@@ -142,15 +143,15 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
                         if (!e.target.checked) setCaptureVideo(false);
                       }}
                     />
-                    同時擷取分享分頁的聲音（例如視訊會議對話）
+                    <span>同時擷取分享分頁的聲音（例如視訊會議對話）</span>
                   </label>
                   {!isDisplayCaptureSupported && (
                     <p className="text-[11px] text-text-secondary/70 mt-0.5 pl-5">此功能僅支援 Chrome / Edge 瀏覽器</p>
                   )}
                   {captureTabAudio && isDisplayCaptureSupported && (
-                    <label className="flex items-center gap-2 text-xs text-text-secondary mt-2 pl-5">
-                      <input type="checkbox" checked={captureVideo} onChange={(e) => setCaptureVideo(e.target.checked)} />
-                      同時錄下分享的畫面影像
+                    <label className="flex items-start gap-2 text-xs text-text-secondary leading-relaxed mt-2 pl-5">
+                      <input type="checkbox" className="mt-0.5 flex-shrink-0" checked={captureVideo} onChange={(e) => setCaptureVideo(e.target.checked)} />
+                      <span>同時錄下分享的畫面影像</span>
                     </label>
                   )}
                 </div>

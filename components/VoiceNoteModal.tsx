@@ -37,7 +37,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
 
   if (!isOpen) return null;
 
-  const { stage, inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments, currentUploadFraction, errorMessage } = state;
+  const { stage, inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments, currentUploadFraction, errorMessage, rateLimitRetrySeconds } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,6 +166,12 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
           label = showSegmentProgress
             ? `正在轉錄語音（${completedSegments} / ${totalSegments} 段）...`
             : 'AI 正在辨識語音內容...';
+        }
+
+        if (rateLimitRetrySeconds !== null) {
+          label = totalSegments > 1
+            ? `已達 Groq 語音轉錄速率上限，${rateLimitRetrySeconds} 秒後自動重試（已完成 ${completedSegments} / ${totalSegments} 段，不需重新上傳）...`
+            : `已達 Groq 語音轉錄速率上限，${rateLimitRetrySeconds} 秒後自動重試...`;
         }
 
         return (

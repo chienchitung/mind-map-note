@@ -20,7 +20,7 @@ const formatDuration = (totalSeconds: number): string => {
 // the user keep browsing other notes without losing track of it, and
 // click back in at any time. Only rendered by App.tsx while stage !== 'idle'.
 const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClick }) => {
-  const { stage, elapsedSeconds, processingPhase, totalSegments, completedSegments } = state;
+  const { stage, elapsedSeconds, processingPhase, totalSegments, completedSegments, rateLimitRetrySeconds } = state;
 
   let label = '處理中...';
   if (stage === 'recording') {
@@ -32,6 +32,9 @@ const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClic
       label = totalSegments > 1 ? `轉錄中 ${completedSegments}/${totalSegments} 段` : '辨識語音中...';
     } else if (processingPhase === 'generating') {
       label = 'AI 整理筆記中...';
+    }
+    if (rateLimitRetrySeconds !== null) {
+      label = `速率限制中，${rateLimitRetrySeconds} 秒後重試`;
     }
   } else if (stage === 'error') {
     label = '語音筆記發生錯誤';

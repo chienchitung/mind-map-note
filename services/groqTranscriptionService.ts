@@ -55,6 +55,23 @@ export class FileTooLargeError extends Error {
     }
 }
 
+/**
+ * Thrown on an HTTP 429 from Groq — the account's per-hour audio-processing
+ * quota (ASPH) is temporarily exhausted. `retryAfterSeconds` is the
+ * server-suggested cooldown, parsed from the `Retry-After` header if present
+ * or from the error message's own "try again in Ns" text otherwise, so
+ * callers can wait it out and retry the same request instead of failing
+ * outright.
+ */
+export class RateLimitError extends Error {
+    retryAfterSeconds: number;
+    constructor(message: string, retryAfterSeconds: number) {
+        super(message);
+        this.name = "RateLimitError";
+        this.retryAfterSeconds = retryAfterSeconds;
+    }
+}
+
 interface TranscribeOptions {
     // AbortSignal so an in-flight request can be cancelled if the user
     // closes the recording dialog or cancels the pipeline early.
@@ -138,6 +155,21 @@ export const transcribeAudio = (
             } catch {
                 // Response body wasn't JSON — keep the generic message above.
             }
+
+            if (xhr.status === 429) {
+                const retryAfterHeader = xhr.getResponseHeader('Retry-After');
+                let retryAfterSeconds = retryAfterHeader ? parseFloat(retryAfterHeader) : NaN;
+                if (!Number.isFinite(retryAfterSeconds)) {
+                    // Groq embeds the actual wait time in the message text
+                    // itself (e.g. "...Please try again in 53s."), since it
+                    // doesn't reliably send a Retry-After header.
+                    const match = message.match(/try again in ([\d.]+)\s*s/i);
+                    retryAfterSeconds = match ? parseFloat(match[1]) : 15;
+                }
+                reject(new RateLimitError(message, retryAfterSeconds));
+                return;
+            }
+
             reject(new Error(message));
         };
         xhr.onerror = () => reject(new Error('網路連線發生錯誤，語音轉錄失敗。'));

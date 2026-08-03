@@ -4,6 +4,7 @@ import {
   extensionForMimeType,
   isSupportedAudioFile,
   MAX_UPLOAD_BYTES,
+  RateLimitError,
 } from '../services/groqTranscriptionService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
 import { splitAudioFileIntoSegments, MAX_SPLITTABLE_FILE_BYTES } from '../utils/audioSplitter';
@@ -27,6 +28,9 @@ export interface VoiceNoteState {
   currentUploadFraction: number;
   transcriptSoFar: string;
   errorMessage: string;
+  // Non-null while automatically waiting out a Groq rate-limit cooldown
+  // before retrying the current segment, counting down the seconds left.
+  rateLimitRetrySeconds: number | null;
 }
 
 export interface VoiceRecordingData {
@@ -62,6 +66,12 @@ const SEGMENT_DURATION_MS = Number(import.meta.env.VITE_VOICE_SEGMENT_MS) || 15 
 // with encoding overhead.
 const AUDIO_BITS_PER_SECOND = 32000;
 
+// How many times to automatically wait out a Groq rate-limit (429) cooldown
+// and retry the SAME segment before giving up and surfacing a real error.
+// Each retry reuses the server's own suggested wait time, so this only caps
+// runaway retrying against a persistently exhausted quota.
+const MAX_RATE_LIMIT_RETRIES = 5;
+
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
 const pickSupportedMimeType = (): string | undefined => {
   if (typeof MediaRecorder === 'undefined') return undefined;
@@ -78,6 +88,7 @@ const initialState: VoiceNoteState = {
   currentUploadFraction: 0,
   transcriptSoFar: '',
   errorMessage: '',
+  rateLimitRetrySeconds: null,
 };
 
 export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated, onError }: UseVoiceNotePipelineOptions) => {
@@ -143,6 +154,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       currentUploadFraction: 0,
       transcriptSoFar: '',
       errorMessage: '',
+      rateLimitRetrySeconds: null,
     }));
   }, []);
 
@@ -164,7 +176,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       recorder.stop();
     }
     const message = error instanceof Error ? error.message : '發生未知的錯誤，請再試一次。';
-    setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message }));
+    setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message, rateLimitRetrySeconds: null }));
     onErrorRef.current?.(message);
   }, []);
 
@@ -200,6 +212,55 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     }
   }, [handlePipelineError, resetToIdle]);
 
+  // Counts down `rateLimitRetrySeconds` in the UI while waiting out a Groq
+  // 429 cooldown. Clamped to a sane range in case the server ever suggests
+  // something absurd — Groq's own hourly window is at most an hour, but a
+  // malformed response shouldn't be able to hang the pipeline that long.
+  const waitForRateLimitCooldown = useCallback(async (seconds: number): Promise<void> => {
+    const clampedSeconds = Math.max(1, Math.min(Math.ceil(seconds), 120));
+    const endAt = Date.now() + clampedSeconds * 1000;
+    while (Date.now() < endAt) {
+      if (cancelledRef.current) break;
+      setState(s => ({ ...s, rateLimitRetrySeconds: Math.ceil((endAt - Date.now()) / 1000) }));
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    setState(s => ({ ...s, rateLimitRetrySeconds: null }));
+  }, []);
+
+  // Wraps a single transcription call so a Groq rate-limit (429) response
+  // waits out the server's own suggested cooldown and retries the exact
+  // same blob, instead of failing the whole pipeline outright. Used by both
+  // the segment queue and a direct small-file upload, since neither should
+  // force the user to re-upload or re-transcribe already-completed work
+  // just because the account's hourly quota happened to run dry mid-way.
+  const transcribeWithRateLimitRetry = useCallback(async (
+    blob: Blob,
+    filename: string,
+    onUploadProgress?: (fraction: number) => void,
+  ): Promise<string> => {
+    let attempt = 0;
+    for (;;) {
+      if (cancelledRef.current) throw new DOMException('Aborted', 'AbortError');
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      try {
+        return await transcribeAudio(blob, filename, groqApiKeyRef.current, {
+          signal: controller.signal,
+          onUploadProgress,
+        });
+      } catch (error) {
+        if (cancelledRef.current) throw error;
+        if (error instanceof RateLimitError && attempt < MAX_RATE_LIMIT_RETRIES) {
+          attempt += 1;
+          await waitForRateLimitCooldown(error.retryAfterSeconds);
+          if (cancelledRef.current) throw error;
+          continue;
+        }
+        throw error;
+      }
+    }
+  }, [waitForRateLimitCooldown]);
+
   const drainQueue = useCallback(async () => {
     if (queueRunningRef.current) return;
     queueRunningRef.current = true;
@@ -207,15 +268,10 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       while (segmentQueueRef.current.length > 0) {
         if (cancelledRef.current) return;
         const next = segmentQueueRef.current.shift()!;
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
         try {
-          const text = await transcribeAudio(next.blob, next.filename, groqApiKeyRef.current, {
-            signal: controller.signal,
-            onUploadProgress: (fraction) => {
-              if (cancelledRef.current) return;
-              setState(s => ({ ...s, currentUploadFraction: fraction }));
-            },
+          const text = await transcribeWithRateLimitRetry(next.blob, next.filename, (fraction) => {
+            if (cancelledRef.current) return;
+            setState(s => ({ ...s, currentUploadFraction: fraction }));
           });
           if (cancelledRef.current) return;
           transcriptPartsRef.current.push(text);
@@ -240,7 +296,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       finalizedRef.current = true;
       await finalizeAndGenerate();
     }
-  }, [finalizeAndGenerate, handlePipelineError]);
+  }, [finalizeAndGenerate, handlePipelineError, transcribeWithRateLimitRetry]);
 
   const startSegment = useCallback(() => {
     const stream = streamRef.current;
@@ -319,6 +375,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         completedSegments: 0,
         currentUploadFraction: 0,
         transcriptSoFar: '',
+        rateLimitRetrySeconds: null,
       }));
 
       startSegment();
@@ -386,21 +443,17 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         completedSegments: 0,
         currentUploadFraction: 0,
         transcriptSoFar: '',
+        rateLimitRetrySeconds: null,
       }));
 
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
       try {
-        const text = await transcribeAudio(file, file.name, groqApiKeyRef.current, {
-          signal: controller.signal,
-          onUploadProgress: (fraction) => {
-            if (cancelledRef.current) return;
-            setState(s => ({
-              ...s,
-              currentUploadFraction: fraction,
-              processingPhase: fraction >= 1 ? 'transcribing' : 'uploading',
-            }));
-          },
+        const text = await transcribeWithRateLimitRetry(file, file.name, (fraction) => {
+          if (cancelledRef.current) return;
+          setState(s => ({
+            ...s,
+            currentUploadFraction: fraction,
+            processingPhase: fraction >= 1 ? 'transcribing' : 'uploading',
+          }));
         });
         if (cancelledRef.current) return;
         transcriptPartsRef.current.push(text);
@@ -424,6 +477,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       completedSegments: 0,
       currentUploadFraction: 0,
       transcriptSoFar: '',
+      rateLimitRetrySeconds: null,
     }));
     try {
       const segments = await splitAudioFileIntoSegments(file, MAX_UPLOAD_BYTES);
@@ -442,7 +496,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       // errors itself), so it's safe to surface directly here.
       handlePipelineError(error);
     }
-  }, [drainQueue, finalizeAndGenerate, handlePipelineError]);
+  }, [drainQueue, finalizeAndGenerate, handlePipelineError, transcribeWithRateLimitRetry]);
 
   // Aborts everything in flight and returns to a clean idle state — used
   // both for "discard this recording" (mid-recording) and "cancel" (mid
@@ -483,6 +537,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       currentUploadFraction: 0,
       transcriptSoFar: '',
       errorMessage: '',
+      rateLimitRetrySeconds: null,
     }));
   }, []);
 

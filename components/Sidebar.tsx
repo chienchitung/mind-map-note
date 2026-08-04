@@ -2,8 +2,10 @@ import React from 'react';
 import { FileSystemTree, MindMapNode } from '../types';
 import FileExplorer from './FileExplorer';
 import OutlineView from './OutlineView';
+import VoiceRecordingsPanel from './VoiceRecordingsPanel';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { PlusIcon, FolderPlusIcon, XIcon } from './icons';
+import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
 
 interface SidebarProps {
   tree: FileSystemTree;
@@ -17,9 +19,13 @@ interface SidebarProps {
   activeLine: number;
   onOutlineNodeClick: (lineNumber: number) => void;
   onClose: () => void;
+  voiceRecordingsBytes: number | null;
+  onListVoiceRecordings: () => Promise<StoredVoiceRecording[]>;
+  onDeleteVoiceRecording: (noteId: string) => Promise<void>;
+  onClearVoiceRecordings: () => void;
 }
 
-type SidebarTab = 'files' | 'outline';
+type SidebarTab = 'files' | 'outline' | 'recordings';
 
 // Combines the file explorer and the current note's outline behind a single
 // tab switcher instead of two separately-collapsible panels — one set of
@@ -37,6 +43,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   activeLine,
   onOutlineNodeClick,
   onClose,
+  voiceRecordingsBytes,
+  onListVoiceRecordings,
+  onDeleteVoiceRecording,
+  onClearVoiceRecordings,
 }) => {
   const [activeTab, setActiveTab] = useLocalStorage<SidebarTab>('mind-map-sidebar-tab', 'files');
 
@@ -51,6 +61,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex rounded-full bg-secondary p-1 flex-grow">
           <button onClick={() => setActiveTab('files')} className={tabClass('files')}>檔案</button>
           <button onClick={() => setActiveTab('outline')} className={tabClass('outline')}>大綱</button>
+          <button onClick={() => setActiveTab('recordings')} className={tabClass('recordings')}>錄音</button>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {activeTab === 'files' && (
@@ -77,6 +88,15 @@ const Sidebar: React.FC<SidebarProps> = ({
             onRenameNode={onRenameNode}
             onDeleteNode={onDeleteNode}
             onMoveNode={onMoveNode}
+          />
+        ) : activeTab === 'recordings' ? (
+          <VoiceRecordingsPanel
+            voiceRecordingsBytes={voiceRecordingsBytes}
+            onListVoiceRecordings={onListVoiceRecordings}
+            onDeleteVoiceRecording={onDeleteVoiceRecording}
+            onClearVoiceRecordings={onClearVoiceRecordings}
+            getNoteTitle={(noteId) => tree[noteId]?.name}
+            onSelectNote={onSelectNote}
           />
         ) : mindMapData ? (
           <OutlineView data={mindMapData} activeLine={activeLine} onNodeClick={onOutlineNodeClick} />

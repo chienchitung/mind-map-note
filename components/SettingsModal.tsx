@@ -1,8 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { XIcon, KeyIcon, SettingsIcon, ArchiveIcon, ExportIcon, ImportIcon, MicIcon, TrashIcon } from './icons';
-import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
-import { extensionForMimeType } from '../services/groqTranscriptionService';
-import { downloadBlob } from '../utils/downloadBlob';
+import { XIcon, KeyIcon, SettingsIcon, ArchiveIcon, ExportIcon, ImportIcon } from './icons';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,28 +10,7 @@ interface SettingsModalProps {
   onSaveGroqApiKey: (key: string) => void;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
-  // null while the initial storage read is still in flight.
-  voiceRecordingsBytes: number | null;
-  onClearVoiceRecordings: () => void;
-  onListVoiceRecordings: () => Promise<StoredVoiceRecording[]>;
-  onDeleteVoiceRecording: (noteId: string) => Promise<void>;
-  // A stored recording's note may since have been deleted or renamed —
-  // undefined means "no longer exists".
-  getNoteTitle: (noteId: string) => string | undefined;
 }
-
-const formatMB = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-
-// A stored recording's segments are downloaded as a single file — same
-// "concatenate only when there's more than one" approach used elsewhere,
-// since these are always plain audio (video is never persisted here).
-const downloadStoredRecording = (recording: StoredVoiceRecording) => {
-  const mimeType = recording.segments[0]?.type || 'audio/webm';
-  const blob = recording.segments.length === 1
-    ? recording.segments[0]
-    : new Blob(recording.segments, { type: mimeType });
-  downloadBlob(blob, `voice-note-${recording.noteId}.${extensionForMimeType(mimeType)}`);
-};
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -45,25 +21,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaveGroqApiKey,
   onExportBackup,
   onImportBackup,
-  voiceRecordingsBytes,
-  onClearVoiceRecordings,
-  onListVoiceRecordings,
-  onDeleteVoiceRecording,
-  getNoteTitle,
 }) => {
   const [draftKey, setDraftKey] = useState(apiKey);
   const [isRevealed, setIsRevealed] = useState(false);
   const [draftGroqKey, setDraftGroqKey] = useState(groqApiKey);
   const [isGroqRevealed, setIsGroqRevealed] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
-  // null while the initial list read is still in flight.
-  const [recordings, setRecordings] = useState<StoredVoiceRecording[] | null>(null);
-
-  const refreshRecordings = () => {
-    onListVoiceRecordings()
-      .then(list => setRecordings(list.sort((a, b) => b.createdAt - a.createdAt)))
-      .catch(error => console.error('Failed to list voice recordings:', error));
-  };
 
   useEffect(() => {
     if (isOpen) {
@@ -71,16 +34,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsRevealed(false);
       setDraftGroqKey(groqApiKey);
       setIsGroqRevealed(false);
-      refreshRecordings();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, apiKey, groqApiKey]);
-
-  const handleDeleteRecording = async (noteId: string) => {
-    if (!confirm('確定要刪除這則錄音與逐字稿嗎？此動作無法復原（不會影響已生成的筆記內容）。')) return;
-    await onDeleteVoiceRecording(noteId);
-    refreshRecordings();
-  };
 
   if (!isOpen) return null;
 
@@ -106,13 +61,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!file) return;
     onImportBackup(file);
     onClose();
-  };
-
-  const handleClearVoiceRecordings = () => {
-    if (confirm('確定要清除所有已保存的語音錄音與逐字稿嗎？此動作無法復原（不會影響已生成的筆記內容）。')) {
-      onClearVoiceRecordings();
-      setRecordings([]);
-    }
   };
 
   return (
@@ -196,7 +144,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <p className="text-sm text-text-secondary mb-4 leading-relaxed">
             語音轉錄功能由 Groq 提供。您的金鑰只會保存在
             <strong className="text-text-main"> 這台裝置的瀏覽器</strong>
-            裡，不會上傳到任何伺服器。
+            裡，不會上傳到任何伺服器。每次生成筆記後，原始錄音與逐字稿會保存在側邊欄的「錄音」分頁中，可以在那裡下載或刪除。
           </p>
 
           <label htmlFor="groq-api-key" className="block text-sm font-medium text-text-main mb-1.5">
@@ -298,78 +246,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               onChange={handleImportFileChange}
             />
           </div>
-        </section>
-
-        <div className="h-px bg-border-color my-6"></div>
-
-        <section>
-          <div className="flex items-center gap-2 mb-2">
-            <MicIcon className="w-4 h-4 text-accent" />
-            <h3 className="text-sm font-semibold text-text-main">語音錄音儲存</h3>
-          </div>
-
-          <p className="text-sm text-text-secondary mb-4 leading-relaxed">
-            每次用語音筆記生成筆記後，原始錄音與逐字稿都會完整保留在
-            <strong className="text-text-main"> 這台裝置的瀏覽器</strong>
-            裡（獨立於一般筆記資料，不含在上方的備份匯出中），方便之後核對內容。刪除對應的筆記時會一併清除。
-          </p>
-
-          <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-secondary rounded-xl mb-3">
-            <span className="text-sm text-text-main">目前使用空間</span>
-            <span className="text-sm font-medium text-text-main tabular-nums">
-              {voiceRecordingsBytes === null ? '讀取中...' : formatMB(voiceRecordingsBytes)}
-            </span>
-          </div>
-
-          {recordings === null ? (
-            <p className="text-xs text-text-secondary mb-3">讀取中...</p>
-          ) : recordings.length === 0 ? (
-            <p className="text-xs text-text-secondary mb-3">目前沒有保存的錄音。</p>
-          ) : (
-            <div className="space-y-2 max-h-64 overflow-y-auto mb-3">
-              {recordings.map(rec => (
-                <div key={rec.noteId} className="p-3 bg-secondary rounded-xl">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-sm font-medium text-text-main truncate">
-                      {getNoteTitle(rec.noteId) ?? '（筆記已刪除）'}
-                    </span>
-                    <span className="text-xs text-text-secondary flex-shrink-0 tabular-nums">{formatMB(rec.totalBytes)}</span>
-                  </div>
-                  {rec.transcript && (
-                    <p className="text-xs text-text-secondary line-clamp-2 mb-2 leading-relaxed">{rec.transcript}</p>
-                  )}
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => downloadStoredRecording(rec)}
-                      className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
-                    >
-                      <ExportIcon className="w-3.5 h-3.5" />
-                      下載音檔
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteRecording(rec.noteId)}
-                      className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-400"
-                    >
-                      <TrashIcon className="w-3.5 h-3.5" />
-                      刪除
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleClearVoiceRecordings}
-            disabled={!voiceRecordingsBytes}
-            className="flex items-center gap-2 text-sm text-red-500 hover:text-red-400 disabled:text-text-secondary/40 disabled:cursor-not-allowed transition-colors duration-150 ease-apple"
-          >
-            <TrashIcon className="w-4 h-4" />
-            清除所有語音錄音
-          </button>
         </section>
       </div>
     </div>

@@ -684,6 +684,25 @@ const App: React.FC = () => {
       activeLine={activeLine}
       onOutlineNodeClick={handleOutlineNodeClick}
       onClose={closeSidebar}
+      voiceRecordingsBytes={voiceRecordingsStorage.totalBytes}
+      onListVoiceRecordings={voiceRecordingsStorage.listRecordings}
+      onDeleteVoiceRecording={async (noteId) => {
+        try {
+          await voiceRecordingsStorage.deleteRecording(noteId);
+        } catch (error) {
+          console.error('Failed to delete voice recording:', error);
+          setActionMessage({ text: '刪除語音錄音時發生錯誤。', variant: 'warning' });
+        }
+      }}
+      onClearVoiceRecordings={async () => {
+        try {
+          await voiceRecordingsStorage.clearAll();
+          setActionMessage({ text: '已清除所有已保存的語音錄音。', variant: 'success' });
+        } catch (error) {
+          console.error('Failed to clear voice recordings:', error);
+          setActionMessage({ text: '清除語音錄音時發生錯誤。', variant: 'warning' });
+        }
+      }}
     />
   );
 
@@ -827,26 +846,6 @@ const App: React.FC = () => {
         onSaveGroqApiKey={setGroqApiKey}
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
-        voiceRecordingsBytes={voiceRecordingsStorage.totalBytes}
-        onClearVoiceRecordings={async () => {
-          try {
-            await voiceRecordingsStorage.clearAll();
-            setActionMessage({ text: '已清除所有已保存的語音錄音。', variant: 'success' });
-          } catch (error) {
-            console.error('Failed to clear voice recordings:', error);
-            setActionMessage({ text: '清除語音錄音時發生錯誤。', variant: 'warning' });
-          }
-        }}
-        onListVoiceRecordings={voiceRecordingsStorage.listRecordings}
-        onDeleteVoiceRecording={async (noteId) => {
-          try {
-            await voiceRecordingsStorage.deleteRecording(noteId);
-          } catch (error) {
-            console.error('Failed to delete voice recording:', error);
-            setActionMessage({ text: '刪除語音錄音時發生錯誤。', variant: 'warning' });
-          }
-        }}
-        getNoteTitle={(noteId) => tree[noteId]?.name}
       />
       {isVoiceNoteModalOpen && (
         <Suspense fallback={null}>

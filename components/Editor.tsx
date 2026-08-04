@@ -16,6 +16,10 @@ interface EditorProps {
   images: Images;
   scrollToLine?: number | null;
   onScrollComplete: () => void;
+  // Consumed by rich (Aa) mode only — plain mode's textarea uses
+  // scrollToLine instead. See findBlockOrdinal in utils/markdownParser.ts.
+  scrollToBlockOrdinal?: number | null;
+  onBlockScrollComplete: () => void;
   onCursorActivity: (lineNumber: number) => void;
 }
 
@@ -30,6 +34,8 @@ const Editor: React.FC<EditorProps> = ({
   images,
   scrollToLine,
   onScrollComplete,
+  scrollToBlockOrdinal,
+  onBlockScrollComplete,
   onCursorActivity,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -267,10 +273,21 @@ const Editor: React.FC<EditorProps> = ({
     }
   };
 
+  // A pending outline-jump request (scrollToLine or scrollToBlockOrdinal)
+  // only ever gets consumed by whichever sub-mode is actually mounted —
+  // the other one just leaves it sitting there unconsumed. Switching modes
+  // must clear both explicitly, or a stale request would fire an
+  // unexpected jump the moment the other renderer mounts.
+  const handleModeChange = (newMode: EditMode) => {
+    setMode(newMode);
+    onScrollComplete();
+    onBlockScrollComplete();
+  };
+
   const modeToggle = (
     <div className="flex items-center bg-elevated rounded-full p-0.5 shadow-apple-xs">
       <button
-        onClick={() => setMode('plain')}
+        onClick={() => handleModeChange('plain')}
         className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors duration-150 ease-apple ${mode === 'plain' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-main'}`}
         title="純文字模式（Markdown 原始語法）"
         aria-label="純文字模式"
@@ -279,7 +296,7 @@ const Editor: React.FC<EditorProps> = ({
         MD
       </button>
       <button
-        onClick={() => setMode('rich')}
+        onClick={() => handleModeChange('rich')}
         className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors duration-150 ease-apple ${mode === 'rich' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-main'}`}
         title="格式化模式（所見即所得）"
         aria-label="格式化模式"
@@ -387,6 +404,8 @@ const Editor: React.FC<EditorProps> = ({
               onImagePasted={onImagePasted}
               images={images}
               toolbarExtras={<>{modeToggle}{copyButton}</>}
+              scrollToBlockOrdinal={scrollToBlockOrdinal}
+              onScrollComplete={onBlockScrollComplete}
             />
           </Suspense>
         </div>

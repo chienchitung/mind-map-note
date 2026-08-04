@@ -6,6 +6,7 @@ import {
   isVideoFile,
   MAX_UPLOAD_BYTES,
   RateLimitError,
+  type TranscriptionResult,
 } from '../services/groqTranscriptionService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
 import { splitAudioFileIntoSegments, MAX_SPLITTABLE_FILE_BYTES } from '../utils/audioSplitter';
@@ -57,6 +58,11 @@ export interface VoiceNoteState {
 
 export interface VoiceRecordingData {
   transcript: string;
+  // The same transcript, but broken into per-segment `[MM:SS] text` lines
+  // on a single continuous timeline across the whole recording — for
+  // download/reference only; the plain `transcript` above (unmodified) is
+  // still what's sent to Gemini for note generation.
+  timestampedTranscript: string;
   segments: Blob[];
 }
 
@@ -132,6 +138,31 @@ const extensionForDownload = (mimeType: string): string => {
   return hasMp4 ? 'm4a' : 'webm';
 };
 
+// Formats a running offset (seconds, possibly spanning multiple chunks) as
+// `MM:SS`, or `HH:MM:SS` once the recording passes an hour — for the
+// per-line timestamps in the downloadable transcript.
+const formatTimestamp = (totalSeconds: number): string => {
+  const wholeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor((wholeSeconds % 3600) / 60);
+  const seconds = wholeSeconds % 60;
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(seconds).padStart(2, '0');
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
+};
+
+// Turns one Groq transcription result into `[MM:SS] text` lines on the
+// recording's overall timeline, offsetting each segment's clip-relative
+// start time by how much audio has already been processed (`baseSeconds`).
+// Falls back to a single line anchored at `baseSeconds` when Whisper
+// returned no segment breakdown (e.g. a very short clip).
+const buildTimestampedLines = (result: TranscriptionResult, baseSeconds: number): string[] => {
+  if (result.segments.length === 0) {
+    return result.text ? [`[${formatTimestamp(baseSeconds)}] ${result.text}`] : [];
+  }
+  return result.segments.map(segment => `[${formatTimestamp(baseSeconds + segment.start)}] ${segment.text}`);
+};
+
 const initialState: VoiceNoteState = {
   stage: 'idle',
   inputMode: 'record',
@@ -187,6 +218,16 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const segmentQueueRef = useRef<{ blob: Blob; filename: string }[]>([]);
   const queueRunningRef = useRef(false);
   const transcriptPartsRef = useRef<string[]>([]);
+  // Parallel to transcriptPartsRef, but each entry is that same chunk's
+  // text reformatted as `[MM:SS] text` lines on the recording's overall
+  // timeline — see buildTimestampedLines.
+  const timestampedTranscriptPartsRef = useRef<string[]>([]);
+  // How many seconds of audio have already been transcribed so far this
+  // session — advanced by each chunk's own `duration` after it's
+  // processed, so the next chunk's segment timestamps (which are only
+  // relative to *that* chunk) continue the same running timeline instead
+  // of each one restarting at 00:00.
+  const cumulativeAudioSecondsRef = useRef<number>(0);
   // Every segment successfully transcribed this session (recorded or
   // split from an upload), kept around so the whole recording can be
   // handed off to the caller alongside the generated note — not just the
@@ -341,6 +382,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         if (cancelledRef.current) return;
         onNoteGeneratedRef.current(normalizeAiMarkdown(noteMarkdown), {
           transcript: combinedTranscript,
+          timestampedTranscript: timestampedTranscriptPartsRef.current.join('\n'),
           segments: audioSegmentsRef.current,
         });
         resetToIdle();
@@ -383,7 +425,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     blob: Blob,
     filename: string,
     onUploadProgress?: (fraction: number) => void,
-  ): Promise<string> => {
+  ): Promise<TranscriptionResult> => {
     let attempt = 0;
     for (;;) {
       if (cancelledRef.current) throw new DOMException('Aborted', 'AbortError');
@@ -415,12 +457,14 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         if (cancelledRef.current) return;
         const next = segmentQueueRef.current.shift()!;
         try {
-          const text = await transcribeWithRateLimitRetry(next.blob, next.filename, (fraction) => {
+          const result = await transcribeWithRateLimitRetry(next.blob, next.filename, (fraction) => {
             if (cancelledRef.current) return;
             setState(s => ({ ...s, currentUploadFraction: fraction }));
           });
           if (cancelledRef.current) return;
-          transcriptPartsRef.current.push(text);
+          transcriptPartsRef.current.push(result.text);
+          timestampedTranscriptPartsRef.current.push(...buildTimestampedLines(result, cumulativeAudioSecondsRef.current));
+          cumulativeAudioSecondsRef.current += result.duration;
           audioSegmentsRef.current.push(next.blob);
           setState(s => ({
             ...s,
@@ -625,6 +669,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       finalizedRef.current = false;
       isStillRecordingRef.current = true;
       transcriptPartsRef.current = [];
+      timestampedTranscriptPartsRef.current = [];
+      cumulativeAudioSecondsRef.current = 0;
       segmentQueueRef.current = [];
       audioSegmentsRef.current = [];
       rawRecordingBlobsRef.current = [];
@@ -696,6 +742,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     cancelledRef.current = false;
     finalizedRef.current = false;
     transcriptPartsRef.current = [];
+    timestampedTranscriptPartsRef.current = [];
+    cumulativeAudioSecondsRef.current = 0;
     segmentQueueRef.current = [];
     audioSegmentsRef.current = [];
     rawRecordingBlobsRef.current = [];
@@ -720,7 +768,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       }));
 
       try {
-        const text = await transcribeWithRateLimitRetry(file, file.name, (fraction) => {
+        const result = await transcribeWithRateLimitRetry(file, file.name, (fraction) => {
           if (cancelledRef.current) return;
           setState(s => ({
             ...s,
@@ -729,9 +777,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
           }));
         });
         if (cancelledRef.current) return;
-        transcriptPartsRef.current.push(text);
+        transcriptPartsRef.current.push(result.text);
+        timestampedTranscriptPartsRef.current.push(...buildTimestampedLines(result, cumulativeAudioSecondsRef.current));
+        cumulativeAudioSecondsRef.current += result.duration;
         audioSegmentsRef.current.push(file);
-        setState(s => ({ ...s, completedSegments: 1, transcriptSoFar: text }));
+        setState(s => ({ ...s, completedSegments: 1, transcriptSoFar: result.text }));
         finalizedRef.current = true;
         await finalizeAndGenerate();
       } catch (error) {
@@ -831,6 +881,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     }
     segmentQueueRef.current = [];
     transcriptPartsRef.current = [];
+    timestampedTranscriptPartsRef.current = [];
+    cumulativeAudioSecondsRef.current = 0;
     audioSegmentsRef.current = [];
     rawRecordingBlobsRef.current = [];
     uploadedFileRef.current = null;

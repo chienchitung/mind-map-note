@@ -19,6 +19,10 @@ interface RichTextEditorProps {
   // (unlike plain-text mode, this toolbar already occupies that corner,
   // and the two would otherwise overlap on narrow/mobile widths).
   toolbarExtras?: React.ReactNode;
+  // Set by the outline view to jump to a specific heading/list-item — see
+  // findBlockOrdinal in utils/markdownParser.ts for what this index means.
+  scrollToBlockOrdinal?: number | null;
+  onScrollComplete?: () => void;
 }
 
 // ReactNodeViewRenderer mounts node views via a portal into the same React
@@ -87,7 +91,7 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({ onClick, active, title, c
 const getMarkdownStorage = (editor: ReturnType<typeof useEditor>): { getMarkdown: () => string } | null =>
   (editor?.storage as any)?.markdown ?? null;
 
-const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras }) => {
+const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
@@ -163,6 +167,36 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, editor]);
+
+  // Jumps to the ordinal-th heading/list-item node in the document — see
+  // findBlockOrdinal in utils/markdownParser.ts. ProseMirror's own
+  // doc.descendants() walk visits nodes in document order (parent before
+  // its own children), the same order that ordinal was computed in, so the
+  // count-as-you-go below lands on the same block regardless of the two
+  // completely different parsers involved.
+  useEffect(() => {
+    if (scrollToBlockOrdinal == null || !editor) return;
+    let count = 0;
+    let targetPos: number | null = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (targetPos !== null) return false;
+      if (node.type.name === 'heading' || node.type.name === 'listItem') {
+        if (count === scrollToBlockOrdinal) {
+          targetPos = pos;
+          return false;
+        }
+        count++;
+      }
+      return true;
+    });
+    if (targetPos !== null) {
+      const dom = editor.view.nodeDOM(targetPos);
+      if (dom instanceof HTMLElement) {
+        dom.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+    }
+    onScrollComplete?.();
+  }, [scrollToBlockOrdinal, editor, onScrollComplete]);
 
   if (!editor) return null;
 

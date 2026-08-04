@@ -18,7 +18,7 @@ import Toast from './components/Toast';
 import Spinner from './components/Spinner';
 import VoiceNoteStatusPill from './components/VoiceNoteStatusPill';
 import type { Chat } from '@google/genai';
-import { parseMarkdownToMindMap } from './utils/markdownParser';
+import { parseMarkdownToMindMap, findBlockOrdinal } from './utils/markdownParser';
 import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 
@@ -179,6 +179,12 @@ const App: React.FC = () => {
   const [theme, setTheme] = useLocalStorage<'light' | 'dark'>('theme', 'light');
   
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
+  // Consumed by RichTextEditor (Aa mode) and MarkdownPreview — unlike
+  // scrollToLine (a raw textarea line offset, meaningless to either of
+  // those), this identifies "the Nth heading/list-item in document order",
+  // which each can locate independently in its own rendering. See
+  // findBlockOrdinal in utils/markdownParser.ts.
+  const [scrollToBlockOrdinal, setScrollToBlockOrdinal] = useState<number | null>(null);
   const [activeLine, setActiveLine] = useState<number>(0);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -496,6 +502,7 @@ const App: React.FC = () => {
 
   const handleOutlineNodeClick = (lineNumber: number) => {
     setScrollToLine(lineNumber);
+    setScrollToBlockOrdinal(mindMapData ? findBlockOrdinal(mindMapData, lineNumber) : null);
     setSearchQuery('');
     if (isMobile) setIsMobileSidebarOpen(false);
   };
@@ -524,7 +531,7 @@ const App: React.FC = () => {
     setIsVoiceNoteModalOpen(false);
     setActionMessage({ text: '已從錄音建立新筆記。', variant: 'success' });
 
-    voiceRecordingsStorage.saveRecording(newNoteId, recording.transcript, recording.segments).catch(error => {
+    voiceRecordingsStorage.saveRecording(newNoteId, recording.transcript, recording.timestampedTranscript, recording.segments).catch(error => {
       console.error('Failed to save voice recording:', error);
       setActionMessage({ text: '筆記已建立，但保存原始錄音與逐字稿時發生錯誤（可能是儲存空間不足）。', variant: 'warning' });
     });
@@ -789,6 +796,8 @@ const App: React.FC = () => {
                             onScrollComplete={() => {
                               setScrollToLine(null)
                             }}
+                            scrollToBlockOrdinal={scrollToBlockOrdinal}
+                            onBlockScrollComplete={() => setScrollToBlockOrdinal(null)}
                             onCursorActivity={setActiveLine}
                         />
                     </div>
@@ -796,7 +805,12 @@ const App: React.FC = () => {
               )}
               {viewMode === ViewMode.Preview && (
                   <div className={`flex-grow h-full p-4 md:p-6 lg:p-8 overflow-y-auto ${!isMobile ? 'w-1/2 border-l border-border-color/60' : 'w-full'}`}>
-                    <MarkdownPreview markdown={markdown} images={images} />
+                    <MarkdownPreview
+                      markdown={markdown}
+                      images={images}
+                      scrollToBlockOrdinal={scrollToBlockOrdinal}
+                      onScrollComplete={() => setScrollToBlockOrdinal(null)}
+                    />
                   </div>
               )}
             </div>

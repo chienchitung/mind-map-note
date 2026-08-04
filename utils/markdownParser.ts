@@ -196,3 +196,34 @@ export const parseMarkdownToMindMap = (markdown: string, noteName: string): Mind
   // If there are multiple top-level nodes, return the virtual root that holds them.
   return root;
 };
+
+/**
+ * Flattens a MindMapNode tree into the ordered list of real nodes it
+ * contains — depth-first, parent before children, same order OutlineView
+ * renders them in. Excludes the synthetic virtual root (lineNumber -1,
+ * used only to wrap multiple top-level headings/leading content), which
+ * isn't an addressable block in the document.
+ */
+export const flattenMindMapNodes = (node: MindMapNode): MindMapNode[] => {
+  const result: MindMapNode[] = [];
+  const visit = (n: MindMapNode) => {
+    if (n.lineNumber >= 0) result.push(n);
+    (n.children ?? []).forEach(visit);
+  };
+  visit(node);
+  return result;
+};
+
+/**
+ * Finds a node's position among all headings/list-items in the document
+ * (depth-first, document order) — this ordinal is what lets a completely
+ * different rendering of the same Markdown (TipTap's rich-text editor,
+ * the HTML preview) locate "the same block": each independently counts its
+ * own headings/list-items in its own document order and jumps to whichever
+ * one sits at this same position, without needing to share a parser.
+ */
+export const findBlockOrdinal = (root: MindMapNode, targetLineNumber: number): number | null => {
+  if (targetLineNumber < 0) return null;
+  const index = flattenMindMapNodes(root).findIndex(n => n.lineNumber === targetLineNumber);
+  return index === -1 ? null : index;
+};

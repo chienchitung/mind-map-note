@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { FileSystemTree, FileSystemNode } from '../types';
-import { FolderIcon, FileIcon, ChevronDownIcon, ChevronUpIcon, PencilIcon, TrashIcon, XIcon } from './icons';
+import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon } from './icons';
 
 // A modal component for moving a node to a new folder.
 const MoveToModal: React.FC<{
   tree: FileSystemTree;
   nodeToMove: FileSystemNode;
   onClose: () => void;
-  onMoveNode: (nodeId: string, newParentId: string | null) => void;
+  onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
 }> = ({ tree, nodeToMove, onClose, onMoveNode }) => {
 
   // Helper to find all descendants of a folder to prevent moving a folder into itself.
@@ -118,7 +118,7 @@ interface FileExplorerProps {
   onSelectNote: (noteId: string) => void;
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
-  onMoveNode: (nodeId: string, newParentId: string | null) => void;
+  onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
 }
 
 interface IFileExplorerContext {
@@ -154,7 +154,7 @@ const Node: React.FC<{
   level: number;
   activeNoteId: string | null;
   onSelectNote: (noteId: string) => void;
-  onMoveNode: (nodeId: string, newParentId: string | null) => void;
+  onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
 }> = ({ node, tree, level, activeNoteId, onSelectNote, onMoveNode }) => {
   const context = useContext(FileExplorerContext);
   if (!context) throw new Error("Node must be used within a FileExplorerContext");
@@ -164,7 +164,10 @@ const Node: React.FC<{
   const [isExpanded, setIsExpanded] = useState(true);
   const [name, setName] = useState(node.name);
   const [isHovering, setIsHovering] = useState(false);
-  const [isDropTarget, setIsDropTarget] = useState(false);
+  // Which reorder/reparent zone the drag is currently hovering over this
+  // row: 'before'/'after' insert it as a sibling above/below this node,
+  // 'inside' moves it into this folder (folders only) — see handleDragOver.
+  const [dropIndicator, setDropIndicator] = useState<'before' | 'inside' | 'after' | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -211,37 +214,56 @@ const Node: React.FC<{
     setDraggingNodeId(null);
   };
 
-  // Only claim the drop (preventDefault) when it would actually be valid —
-  // dropping a folder into itself or one of its own descendants used to
-  // still show the green "valid drop" highlight and then silently no-op on
-  // release, with nothing telling the user why. Skipping preventDefault()
-  // here instead makes the browser show its native "not allowed" cursor and
-  // refuses the drop outright.
-  const isValidDropTarget = node.type === 'folder' && draggingNodeId !== null && !isNodeOrDescendant(tree, draggingNodeId, node.id);
-
+  // Never claim the drop (preventDefault) over the dragged node itself or
+  // one of its own descendants — dropping a folder into itself or one of
+  // its own descendants used to still show a "valid drop" highlight and
+  // then silently no-op on release, with nothing telling the user why.
+  // Skipping preventDefault() here instead makes the browser show its
+  // native "not allowed" cursor and refuses the drop outright.
   const handleDragOver = (e: React.DragEvent) => {
-    if (isValidDropTarget) {
-      e.preventDefault();
-      setIsDropTarget(true);
+    if (draggingNodeId === null || isNodeOrDescendant(tree, draggingNodeId, node.id)) return;
+    e.preventDefault();
+    // The row is split into zones by where the cursor is vertically: a
+    // folder's middle 50% moves the dragged node *into* it (unchanged
+    // behavior), while the top/bottom edges (the whole row, for a file,
+    // which has no "inside") reorder it as a sibling above/below instead.
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relativeY = (e.clientY - rect.top) / rect.height;
+    if (node.type === 'folder') {
+      if (relativeY < 0.25) setDropIndicator('before');
+      else if (relativeY > 0.75) setDropIndicator('after');
+      else setDropIndicator('inside');
+    } else {
+      setDropIndicator(relativeY < 0.5 ? 'before' : 'after');
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    if (isValidDropTarget) {
-      e.preventDefault();
-      const droppedNodeId = e.dataTransfer.getData('text/plain');
-      if (droppedNodeId) onMoveNode(droppedNodeId, node.id);
-      setIsDropTarget(false);
+    if (!dropIndicator) return;
+    e.preventDefault();
+    const droppedNodeId = e.dataTransfer.getData('text/plain');
+    setDropIndicator(null);
+    if (!droppedNodeId) return;
+    if (dropIndicator === 'inside') {
+      onMoveNode(droppedNodeId, node.id);
+      return;
     }
+    // 'before' inserts right ahead of this node; 'after' inserts ahead of
+    // whichever sibling currently follows it (or appends, if it's last).
+    const siblings = node.parentId ? tree[node.parentId]?.childrenIds ?? [] : [];
+    const ownIndex = siblings.indexOf(node.id);
+    const beforeNodeId = dropIndicator === 'before'
+      ? node.id
+      : (ownIndex >= 0 ? siblings[ownIndex + 1] ?? null : null);
+    onMoveNode(droppedNodeId, node.parentId, beforeNodeId);
   };
 
   const isActive = node.type === 'file' && node.id === activeNoteId;
-  const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronUpIcon;
 
   return (
     <div>
       <div
-        className={`flex items-center rounded-lg py-1.5 px-1.5 group transition-colors duration-150 ease-apple ${isActive ? 'bg-accent text-white' : 'hover:bg-secondary'} ${isDropTarget ? 'bg-green-500/20 ring-2 ring-green-500' : ''}`}
+        className={`flex items-center rounded-lg py-1.5 px-1.5 group transition-colors duration-150 ease-apple border-t-2 border-b-2 border-transparent ${isActive ? 'bg-accent text-white' : 'hover:bg-secondary'} ${dropIndicator === 'inside' ? 'bg-green-500/20 ring-2 ring-green-500' : ''} ${dropIndicator === 'before' ? 'border-t-accent' : ''} ${dropIndicator === 'after' ? 'border-b-accent' : ''}`}
         style={{ paddingLeft: `${level * 16 + 6}px` }}
         onClick={handleClick}
         onContextMenu={(e) => onContextMenu(e, node.id)}
@@ -251,10 +273,10 @@ const Node: React.FC<{
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragOver={handleDragOver}
-        onDragLeave={() => setIsDropTarget(false)}
+        onDragLeave={() => setDropIndicator(null)}
         onDrop={handleDrop}
       >
-        {node.type === 'folder' && <ChevronIcon className="w-4 h-4 mr-1 flex-shrink-0" />}
+        {node.type === 'folder' && !isExpanded && <ChevronRightIcon className="w-4 h-4 mr-1 flex-shrink-0" />}
         <div className="w-5 h-5 mr-2 flex-shrink-0">
           {node.type === 'folder' ? <FolderIcon /> : <FileIcon />}
         </div>

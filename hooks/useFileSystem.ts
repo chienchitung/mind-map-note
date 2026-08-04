@@ -235,13 +235,19 @@ export const useFileSystem = () => {
         });
     }, []);
 
-    const moveNode = useCallback((nodeId: string, newParentId: string | null) => {
+    // Moves (or reorders) a node. With no `beforeNodeId`, it's appended to the
+    // end of the new parent's children — the original "move into this
+    // folder" behavior. Passing `beforeNodeId` inserts it immediately ahead
+    // of that sibling instead, which is what lets a node be reordered among
+    // its siblings (including within the same parent, previously a no-op).
+    const moveNode = useCallback((nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => {
         setState(prevState => {
             const newTree = { ...prevState.tree };
             const nodeToMove = newTree[nodeId];
-            if (!nodeToMove || nodeToMove.parentId === newParentId) return prevState;
-            
-            // Prevent moving a folder into itself
+            if (!nodeToMove) return prevState;
+            if (nodeToMove.parentId === newParentId && beforeNodeId === undefined) return prevState;
+
+            // Prevent moving a folder into itself or one of its own descendants.
             let tempParentId = newParentId;
             while(tempParentId) {
                 if(tempParentId === nodeId) return prevState;
@@ -253,11 +259,19 @@ export const useFileSystem = () => {
                 const oldParent = newTree[nodeToMove.parentId];
                 newTree[oldParent.id] = { ...oldParent, childrenIds: oldParent.childrenIds.filter(id => id !== nodeId) };
             }
-            
-            // Add to new parent
+
+            // Add to new parent — spliced in just ahead of beforeNodeId if
+            // given and still present (post-removal), otherwise appended.
             if (newParentId && newTree[newParentId]) {
                 const newParent = newTree[newParentId];
-                newTree[newParent.id] = { ...newParent, childrenIds: [...newParent.childrenIds, nodeId] };
+                const children = [...newParent.childrenIds];
+                const insertAt = beforeNodeId ? children.indexOf(beforeNodeId) : -1;
+                if (insertAt === -1) {
+                    children.push(nodeId);
+                } else {
+                    children.splice(insertAt, 0, nodeId);
+                }
+                newTree[newParent.id] = { ...newParent, childrenIds: children };
             }
 
             // Update moved node's parentId

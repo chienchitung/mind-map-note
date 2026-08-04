@@ -14,7 +14,7 @@ interface SidebarProps {
   onCreateNode: (type: 'file' | 'folder', parentId: string | null) => void;
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
-  onMoveNode: (nodeId: string, newParentId: string | null) => void;
+  onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
   mindMapData: MindMapNode | null;
   activeLine: number;
   onOutlineNodeClick: (lineNumber: number) => void;

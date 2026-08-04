@@ -14,6 +14,9 @@ export interface StoredVoiceRecording {
     noteId: string;
     createdAt: number;
     transcript: string;
+    // Optional because recordings saved before this field existed simply
+    // don't have it — consumers must fall back to `transcript`.
+    timestampedTranscript?: string;
     segments: Blob[];
     totalBytes: number;
 }
@@ -55,10 +58,10 @@ const runTransaction = async <T>(
     }
 };
 
-export const saveVoiceRecording = async (noteId: string, transcript: string, segments: Blob[]): Promise<void> => {
+export const saveVoiceRecording = async (noteId: string, transcript: string, timestampedTranscript: string, segments: Blob[]): Promise<void> => {
     if (!isIndexedDbAvailable()) return;
-    const totalBytes = segments.reduce((sum, segment) => sum + segment.size, 0) + new Blob([transcript]).size;
-    const record: StoredVoiceRecording = { noteId, createdAt: Date.now(), transcript, segments, totalBytes };
+    const totalBytes = segments.reduce((sum, segment) => sum + segment.size, 0) + new Blob([transcript]).size + new Blob([timestampedTranscript]).size;
+    const record: StoredVoiceRecording = { noteId, createdAt: Date.now(), transcript, timestampedTranscript, segments, totalBytes };
     await runTransaction('readwrite', store => store.put(record));
 };
 

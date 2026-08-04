@@ -531,7 +531,7 @@ const App: React.FC = () => {
     setIsVoiceNoteModalOpen(false);
     setActionMessage({ text: '已從錄音建立新筆記。', variant: 'success' });
 
-    voiceRecordingsStorage.saveRecording(newNoteId, recording.transcript, recording.segments).catch(error => {
+    voiceRecordingsStorage.saveRecording(newNoteId, recording.transcript, recording.timestampedTranscript, recording.segments).catch(error => {
       console.error('Failed to save voice recording:', error);
       setActionMessage({ text: '筆記已建立，但保存原始錄音與逐字稿時發生錯誤（可能是儲存空間不足）。', variant: 'warning' });
     });

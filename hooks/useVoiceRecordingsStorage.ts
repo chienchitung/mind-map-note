@@ -23,8 +23,8 @@ export const useVoiceRecordingsStorage = () => {
 
   useEffect(() => { void refreshUsage(); }, [refreshUsage]);
 
-  const saveRecording = useCallback(async (noteId: string, transcript: string, segments: Blob[]) => {
-    await saveVoiceRecording(noteId, transcript, segments);
+  const saveRecording = useCallback(async (noteId: string, transcript: string, timestampedTranscript: string, segments: Blob[]) => {
+    await saveVoiceRecording(noteId, transcript, timestampedTranscript, segments);
     void refreshUsage();
   }, [refreshUsage]);
 

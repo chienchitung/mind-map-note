@@ -106,10 +106,30 @@ interface TranscribeOptions {
     onUploadProgress?: (fraction: number) => void;
 }
 
+// One Whisper-identified span of speech within the submitted clip — start/end
+// are seconds *relative to that clip*, not the overall recording (a live
+// recording or a split upload sends many separate clips; useVoiceNotePipeline
+// is what turns these into one continuous timeline).
+export interface TranscriptionSegment {
+    start: number;
+    end: number;
+    text: string;
+}
+
+export interface TranscriptionResult {
+    text: string;
+    segments: TranscriptionSegment[];
+    // Duration of the submitted clip in seconds, per Groq's own reporting —
+    // used to advance the running offset for the *next* clip's timestamps.
+    duration: number;
+}
+
 /**
  * Sends an audio clip — either a live recording or an uploaded file — to
- * Groq's Whisper transcription API and returns the resulting plain-text
- * transcript.
+ * Groq's Whisper transcription API and returns the resulting transcript,
+ * both as plain text and as the individual timed segments Whisper broke it
+ * into (requesting `verbose_json` rather than plain `json` is what makes the
+ * segment timestamps available at all).
  *
  * @param audioBlob The audio to transcribe (a MediaRecorder Blob, or an
  *   uploaded File — File extends Blob).
@@ -124,10 +144,10 @@ export const transcribeAudio = (
     filename: string,
     apiKey: string,
     options: TranscribeOptions = {},
-): Promise<string> => {
+): Promise<TranscriptionResult> => {
     const { signal, onUploadProgress } = options;
 
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<TranscriptionResult>((resolve, reject) => {
         if (!apiKey) {
             reject(new MissingGroqApiKeyError());
             return;
@@ -144,7 +164,7 @@ export const transcribeAudio = (
         const formData = new FormData();
         formData.append('file', audioBlob, filename);
         formData.append('model', GROQ_WHISPER_MODEL);
-        formData.append('response_format', 'json');
+        formData.append('response_format', 'verbose_json');
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', GROQ_TRANSCRIPTION_ENDPOINT);
@@ -165,7 +185,13 @@ export const transcribeAudio = (
                         reject(new Error('沒有辨識到任何語音內容，請確認錄音時有清楚說話。'));
                         return;
                     }
-                    resolve(text);
+                    const segments: TranscriptionSegment[] = Array.isArray(data?.segments)
+                        ? data.segments
+                            .map((seg: any) => ({ start: Number(seg?.start) || 0, end: Number(seg?.end) || 0, text: typeof seg?.text === 'string' ? seg.text.trim() : '' }))
+                            .filter((seg: TranscriptionSegment) => seg.text)
+                        : [];
+                    const duration = Number(data?.duration) || segments[segments.length - 1]?.end || 0;
+                    resolve({ text, segments, duration });
                 } catch {
                     reject(new Error('無法解析語音轉錄的回應內容。'));
                 }

@@ -29,8 +29,11 @@ const downloadStoredAudio = (recording: StoredVoiceRecording) => {
   downloadBlob(blob, `voice-note-${recording.noteId}.${extensionForMimeType(mimeType)}`);
 };
 
+// Prefers the `[MM:SS] text` timestamped format; recordings saved before
+// that field existed fall back to the plain transcript.
 const downloadTranscript = (recording: StoredVoiceRecording) => {
-  downloadBlob(new Blob([recording.transcript], { type: 'text/plain;charset=utf-8' }), `voice-note-${recording.noteId}-transcript.txt`);
+  const content = recording.timestampedTranscript || recording.transcript;
+  downloadBlob(new Blob([content], { type: 'text/plain;charset=utf-8' }), `voice-note-${recording.noteId}-transcript.txt`);
 };
 
 // Browsable list of everything saved by useVoiceRecordingsStorage — lives in

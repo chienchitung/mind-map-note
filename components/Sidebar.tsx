@@ -53,14 +53,14 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [activeTab, setActiveTab] = useLocalStorage<SidebarTab>('mind-map-sidebar-tab', 'files');
 
   const tabClass = (tab: SidebarTab) =>
-    `flex-1 px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
+    `flex-1 min-w-0 truncate px-2 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
       activeTab === tab ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
     }`;
 
   return (
     <div className="h-full bg-primary flex flex-col">
       <div className="flex items-center gap-2 px-3 py-3 flex-shrink-0">
-        <div className="flex rounded-full bg-secondary p-1 flex-grow">
+        <div className="flex rounded-full bg-secondary p-1 flex-grow min-w-0">
           <button onClick={() => setActiveTab('files')} className={tabClass('files')}>{t('sidebar.tabFiles')}</button>
           <button onClick={() => setActiveTab('outline')} className={tabClass('outline')}>{t('sidebar.tabOutline')}</button>
           <button onClick={() => setActiveTab('recordings')} className={tabClass('recordings')}>{t('sidebar.tabRecordings')}</button>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { XIcon, KeyIcon, SettingsIcon, ArchiveIcon, ExportIcon, ImportIcon } from './icons';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onExportBackup,
   onImportBackup,
 }) => {
+  const { language, setLanguage, t } = useTranslation();
   const [draftKey, setDraftKey] = useState(apiKey);
   const [isRevealed, setIsRevealed] = useState(false);
   const [draftGroqKey, setDraftGroqKey] = useState(groqApiKey);
@@ -66,7 +68,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="關閉 (Esc)" aria-label="關閉">
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title={t('common.closeEsc')} aria-label={t('common.close')}>
           <XIcon className="w-5 h-5" />
         </button>
 
@@ -74,61 +76,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center flex-shrink-0">
             <SettingsIcon className="w-5 h-5" />
           </div>
-          <h2 id="settings-modal-title" className="text-xl font-semibold text-text-main">設定</h2>
+          <h2 id="settings-modal-title" className="text-xl font-semibold text-text-main">{t('settings.title')}</h2>
         </div>
 
         <section>
-          <div className="flex items-center gap-2 mb-2">
-            <KeyIcon className="w-4 h-4 text-accent" />
-            <h3 className="text-sm font-semibold text-text-main">AI 學習夥伴</h3>
-          </div>
-
-          <p className="text-sm text-text-secondary mb-4 leading-relaxed">
-            此應用程式的 AI 功能由 Google Gemini 提供。您的金鑰只會保存在
-            <strong className="text-text-main"> 這台裝置的瀏覽器</strong>
-            裡，不會上傳到任何伺服器。
-          </p>
-
-          <label htmlFor="gemini-api-key" className="block text-sm font-medium text-text-main mb-1.5">
-            Gemini API 金鑰
-          </label>
-          <div className="flex items-center gap-2 mb-2">
-            <input
-              id="gemini-api-key"
-              type={isRevealed ? 'text' : 'password'}
-              value={draftKey}
-              onChange={(e) => setDraftKey(e.target.value)}
-              placeholder="貼上您的 API 金鑰..."
-              autoComplete="off"
-              spellCheck={false}
-              className="flex-grow px-3.5 py-2.5 bg-secondary border border-transparent rounded-xl text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors duration-150 ease-apple"
-            />
+          <h3 className="text-sm font-semibold text-text-main mb-2">{t('settings.language')}</h3>
+          <p className="text-sm text-text-secondary mb-3 leading-relaxed">{t('settings.languageDescription')}</p>
+          <div className="flex rounded-full bg-secondary p-1 w-fit">
             <button
               type="button"
-              onClick={() => setIsRevealed(prev => !prev)}
-              className="px-3 py-2.5 text-xs font-medium rounded-xl bg-secondary hover:bg-border-color/60 text-text-secondary transition-colors duration-150 ease-apple flex-shrink-0"
+              onClick={() => setLanguage('zh')}
+              aria-pressed={language === 'zh'}
+              className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
+                language === 'zh' ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
+              }`}
             >
-              {isRevealed ? '隱藏' : '顯示'}
+              {t('settings.languageZh')}
             </button>
-          </div>
-
-          <a
-            href="https://aistudio.google.com/apikey"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-accent hover:underline"
-          >
-            還沒有金鑰？前往 Google AI Studio 免費取得 →
-          </a>
-
-          <div className="mt-3">
             <button
               type="button"
-              onClick={handleClear}
-              disabled={!apiKey}
-              className="text-sm text-red-500 hover:text-red-400 disabled:text-text-secondary/40 disabled:cursor-not-allowed transition-colors duration-150 ease-apple"
+              onClick={() => setLanguage('en')}
+              aria-pressed={language === 'en'}
+              className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
+                language === 'en' ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
+              }`}
             >
-              清除金鑰
+              {t('settings.languageEn')}
             </button>
           </div>
         </section>
@@ -138,17 +111,67 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         <section>
           <div className="flex items-center gap-2 mb-2">
             <KeyIcon className="w-4 h-4 text-accent" />
-            <h3 className="text-sm font-semibold text-text-main">語音筆記</h3>
+            <h3 className="text-sm font-semibold text-text-main">{t('settings.aiPartnerSectionTitle')}</h3>
           </div>
 
-          <p className="text-sm text-text-secondary mb-4 leading-relaxed">
-            語音轉錄功能由 Groq 提供。您的金鑰只會保存在
-            <strong className="text-text-main"> 這台裝置的瀏覽器</strong>
-            裡，不會上傳到任何伺服器。每次生成筆記後，原始錄音與逐字稿會保存在側邊欄的「錄音」分頁中，可以在那裡下載或刪除。
-          </p>
+          <p className="text-sm text-text-secondary mb-4 leading-relaxed">{t('settings.aiPartnerDescription')}</p>
+
+          <label htmlFor="gemini-api-key" className="block text-sm font-medium text-text-main mb-1.5">
+            {t('settings.geminiApiKeyLabel')}
+          </label>
+          <div className="flex items-center gap-2 mb-2">
+            <input
+              id="gemini-api-key"
+              type={isRevealed ? 'text' : 'password'}
+              value={draftKey}
+              onChange={(e) => setDraftKey(e.target.value)}
+              placeholder={t('settings.apiKeyPlaceholder')}
+              autoComplete="off"
+              spellCheck={false}
+              className="flex-grow px-3.5 py-2.5 bg-secondary border border-transparent rounded-xl text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors duration-150 ease-apple"
+            />
+            <button
+              type="button"
+              onClick={() => setIsRevealed(prev => !prev)}
+              className="px-3 py-2.5 text-xs font-medium rounded-xl bg-secondary hover:bg-border-color/60 text-text-secondary transition-colors duration-150 ease-apple flex-shrink-0"
+            >
+              {isRevealed ? t('settings.hide') : t('settings.reveal')}
+            </button>
+          </div>
+
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-accent hover:underline"
+          >
+            {t('settings.getGeminiKey')}
+          </a>
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={!apiKey}
+              className="text-sm text-red-500 hover:text-red-400 disabled:text-text-secondary/40 disabled:cursor-not-allowed transition-colors duration-150 ease-apple"
+            >
+              {t('settings.clearKey')}
+            </button>
+          </div>
+        </section>
+
+        <div className="h-px bg-border-color my-6"></div>
+
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <KeyIcon className="w-4 h-4 text-accent" />
+            <h3 className="text-sm font-semibold text-text-main">{t('settings.voiceNoteSectionTitle')}</h3>
+          </div>
+
+          <p className="text-sm text-text-secondary mb-4 leading-relaxed">{t('settings.voiceNoteDescription')}</p>
 
           <label htmlFor="groq-api-key" className="block text-sm font-medium text-text-main mb-1.5">
-            Groq API 金鑰
+            {t('settings.groqApiKeyLabel')}
           </label>
           <div className="flex items-center gap-2 mb-2">
             <input
@@ -156,7 +179,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               type={isGroqRevealed ? 'text' : 'password'}
               value={draftGroqKey}
               onChange={(e) => setDraftGroqKey(e.target.value)}
-              placeholder="貼上您的 API 金鑰..."
+              placeholder={t('settings.apiKeyPlaceholder')}
               autoComplete="off"
               spellCheck={false}
               className="flex-grow px-3.5 py-2.5 bg-secondary border border-transparent rounded-xl text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors duration-150 ease-apple"
@@ -166,7 +189,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               onClick={() => setIsGroqRevealed(prev => !prev)}
               className="px-3 py-2.5 text-xs font-medium rounded-xl bg-secondary hover:bg-border-color/60 text-text-secondary transition-colors duration-150 ease-apple flex-shrink-0"
             >
-              {isGroqRevealed ? '隱藏' : '顯示'}
+              {isGroqRevealed ? t('settings.hide') : t('settings.reveal')}
             </button>
           </div>
 
@@ -176,7 +199,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             rel="noopener noreferrer"
             className="text-xs text-accent hover:underline"
           >
-            還沒有金鑰？前往 Groq Console 免費取得 →
+            {t('settings.getGroqKey')}
           </a>
 
           <div className="mt-3">
@@ -186,7 +209,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               disabled={!groqApiKey}
               className="text-sm text-red-500 hover:text-red-400 disabled:text-text-secondary/40 disabled:cursor-not-allowed transition-colors duration-150 ease-apple"
             >
-              清除金鑰
+              {t('settings.clearKey')}
             </button>
           </div>
         </section>
@@ -197,14 +220,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium rounded-full text-text-secondary hover:bg-secondary transition-all duration-150 ease-apple active:scale-95"
           >
-            取消
+            {t('common.cancel')}
           </button>
           <button
             type="button"
             onClick={handleSave}
             className="px-4 py-2 text-sm font-medium rounded-full bg-accent text-white hover:opacity-90 transition-all duration-150 ease-apple active:scale-95"
           >
-            儲存
+            {t('common.save')}
           </button>
         </div>
 
@@ -213,13 +236,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         <section>
           <div className="flex items-center gap-2 mb-2">
             <ArchiveIcon className="w-4 h-4 text-accent" />
-            <h3 className="text-sm font-semibold text-text-main">資料備份與還原</h3>
+            <h3 className="text-sm font-semibold text-text-main">{t('settings.backupSectionTitle')}</h3>
           </div>
 
-          <p className="text-sm text-text-secondary mb-4 leading-relaxed">
-            所有筆記都只保存在<strong className="text-text-main">這台裝置的瀏覽器</strong>裡。
-            建議定期匯出備份，換裝置或清除瀏覽器資料前也別忘了先備份。
-          </p>
+          <p className="text-sm text-text-secondary mb-4 leading-relaxed">{t('settings.backupDescription')}</p>
 
           <div className="flex items-center gap-2">
             <button
@@ -228,7 +248,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl bg-secondary hover:bg-border-color/60 text-text-main transition-colors duration-150 ease-apple"
             >
               <ExportIcon className="w-4 h-4" />
-              匯出備份
+              {t('settings.exportBackup')}
             </button>
             <button
               type="button"
@@ -236,7 +256,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl bg-secondary hover:bg-border-color/60 text-text-main transition-colors duration-150 ease-apple"
             >
               <ImportIcon className="w-4 h-4" />
-              匯入備份
+              {t('settings.importBackup')}
             </button>
             <input
               ref={importInputRef}

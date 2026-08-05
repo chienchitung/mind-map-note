@@ -3,6 +3,7 @@ import * as d3 from 'd3';
 import { MindMapNode, MindMapLayout, Images } from '../types';
 import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
 import { stripInlineMarkdown } from '../utils/markdownParser';
+import { useTranslation } from '../contexts/LanguageContext';
 
 const PADDING_X = 24;
 const PADDING_Y = 16;
@@ -17,15 +18,16 @@ const ZoomControls: React.FC<{
   onZoomOut: () => void;
   onReset: () => void;
 }> = ({ onZoomIn, onZoomOut, onReset }) => {
+  const { t } = useTranslation();
   return (
     <div className="glass-surface absolute bottom-4 right-4 shadow-apple-md rounded-full p-1 flex flex-col gap-1 border border-border-color/60 z-10">
-      <button onClick={onZoomIn} title="放大 (Cmd/Ctrl +)" aria-label="放大" className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
+      <button onClick={onZoomIn} title={`${t('mindMap.zoomIn')} (Cmd/Ctrl +)`} aria-label={t('mindMap.zoomIn')} className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
         <PlusIcon className="w-5 h-5" />
       </button>
-      <button onClick={onZoomOut} title="縮小 (Cmd/Ctrl -)" aria-label="縮小" className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
+      <button onClick={onZoomOut} title={`${t('mindMap.zoomOut')} (Cmd/Ctrl -)`} aria-label={t('mindMap.zoomOut')} className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
         <MinusIcon className="w-5 h-5" />
       </button>
-      <button onClick={onReset} title="重置視圖 (Cmd/Ctrl 0)" aria-label="重置視圖" className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
+      <button onClick={onReset} title={`${t('mindMap.resetView')} (Cmd/Ctrl 0)`} aria-label={t('mindMap.resetView')} className="p-2 rounded-full hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 text-text-secondary">
         <ResetZoomIcon className="w-5 h-5" />
       </button>
     </div>

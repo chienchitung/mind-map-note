@@ -1,10 +1,12 @@
+import { translate } from '../i18n/translations';
+
 /**
  * Thrown when no Groq API key has been configured yet. The caller is
  * expected to catch this and prompt the user to set one in Settings.
  */
 export class MissingGroqApiKeyError extends Error {
     constructor() {
-        super("尚未設定 Groq API 金鑰。");
+        super(translate('groq.missingApiKey'));
         this.name = "MissingGroqApiKeyError";
     }
 }
@@ -73,7 +75,7 @@ export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 export class FileTooLargeError extends Error {
     constructor() {
-        super(`檔案超過 ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB 的轉錄上限，請先壓縮音檔，或改用「錄音」分段轉錄。`);
+        super(translate('groq.fileTooLarge', { maxMb: Math.round(MAX_UPLOAD_BYTES / (1024 * 1024)) }));
         this.name = "FileTooLargeError";
     }
 }
@@ -217,7 +219,7 @@ export const transcribeAudio = (
                     const data = JSON.parse(xhr.responseText);
                     const rawText = typeof data?.text === 'string' ? data.text.trim() : '';
                     if (!rawText) {
-                        reject(new Error('沒有辨識到任何語音內容，請確認錄音時有清楚說話。'));
+                        reject(new Error(translate('groq.noSpeechDetected')));
                         return;
                     }
                     const convert = await converterPromise;
@@ -230,11 +232,11 @@ export const transcribeAudio = (
                     const duration = Number(data?.duration) || segments[segments.length - 1]?.end || 0;
                     resolve({ text, segments, duration });
                 } catch {
-                    reject(new Error('無法解析語音轉錄的回應內容。'));
+                    reject(new Error(translate('groq.cannotParseResponse')));
                 }
                 return;
             }
-            let message = `語音轉錄失敗（HTTP ${xhr.status}）。`;
+            let message = translate('groq.transcriptionFailedHttp', { status: xhr.status });
             try {
                 const data = JSON.parse(xhr.responseText);
                 if (typeof data?.error?.message === 'string') message = data.error.message;
@@ -258,7 +260,7 @@ export const transcribeAudio = (
 
             reject(new Error(message));
         };
-        xhr.onerror = () => reject(new Error('網路連線發生錯誤，語音轉錄失敗。'));
+        xhr.onerror = () => reject(new Error(translate('groq.networkError')));
         xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
 
         signal?.addEventListener('abort', () => xhr.abort());

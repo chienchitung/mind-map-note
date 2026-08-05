@@ -2,21 +2,14 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { FileSystemTree, NotesContent, FileSystemNode, Images } from '../types';
 import { deleteVoiceRecording } from '../services/voiceRecordingStorage';
-
-const initialMarkdown = `# 歡迎使用思維導圖筆記工具
-
-## 核心理念
-- **輕鬆寫作，自動成圖**：您只需專注於使用 Markdown 語法（如標題 '#' 和列表 '-'）來撰寫筆記，應用程式會自動將其轉換為結構化的思維導圖。
-- **階層式結構**：透過標題層級和列表縮排，輕鬆建立複雜的思緒層次。
-
-## 開始使用
-- **試著編輯看看！**
-  - 直接修改這份文件，新增您自己的標題或列表項。
-- **查看快捷鍵**
-  - 按下 \`?\` 鍵可以打開快捷鍵說明，了解更多高效操作。
-
-> 現在，開始您的第一次思維導圖筆記之旅吧！
-`;
+// A plain (non-hook) translator is used throughout this file rather than
+// useTranslation() — getInitialFileSystem in particular runs inside a lazy
+// useState initializer, outside the normal component render where hooks are
+// allowed to be called, and the rest (createNode, flushToStorage) are
+// useCallback-memoized with empty deps; translate() reads the current
+// language fresh from localStorage on every call, so it's always correct
+// without needing to be added as a dependency anywhere.
+import { translate } from '../i18n/translations';
 
 const TREE_STORAGE_KEY = 'mind-map-file-tree';
 const NOTES_STORAGE_KEY = 'mind-map-notes-content';
@@ -83,11 +76,11 @@ const getInitialFileSystem = () => {
     
     const initialTree: FileSystemTree = {
         [rootId]: { id: rootId, name: 'Root', type: 'folder', parentId: null, childrenIds: [initialNoteId] },
-        [initialNoteId]: { id: initialNoteId, name: '我的第一篇筆記', type: 'file', parentId: rootId, childrenIds: [] },
+        [initialNoteId]: { id: initialNoteId, name: translate('app.firstNoteName'), type: 'file', parentId: rootId, childrenIds: [] },
     };
-    
+
     const initialNotes: NotesContent = {
-        [initialNoteId]: initialMarkdown,
+        [initialNoteId]: translate('app.welcomeNote'),
     };
     
     return { tree: initialTree, notes: initialNotes, images: {} };
@@ -120,8 +113,8 @@ export const useFileSystem = () => {
                 (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
             setStorageError(
                 isQuotaError
-                    ? '儲存空間已滿，最新的變更目前無法儲存。請刪除較大的圖片或筆記以釋出空間。'
-                    : '筆記儲存失敗，變更可能會在重新整理後遺失。'
+                    ? translate('app.storageFullError')
+                    : translate('app.storageSaveError')
             );
         }
     }, []);
@@ -149,7 +142,7 @@ export const useFileSystem = () => {
 
     const createNode = useCallback((type: 'file' | 'folder', parentId: string | null = 'root') => {
         const id = generateId();
-        const defaultName = type === 'file' ? '無標題筆記' : '新資料夾';
+        const defaultName = type === 'file' ? translate('app.untitledNoteName') : translate('app.newFolderName');
         const newNode: FileSystemNode = { id, name: defaultName, type, parentId, childrenIds: [] };
         
         setState(prevState => {

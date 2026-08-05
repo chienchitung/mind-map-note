@@ -2,6 +2,7 @@ import React from 'react';
 import { MicIcon } from './icons';
 import Spinner from './Spinner';
 import type { VoiceNoteState } from '../hooks/useVoiceNotePipeline';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface VoiceNoteStatusPillProps {
   state: VoiceNoteState;
@@ -20,34 +21,37 @@ const formatDuration = (totalSeconds: number): string => {
 // the user keep browsing other notes without losing track of it, and
 // click back in at any time. Only rendered by App.tsx while stage !== 'idle'.
 const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClick }) => {
+  const { t } = useTranslation();
   const { stage, elapsedSeconds, processingPhase, totalSegments, completedSegments, rateLimitRetrySeconds, hasVideo, awaitingVideoReview } = state;
 
-  let label = '處理中...';
+  let label = t('voicePill.processing');
   if (stage === 'recording') {
-    label = hasVideo ? `錄影中 ${formatDuration(elapsedSeconds)}` : `錄音中 ${formatDuration(elapsedSeconds)}`;
+    label = hasVideo
+      ? t('voicePill.recordingVideo', { duration: formatDuration(elapsedSeconds) })
+      : t('voicePill.recordingAudio', { duration: formatDuration(elapsedSeconds) });
   } else if (stage === 'processing') {
     if (awaitingVideoReview) {
-      label = '等待確認下載影片';
-    } else if (processingPhase === 'splitting') label = hasVideo ? '抽取音軌中...' : '分段處理中...';
-    else if (processingPhase === 'uploading') label = '上傳音檔中...';
+      label = t('voicePill.awaitingVideoReview');
+    } else if (processingPhase === 'splitting') label = hasVideo ? t('voicePill.extractingAudio') : t('voicePill.splitting');
+    else if (processingPhase === 'uploading') label = t('voicePill.uploading');
     else if (processingPhase === 'transcribing') {
-      label = totalSegments > 1 ? `轉錄中 ${completedSegments}/${totalSegments} 段` : '辨識語音中...';
+      label = totalSegments > 1 ? t('voicePill.transcribingSegments', { completed: completedSegments, total: totalSegments }) : t('voicePill.transcribing');
     } else if (processingPhase === 'generating') {
-      label = 'AI 整理筆記中...';
+      label = t('voicePill.generating');
     }
     if (!awaitingVideoReview && rateLimitRetrySeconds !== null) {
-      label = `速率限制中，${rateLimitRetrySeconds} 秒後重試`;
+      label = t('voicePill.rateLimited', { seconds: rateLimitRetrySeconds });
     }
   } else if (stage === 'error') {
-    label = '語音筆記發生錯誤';
+    label = t('voicePill.error');
   }
 
   return (
     <button
       onClick={onClick}
       className="glass-surface-solid fixed bottom-4 left-4 z-40 flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full shadow-apple-md border border-border-color/70 hover:shadow-apple-lg transition-all duration-150 ease-apple active:scale-95"
-      title="回到語音筆記"
-      aria-label={`回到語音筆記：${label}`}
+      title={t('voicePill.backToVoiceNote')}
+      aria-label={t('voicePill.backToVoiceNoteWithLabel', { label })}
     >
       <div className="w-6 h-6 rounded-full bg-accent/10 text-accent flex items-center justify-center flex-shrink-0">
         {stage === 'recording' ? (

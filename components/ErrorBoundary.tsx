@@ -1,4 +1,5 @@
 import React from 'react';
+import { translate } from '../i18n/translations';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -27,13 +28,13 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     if (this.state.error) {
       return (
         <div className="flex flex-col items-center justify-center h-screen gap-4 bg-primary text-text-main p-6 text-center">
-          <p className="text-lg font-medium">發生錯誤，畫面無法顯示</p>
+          <p className="text-lg font-medium">{translate('errorBoundary.title')}</p>
           <p className="text-sm text-text-secondary max-w-md">{this.state.error.message}</p>
           <button
             onClick={() => this.setState({ error: null })}
             className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition-opacity"
           >
-            重試
+            {translate('errorBoundary.retry')}
           </button>
         </div>
       );

@@ -3,6 +3,7 @@ import { CopyIcon, CheckIcon, ImageIcon } from './icons';
 import Spinner from './Spinner';
 import { Images } from '../types';
 import { compressImageFile } from '../utils/imageCompression';
+import { useTranslation } from '../contexts/LanguageContext';
 
 // TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
 // a user opts into rich mode, so keep them out of the initial bundle that
@@ -38,6 +39,7 @@ const Editor: React.FC<EditorProps> = ({
   onBlockScrollComplete,
   onCursorActivity,
 }) => {
+  const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -289,8 +291,8 @@ const Editor: React.FC<EditorProps> = ({
       <button
         onClick={() => handleModeChange('plain')}
         className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors duration-150 ease-apple ${mode === 'plain' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-main'}`}
-        title="純文字模式（Markdown 原始語法）"
-        aria-label="純文字模式"
+        title={t('editor.plainMode')}
+        aria-label={t('editor.plainModeLabel')}
         aria-pressed={mode === 'plain'}
       >
         MD
@@ -298,8 +300,8 @@ const Editor: React.FC<EditorProps> = ({
       <button
         onClick={() => handleModeChange('rich')}
         className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors duration-150 ease-apple ${mode === 'rich' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-main'}`}
-        title="格式化模式（所見即所得）"
-        aria-label="格式化模式"
+        title={t('editor.richMode')}
+        aria-label={t('editor.richModeLabel')}
         aria-pressed={mode === 'rich'}
       >
         Aa
@@ -311,8 +313,8 @@ const Editor: React.FC<EditorProps> = ({
     <button
       onClick={handleCopy}
       className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
-      title={isCopied ? "已複製！" : "複製內容"}
-      aria-label={isCopied ? "已複製" : "複製內容"}
+      title={isCopied ? t('editor.copied') : t('editor.copyContent')}
+      aria-label={isCopied ? t('editor.copiedLabel') : t('editor.copyContent')}
     >
       {isCopied ? (
         <CheckIcon className="w-4 h-4 text-green-500" />
@@ -326,8 +328,8 @@ const Editor: React.FC<EditorProps> = ({
     <button
       onClick={() => fileInputRef.current?.click()}
       className="p-2 rounded-full bg-elevated shadow-apple-xs hover:bg-border-color/40 transition-all duration-150 ease-apple active:scale-90 text-text-secondary"
-      title="上傳圖片"
-      aria-label="上傳圖片"
+      title={t('editor.uploadImage')}
+      aria-label={t('editor.uploadImage')}
     >
       <ImageIcon className="w-4 h-4" />
     </button>
@@ -342,7 +344,7 @@ const Editor: React.FC<EditorProps> = ({
     >
       {isDraggingOver && (
         <div className="absolute inset-0 bg-accent/40 backdrop-blur-sm border-2 border-dashed border-white rounded-2xl flex items-center justify-center z-20 pointer-events-none">
-          <span className="text-white font-semibold text-xl tracking-tight">拖曳圖片至此以上傳</span>
+          <span className="text-white font-semibold text-xl tracking-tight">{t('editor.dropImageHint')}</span>
         </div>
       )}
 
@@ -388,7 +390,7 @@ const Editor: React.FC<EditorProps> = ({
             onClick={handleCursorActivity}
             onKeyUp={handleCursorActivity}
             onScroll={handleScroll}
-            placeholder="在這裡開始您的筆記..."
+            placeholder={t('editor.placeholder')}
             className="editor-textarea"
             spellCheck="false"
             autoCapitalize="off"

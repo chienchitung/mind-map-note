@@ -8,6 +8,7 @@ import { Markdown } from 'tiptap-markdown';
 import { Images } from '../types';
 import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
 import { compressImageFile } from '../utils/imageCompression';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface RichTextEditorProps {
   value: string;
@@ -40,6 +41,7 @@ const ImagesContext = React.createContext<Images>({});
 // editing, without ever writing the (huge) data URL back into the document.
 const ImageNodeView: React.FC<NodeViewProps> = ({ node }) => {
   const images = useContext(ImagesContext);
+  const { t } = useTranslation();
   const rawSrc: string = node.attrs.src || '';
   const resolvedSrc = rawSrc.startsWith('image://')
     ? images[rawSrc.slice('image://'.length)]
@@ -50,7 +52,7 @@ const ImageNodeView: React.FC<NodeViewProps> = ({ node }) => {
       {resolvedSrc ? (
         <img src={resolvedSrc} alt={node.attrs.alt || ''} className="max-w-full rounded-lg my-1" />
       ) : (
-        <span className="inline-block px-2 py-1 rounded bg-secondary text-text-secondary text-xs">圖片載入中…</span>
+        <span className="inline-block px-2 py-1 rounded bg-secondary text-text-secondary text-xs">{t('richEditor.imageLoading')}</span>
       )}
     </NodeViewWrapper>
   );
@@ -92,6 +94,7 @@ const getMarkdownStorage = (editor: ReturnType<typeof useEditor>): { getMarkdown
   (editor?.storage as any)?.markdown ?? null;
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }) => {
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
@@ -100,7 +103,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
         heading: { levels: [1, 2, 3] },
       }),
       ResolvingImage,
-      Placeholder.configure({ placeholder: '在這裡開始您的筆記…' }),
+      Placeholder.configure({ placeholder: t('richEditor.placeholder') }),
       Markdown.configure({ html: false, transformPastedText: true, transformCopiedText: true }),
     ],
     content: value,
@@ -203,34 +206,34 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
   return (
     <div className="h-full w-full flex flex-col">
       <div className="flex items-center gap-1 px-2 py-2 border-b border-border-color/70 flex-wrap flex-shrink-0">
-        <ToolbarButton title="標題 1" active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
+        <ToolbarButton title={t('richEditor.heading1')} active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
           H1
         </ToolbarButton>
-        <ToolbarButton title="標題 2" active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
+        <ToolbarButton title={t('richEditor.heading2')} active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
           H2
         </ToolbarButton>
-        <ToolbarButton title="標題 3" active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
+        <ToolbarButton title={t('richEditor.heading3')} active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
           H3
         </ToolbarButton>
         <div className="w-px h-5 bg-border-color mx-1"></div>
-        <ToolbarButton title="粗體 (⌘B)" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}>
+        <ToolbarButton title={t('richEditor.bold')} active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}>
           <BoldIcon className="w-4 h-4" />
         </ToolbarButton>
-        <ToolbarButton title="斜體 (⌘I)" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}>
+        <ToolbarButton title={t('richEditor.italic')} active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}>
           <ItalicIcon className="w-4 h-4" />
         </ToolbarButton>
         <div className="w-px h-5 bg-border-color mx-1"></div>
-        <ToolbarButton title="引言" active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
+        <ToolbarButton title={t('richEditor.blockquote')} active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
           <QuoteIcon className="w-4 h-4" />
         </ToolbarButton>
-        <ToolbarButton title="項目清單" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
+        <ToolbarButton title={t('richEditor.bulletList')} active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
           <BulletListIcon className="w-4 h-4" />
         </ToolbarButton>
-        <ToolbarButton title="編號清單" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
+        <ToolbarButton title={t('richEditor.orderedList')} active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
           <OrderedListIcon className="w-4 h-4" />
         </ToolbarButton>
         <div className="w-px h-5 bg-border-color mx-1"></div>
-        <ToolbarButton title="插入圖片" active={false} onClick={() => fileInputRef.current?.click()}>
+        <ToolbarButton title={t('richEditor.insertImage')} active={false} onClick={() => fileInputRef.current?.click()}>
           <ImageIcon className="w-4 h-4" />
         </ToolbarButton>
         {toolbarExtras && <div className="ml-auto flex items-center gap-1.5">{toolbarExtras}</div>}

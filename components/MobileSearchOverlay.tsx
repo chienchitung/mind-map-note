@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { SearchIcon, XIcon, FileIcon } from './icons';
 import { HighlightMatch } from './SearchBar';
 import type { SearchResultItem } from '../types';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface MobileSearchOverlayProps {
   query: string;
@@ -27,6 +28,7 @@ const MobileSearchOverlay: React.FC<MobileSearchOverlayProps> = ({
   onResultClick,
   inputRef,
 }) => {
+  const { t } = useTranslation();
   useEffect(() => {
     inputRef.current?.focus();
   }, [inputRef]);
@@ -52,16 +54,16 @@ const MobileSearchOverlay: React.FC<MobileSearchOverlayProps> = ({
             type="text"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="搜尋所有筆記..."
-            aria-label="搜尋所有筆記"
+            placeholder={t('search.mobilePlaceholder')}
+            aria-label={t('search.ariaLabel')}
             autoComplete="off"
             className="bg-transparent focus:outline-none text-text-main w-full text-base placeholder:text-text-secondary min-w-0"
           />
           {query.length > 0 && (
             <button
               onClick={() => onQueryChange('')}
-              title="清除搜尋"
-              aria-label="清除搜尋"
+              title={t('search.clear')}
+              aria-label={t('search.clear')}
               className="p-1 rounded-full hover:bg-border-color/60 transition-colors flex-shrink-0"
             >
               <XIcon className="w-3.5 h-3.5 text-text-secondary" />
@@ -72,13 +74,13 @@ const MobileSearchOverlay: React.FC<MobileSearchOverlayProps> = ({
           onClick={onClose}
           className="flex-shrink-0 text-sm font-medium text-accent px-1 py-2"
         >
-          取消
+          {t('search.cancel')}
         </button>
       </div>
 
       <div className="flex-grow overflow-y-auto">
         {query.trim().length === 0 ? (
-          <div className="p-8 text-center text-sm text-text-secondary">輸入關鍵字搜尋所有筆記</div>
+          <div className="p-8 text-center text-sm text-text-secondary">{t('search.typeToSearch')}</div>
         ) : results.length > 0 ? (
           <ul className="p-2">
             {results.map(result => (
@@ -102,7 +104,7 @@ const MobileSearchOverlay: React.FC<MobileSearchOverlayProps> = ({
             ))}
           </ul>
         ) : (
-          <div className="p-8 text-center text-sm text-text-secondary">無符合 "{query}" 的結果</div>
+          <div className="p-8 text-center text-sm text-text-secondary">{t('search.noResultsFor', { query })}</div>
         )}
       </div>
     </div>

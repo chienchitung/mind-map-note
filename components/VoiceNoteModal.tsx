@@ -182,7 +182,9 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
                   tabIndex={0}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
                   className={`w-full border-2 border-dashed rounded-2xl py-8 px-4 cursor-pointer transition-colors duration-150 ease-apple ${
-                    isDraggingFile ? 'border-accent bg-accent/5' : 'border-border-color hover:border-accent/50'
+                    isDraggingFile
+                      ? 'border-accent bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
+                      : 'border-border-color hover:border-[color-mix(in_srgb,var(--color-accent)_50%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
                   }`}
                 >
                   <UploadIcon className="w-6 h-6 mx-auto mb-2 text-text-secondary" />

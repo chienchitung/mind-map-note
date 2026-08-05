@@ -2,6 +2,7 @@ import React, { forwardRef, useState, useRef, useEffect } from 'react';
 import { SearchIcon, XIcon, FileIcon } from './icons';
 import { escapeRegExp } from '../utils/escapeRegExp';
 import type { SearchResultItem } from '../types';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface SearchBarProps {
     query: string;
@@ -47,6 +48,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
     },
     ref
 ) => {
+    const { t } = useTranslation();
     const [isFocused, setIsFocused] = useState(false);
     const searchContainerRef = useRef<HTMLDivElement>(null);
 
@@ -76,15 +78,15 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
                 <input
                     ref={ref}
                     type="text"
-                    placeholder="搜尋所有筆記... (⌘F)"
-                    aria-label="搜尋所有筆記"
+                    placeholder={t('search.placeholder')}
+                    aria-label={t('search.ariaLabel')}
                     value={query}
                     onChange={(e) => onQueryChange(e.target.value)}
                     onFocus={() => setIsFocused(true)}
                     className="bg-transparent focus:outline-none text-text-main w-full text-sm placeholder:text-text-secondary"
                 />
                 {query.length > 0 && (
-                    <button onClick={onClear} className="p-1 rounded-full hover:bg-border-color/60 transition-colors" title="清除搜尋" aria-label="清除搜尋">
+                    <button onClick={onClear} className="p-1 rounded-full hover:bg-border-color/60 transition-colors" title={t('search.clear')} aria-label={t('search.clear')}>
                         <XIcon className="w-3.5 h-3.5 text-text-secondary" />
                     </button>
                 )}
@@ -116,7 +118,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
                         </ul>
                     ) : (
                         <div className="px-3 py-4 text-center text-sm text-text-secondary">
-                            無符合 "{query}" 的結果
+                            {t('search.noResultsFor', { query })}
                         </div>
                     )}
                 </div>

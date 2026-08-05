@@ -3,6 +3,7 @@ import { ChevronDoubleRightIcon, ChatbotIcon, RestartIcon } from './icons';
 import MarkdownPreview from './MarkdownPreview';
 import { Images } from '../types';
 import Spinner from './Spinner';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -61,6 +62,7 @@ const TypewriterMessage: React.FC<{ text: string; images: Images, scrollRef: Rea
 
 
 const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, messages, onSendMessage, isLoading, images }) => {
+  const { t } = useTranslation();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -114,19 +116,19 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
       >
         <div className="flex items-center gap-2.5">
             <ChatbotIcon className="w-5 h-5 text-accent" />
-            <h2 className="text-[15px] font-semibold text-text-main tracking-tight">AI 學習夥伴</h2>
+            <h2 className="text-[15px] font-semibold text-text-main tracking-tight">{t('aiPanel.title')}</h2>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={onNewConversation}
             disabled={isLoading || messages.length === 0}
             className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-            title="清除對話並開始新對話"
-            aria-label="清除對話並開始新對話"
+            title={t('aiPanel.newConversation')}
+            aria-label={t('aiPanel.newConversation')}
           >
             <RestartIcon className="w-4 h-4" />
           </button>
-          <button onClick={onToggleCollapse} className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90" title="收合側邊欄 (Esc)" aria-label="收合 AI 面板">
+          <button onClick={onToggleCollapse} className="p-1.5 rounded-full text-text-secondary hover:bg-border-color/50 transition-all duration-150 ease-apple active:scale-90" title={t('aiPanel.collapse')} aria-label={t('aiPanel.collapseLabel')}>
             <ChevronDoubleRightIcon className="w-4 h-4" />
           </button>
         </div>
@@ -182,8 +184,8 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
                     handleSubmit(e);
                 }
             }}
-            placeholder="在這裡問問題...（Enter 傳送，Shift + Enter 換行）"
-            aria-label="向 AI 學習夥伴提問"
+            placeholder={t('aiPanel.inputPlaceholder')}
+            aria-label={t('aiPanel.inputLabel')}
             className="w-full pl-4 pr-14 py-3.5 bg-transparent focus:outline-none text-[14.5px] leading-relaxed text-text-main placeholder:text-text-secondary/70 resize-none"
             rows={1}
             style={{ maxHeight: '200px', minHeight: '52px' }}
@@ -192,8 +194,8 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
           <button
             type="submit"
             disabled={isLoading || !input.trim()}
-            title="傳送 (Enter)"
-            aria-label="傳送訊息"
+            title={t('aiPanel.sendShortcut')}
+            aria-label={t('aiPanel.send')}
             className="absolute right-2 bottom-2 w-9 h-9 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/35 disabled:cursor-not-allowed transition-all duration-150 ease-apple active:scale-90 hover:opacity-90"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">

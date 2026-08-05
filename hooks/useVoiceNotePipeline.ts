@@ -11,6 +11,7 @@ import {
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
 import { splitAudioFileIntoSegments, MAX_SPLITTABLE_FILE_BYTES } from '../utils/audioSplitter';
 import { downloadBlob } from '../utils/downloadBlob';
+import { translate } from '../i18n/translations';
 
 export type VoiceNoteStage = 'idle' | 'recording' | 'processing' | 'error';
 export type VoiceNoteInputMode = 'record' | 'upload';
@@ -362,7 +363,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     // failed transcription shouldn't cost the user their raw recording too;
     // the error screen still offers a download of whatever was captured.
     videoReviewPendingRef.current = false;
-    const message = error instanceof Error ? error.message : '發生未知的錯誤，請再試一次。';
+    const message = error instanceof Error ? error.message : translate('pipeline.unknownError');
     setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message, rateLimitRetrySeconds: null, awaitingVideoReview: false }));
     onErrorRef.current?.(message);
   }, []);
@@ -371,7 +372,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     if (cancelledRef.current) return;
     const combinedTranscript = transcriptPartsRef.current.join('\n\n');
     if (!combinedTranscript.trim()) {
-      handlePipelineError(new Error('沒有辨識到任何語音內容，請確認錄音或音檔中有清楚的說話聲。'));
+      handlePipelineError(new Error(translate('pipeline.noSpeechDetected')));
       return;
     }
     setState(s => ({ ...s, processingPhase: 'generating' }));
@@ -389,7 +390,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       } catch (error) {
         if (cancelledRef.current) return;
         if (error instanceof MissingApiKeyError) {
-          handlePipelineError(new Error('尚未設定 Gemini API 金鑰，請至設定頁面新增。'));
+          handlePipelineError(new Error(translate('pipeline.missingGeminiKey')));
         } else {
           handlePipelineError(error);
         }
@@ -575,12 +576,12 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const startRecording = useCallback(async (options?: StartRecordingOptions) => {
     setState(s => ({ ...s, errorMessage: '' }));
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      handlePipelineError(new Error('這個瀏覽器不支援錄音功能，請改用最新版的 Chrome、Edge 或 Safari。'));
+      handlePipelineError(new Error(translate('pipeline.recordingUnsupported')));
       return;
     }
     const wantsTabAudio = !!options?.captureTabAudio;
     if (wantsTabAudio && typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
-      handlePipelineError(new Error('這個瀏覽器不支援分享分頁擷取，請改用 Chrome 或 Edge，或取消勾選該選項。'));
+      handlePipelineError(new Error(translate('pipeline.tabShareUnsupported')));
       return;
     }
 
@@ -710,11 +711,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     } catch (error) {
       releaseStream();
       if (error instanceof DOMException && error.name === 'NotAllowedError') {
-        handlePipelineError(new Error('麥克風權限被拒絕，請至瀏覽器設定允許存取麥克風後再試一次。'));
+        handlePipelineError(new Error(translate('pipeline.micPermissionDenied')));
       } else if (error instanceof DOMException && error.name === 'NotFoundError') {
-        handlePipelineError(new Error('找不到可用的麥克風裝置。'));
+        handlePipelineError(new Error(translate('pipeline.micNotFound')));
       } else {
-        handlePipelineError(new Error('無法啟動錄音，請確認麥克風已連接並授權存取。'));
+        handlePipelineError(new Error(translate('pipeline.recordingStartFailed')));
       }
     }
   }, [handlePipelineError, startSegment, stopRecording]);
@@ -729,11 +730,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const selectFile = useCallback(async (file: File) => {
     setState(s => ({ ...s, errorMessage: '' }));
     if (!isSupportedMediaFile(file)) {
-      handlePipelineError(new Error('不支援的檔案格式，請上傳 mp3、wav、m4a、webm 等常見音訊格式，或 mp4、mov、webm 等常見影片格式。'));
+      handlePipelineError(new Error(translate('pipeline.unsupportedFileFormat')));
       return;
     }
     if (file.size > MAX_SPLITTABLE_FILE_BYTES) {
-      handlePipelineError(new Error(`檔案超過 ${Math.round(MAX_SPLITTABLE_FILE_BYTES / (1024 * 1024))} MB，瀏覽器端無法處理這麼大的檔案，請先壓縮或改用「錄音」功能分段錄製。`));
+      handlePipelineError(new Error(translate('pipeline.fileTooLargeToSplit', { maxMb: Math.round(MAX_SPLITTABLE_FILE_BYTES / (1024 * 1024)) })));
       return;
     }
 
@@ -813,7 +814,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       const segments = await splitAudioFileIntoSegments(file, MAX_UPLOAD_BYTES);
       if (cancelledRef.current) return;
       if (segments.length === 0) {
-        handlePipelineError(new Error('無法解析這個檔案，請確認檔案未損毀。'));
+        handlePipelineError(new Error(translate('pipeline.cannotParseFile')));
         return;
       }
       segmentQueueRef.current = segments;

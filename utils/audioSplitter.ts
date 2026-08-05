@@ -11,6 +11,8 @@
 // predictable regardless of how the source file was originally encoded —
 // letting the segment duration be computed directly from the byte budget
 // instead of guessing at a compression ratio.
+import { translate } from '../i18n/translations';
+
 const TARGET_SAMPLE_RATE = 16000;
 
 // Sanity ceiling on the *original* uploaded file, independent of Groq's
@@ -76,7 +78,7 @@ export interface AudioSegment {
 export const splitAudioFileIntoSegments = async (file: File, maxSegmentBytes: number): Promise<AudioSegment[]> => {
     const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) {
-        throw new Error('這個瀏覽器不支援音訊解碼，無法自動分段這個檔案，請改用「錄音」功能或先手動壓縮檔案。');
+        throw new Error(translate('audioSplitter.decodeUnsupported'));
     }
 
     const arrayBuffer = await file.arrayBuffer();
@@ -89,7 +91,7 @@ export const splitAudioFileIntoSegments = async (file: File, maxSegmentBytes: nu
         // ("Unable to decode audio data") that isn't useful to show
         // directly — replace it with something the user can actually act on.
         console.error('decodeAudioData failed:', error);
-        throw new Error('無法解析這個音訊檔案，請確認檔案未損毀，或改用「錄音」功能分段錄製。');
+        throw new Error(translate('audioSplitter.cannotParseAudio'));
     } finally {
         void audioContext.close();
     }

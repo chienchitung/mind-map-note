@@ -4,6 +4,7 @@ import { LogoIcon, EditorIcon, MindMapIcon, ExportIcon, DocumentIcon, UndoIcon, 
 import SearchBar from './SearchBar';
 import MobileSearchOverlay from './MobileSearchOverlay';
 import Spinner from './Spinner';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface HeaderProps {
   viewMode: ViewMode;
@@ -36,12 +37,6 @@ interface HeaderProps {
   isMobile: boolean;
 }
 
-const layoutOptions = [
-  { id: MindMapLayout.MindMap, label: '心智圖', Icon: MindMapLayoutIcon },
-  { id: MindMapLayout.Logic, label: '邏輯圖', Icon: LogicDiagramIcon },
-  { id: MindMapLayout.Organizational, label: '組織圖', Icon: OrganizationalChartIcon },
-];
-
 const Header: React.FC<HeaderProps> = ({
   viewMode,
   onViewChange,
@@ -72,9 +67,16 @@ const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
   isMobile,
 }) => {
+  const { t } = useTranslation();
   const iconButtonClass = "p-2 rounded-full transition-all duration-150 ease-apple active:scale-90";
   const enabledClass = "hover:bg-secondary text-text-secondary";
   const disabledClass = "text-text-secondary/30 cursor-not-allowed";
+
+  const layoutOptions = [
+    { id: MindMapLayout.MindMap, label: t('header.layoutMindMap'), Icon: MindMapLayoutIcon },
+    { id: MindMapLayout.Logic, label: t('header.layoutLogic'), Icon: LogicDiagramIcon },
+    { id: MindMapLayout.Organizational, label: t('header.layoutOrganizational'), Icon: OrganizationalChartIcon },
+  ];
 
   const [isLayoutDropdownOpen, setIsLayoutDropdownOpen] = useState(false);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
@@ -136,27 +138,27 @@ const Header: React.FC<HeaderProps> = ({
   // In Mind Map view there's only one export format, so it's a direct
   // click; in Editor/Preview there's a choice, so it's a small dropdown.
   const exportMenuItems = isMindMapView
-    ? [{ key: 'export-jpg', onClick: onExportMindMapImage, icon: ExportIcon, label: '匯出心智圖圖片 (JPG)' }]
+    ? [{ key: 'export-jpg', onClick: onExportMindMapImage, icon: ExportIcon, label: t('header.exportMindMapImage') }]
     : [
-        { key: 'export-md', onClick: onExportMarkdown, icon: ExportIcon, label: '匯出為 Markdown (.md)' },
-        { key: 'export-pdf', onClick: onExportPDF, icon: DocumentIcon, label: '匯出為 PDF' },
+        { key: 'export-md', onClick: onExportMarkdown, icon: ExportIcon, label: t('header.exportMarkdown') },
+        { key: 'export-pdf', onClick: onExportPDF, icon: DocumentIcon, label: t('header.exportPDF') },
       ];
 
   const moreMenuItems = [
-    { key: 'theme', onClick: handleThemeToggle, disabled: false, icon: theme === 'dark' ? SunIcon : MoonIcon, label: '切換主題' },
-    { key: 'undo', onClick: onUndo, disabled: !canUndo, icon: UndoIcon, label: '復原' },
-    { key: 'redo', onClick: onRedo, disabled: !canRedo, icon: RedoIcon, label: '重做' },
+    { key: 'theme', onClick: handleThemeToggle, disabled: false, icon: theme === 'dark' ? SunIcon : MoonIcon, label: t('header.toggleTheme') },
+    { key: 'undo', onClick: onUndo, disabled: !canUndo, icon: UndoIcon, label: t('header.undo') },
+    { key: 'redo', onClick: onRedo, disabled: !canRedo, icon: RedoIcon, label: t('header.redo') },
     ...exportMenuItems.map(item => ({ ...item, disabled: !activeNoteId })),
-    { key: 'voice-note', onClick: onOpenVoiceNote, disabled: false, icon: MicIcon, label: '語音筆記' },
-    { key: 'settings', onClick: onOpenSettings, disabled: false, icon: SettingsIcon, label: '設定' },
-    { key: 'help', onClick: onShowHelp, disabled: false, icon: HelpIcon, label: '幫助' },
+    { key: 'voice-note', onClick: onOpenVoiceNote, disabled: false, icon: MicIcon, label: t('header.voiceNote') },
+    { key: 'settings', onClick: onOpenSettings, disabled: false, icon: SettingsIcon, label: t('header.settings') },
+    { key: 'help', onClick: onShowHelp, disabled: false, icon: HelpIcon, label: t('header.help') },
   ];
 
   return (
     <>
     <header ref={headerRef} className="glass-surface flex items-center justify-between px-3 md:px-5 py-3 md:py-3.5 border-b border-border-color/70 flex-wrap gap-3 md:gap-4 flex-shrink-0 z-30 relative">
       <div className="flex items-center gap-2 md:gap-4 flex-grow min-w-0">
-        <button onClick={onToggleSidebar} className={`${iconButtonClass} ${enabledClass} flex-shrink-0`} title="側邊欄" aria-label="切換側邊欄">
+        <button onClick={onToggleSidebar} className={`${iconButtonClass} ${enabledClass} flex-shrink-0`} title={t('header.sidebar')} aria-label={t('header.toggleSidebar')}>
           <MenuIcon className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-2.5 flex-shrink-0">
@@ -183,8 +185,8 @@ const Header: React.FC<HeaderProps> = ({
           <button
             onClick={() => setIsMobileSearchOpen(prev => !prev)}
             className={`${iconButtonClass} ${isMobileSearchOpen ? 'bg-accent text-white' : `bg-secondary ${enabledClass}`}`}
-            title="搜尋筆記"
-            aria-label="搜尋筆記"
+            title={t('header.searchNotes')}
+            aria-label={t('header.searchNotes')}
           >
             <SearchIcon className="w-5 h-5" />
           </button>
@@ -193,8 +195,8 @@ const Header: React.FC<HeaderProps> = ({
         <div className="flex rounded-full bg-secondary p-1">
           <button
             onClick={() => handleViewChange(ViewMode.Editor)}
-            title="編輯模式 (⌘1)"
-            aria-label="編輯模式"
+            title={`${t('header.editorMode')} (⌘1)`}
+            aria-label={t('header.editorMode')}
             aria-pressed={viewMode === ViewMode.Editor}
             className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
               viewMode === ViewMode.Editor ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
@@ -204,8 +206,8 @@ const Header: React.FC<HeaderProps> = ({
           </button>
            <button
             onClick={() => handleViewChange(ViewMode.Preview)}
-            title="預覽模式 (⌘2)"
-            aria-label="預覽模式"
+            title={`${t('header.previewMode')} (⌘2)`}
+            aria-label={t('header.previewMode')}
             aria-pressed={viewMode === ViewMode.Preview}
             className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
               viewMode === ViewMode.Preview ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
@@ -215,8 +217,8 @@ const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={() => handleViewChange(ViewMode.MindMap)}
-            title="思維導圖模式 (⌘3)"
-            aria-label="思維導圖模式"
+            title={`${t('header.mindMapMode')} (⌘3)`}
+            aria-label={t('header.mindMapMode')}
             aria-pressed={viewMode === ViewMode.MindMap}
             className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
               viewMode === ViewMode.MindMap ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
@@ -231,8 +233,8 @@ const Header: React.FC<HeaderProps> = ({
             <button
               onClick={() => setIsLayoutDropdownOpen(prev => !prev)}
               className="flex items-center gap-1.5 p-2 rounded-full bg-secondary hover:bg-border-color/60 text-text-secondary transition-colors duration-150 ease-apple"
-              title="切換版面配置"
-              aria-label="切換版面配置"
+              title={t('header.switchLayout')}
+              aria-label={t('header.switchLayout')}
               aria-haspopup="menu"
               aria-expanded={isLayoutDropdownOpen}
             >
@@ -265,8 +267,8 @@ const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenVoiceNote}
             className={`${iconButtonClass} bg-secondary ${enabledClass}`}
-            title="語音筆記"
-            aria-label="語音筆記"
+            title={t('header.voiceNote')}
+            aria-label={t('header.voiceNote')}
           >
             <MicIcon className="w-5 h-5" />
           </button>
@@ -280,8 +282,8 @@ const Header: React.FC<HeaderProps> = ({
               ? 'bg-accent text-white'
               : 'bg-secondary text-text-secondary'
           } ${activeNoteId && !isAILoading ? 'hover:bg-border-color/60' : 'cursor-not-allowed opacity-50'}`}
-          title="AI 學習夥伴"
-          aria-label="AI 學習夥伴"
+          title={t('header.aiPartner')}
+          aria-label={t('header.aiPartner')}
           aria-pressed={isAIPanelOpen}
         >
           {isAILoading ? <Spinner className="w-5 h-5" /> : <ChatbotIcon className="w-5 h-5" />}
@@ -292,8 +294,8 @@ const Header: React.FC<HeaderProps> = ({
             <button
               onClick={() => setIsMoreMenuOpen(prev => !prev)}
               className={`${iconButtonClass} ${enabledClass}`}
-              title="更多"
-              aria-label="更多選項"
+              title={t('header.more')}
+              aria-label={t('header.moreOptions')}
               aria-haspopup="menu"
               aria-expanded={isMoreMenuOpen}
             >
@@ -319,14 +321,14 @@ const Header: React.FC<HeaderProps> = ({
           </div>
         ) : (
           <div className="flex items-center gap-1">
-              <button onClick={handleThemeToggle} className={`${iconButtonClass} ${enabledClass}`} title="切換主題" aria-label="切換主題">
+              <button onClick={handleThemeToggle} className={`${iconButtonClass} ${enabledClass}`} title={t('header.toggleTheme')} aria-label={t('header.toggleTheme')}>
                 {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
               </button>
               <div className="w-px h-5 bg-border-color mx-1"></div>
-               <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title="復原 (⌘Z)" aria-label="復原">
+               <button onClick={onUndo} disabled={!canUndo} className={`${iconButtonClass} ${canUndo ? enabledClass : disabledClass}`} title={`${t('header.undo')} (⌘Z)`} aria-label={t('header.undo')}>
                   <UndoIcon className="w-5 h-5" />
               </button>
-              <button onClick={onRedo} disabled={!canRedo} className={`${iconButtonClass} ${canRedo ? enabledClass : disabledClass}`} title="重做 (⌘⇧Z)" aria-label="重做">
+              <button onClick={onRedo} disabled={!canRedo} className={`${iconButtonClass} ${canRedo ? enabledClass : disabledClass}`} title={`${t('header.redo')} (⌘⇧Z)`} aria-label={t('header.redo')}>
                   <RedoIcon className="w-5 h-5" />
               </button>
               <div className="w-px h-5 bg-border-color mx-1"></div>
@@ -340,8 +342,8 @@ const Header: React.FC<HeaderProps> = ({
                     onClick={() => setIsExportDropdownOpen(prev => !prev)}
                     disabled={!activeNoteId}
                     className={`${iconButtonClass} ${activeNoteId ? enabledClass : disabledClass}`}
-                    title="匯出筆記"
-                    aria-label="匯出筆記"
+                    title={t('header.exportNote')}
+                    aria-label={t('header.exportNote')}
                     aria-haspopup="menu"
                     aria-expanded={isExportDropdownOpen}
                   >
@@ -363,10 +365,10 @@ const Header: React.FC<HeaderProps> = ({
                   )}
                 </div>
               )}
-              <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title="設定" aria-label="設定">
+              <button onClick={onOpenSettings} className={`${iconButtonClass} ${enabledClass}`} title={t('header.settings')} aria-label={t('header.settings')}>
                   <SettingsIcon className="w-5 h-5" />
               </button>
-               <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title="幫助 (?)" aria-label="幫助">
+               <button onClick={onShowHelp} className={`${iconButtonClass} ${enabledClass}`} title={`${t('header.help')} (?)`} aria-label={t('header.help')}>
                   <HelpIcon className="w-5 h-5" />
               </button>
           </div>

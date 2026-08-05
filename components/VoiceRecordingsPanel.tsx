@@ -3,6 +3,7 @@ import { ExportIcon, TrashIcon } from './icons';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
 import { extensionForMimeType } from '../services/groqTranscriptionService';
 import { downloadBlob } from '../utils/downloadBlob';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface VoiceRecordingsPanelProps {
   // null while the initial storage read is still in flight.
@@ -48,6 +49,7 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
   getNoteTitle,
   onSelectNote,
 }) => {
+  const { t } = useTranslation();
   // null while the initial list read is still in flight.
   const [recordings, setRecordings] = useState<StoredVoiceRecording[] | null>(null);
 
@@ -63,13 +65,13 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
   }, []);
 
   const handleDelete = async (noteId: string) => {
-    if (!confirm('確定要刪除這則錄音與逐字稿嗎？此動作無法復原（不會影響已生成的筆記內容）。')) return;
+    if (!confirm(t('voiceRecordings.deleteConfirm'))) return;
     await onDeleteVoiceRecording(noteId);
     refreshRecordings();
   };
 
   const handleClearAll = () => {
-    if (!confirm('確定要清除所有已保存的語音錄音與逐字稿嗎？此動作無法復原（不會影響已生成的筆記內容）。')) return;
+    if (!confirm(t('voiceRecordings.clearAllConfirm'))) return;
     onClearVoiceRecordings();
     setRecordings([]);
   };
@@ -78,17 +80,17 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
     <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
       <div className="flex-grow overflow-y-auto px-2.5 pt-2 pb-2">
         <div className="flex items-center justify-between gap-3 px-1 py-2 mb-2">
-          <span className="text-xs">目前使用空間</span>
+          <span className="text-xs">{t('voiceRecordings.storageUsed')}</span>
           <span className="text-xs font-medium text-text-main tabular-nums">
-            {voiceRecordingsBytes === null ? '讀取中...' : formatMB(voiceRecordingsBytes)}
+            {voiceRecordingsBytes === null ? t('common.loading') : formatMB(voiceRecordingsBytes)}
           </span>
         </div>
 
         {recordings === null ? (
-          <p className="text-xs text-text-secondary px-1">讀取中...</p>
+          <p className="text-xs text-text-secondary px-1">{t('common.loading')}</p>
         ) : recordings.length === 0 ? (
           <p className="text-xs text-text-secondary px-1 leading-relaxed">
-            目前沒有保存的錄音。用語音筆記生成筆記後，原始錄音與逐字稿會顯示在這裡。
+            {t('voiceRecordings.empty')}
           </p>
         ) : (
           <div className="space-y-2">
@@ -102,9 +104,9 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
                       onClick={() => title && onSelectNote(rec.noteId)}
                       disabled={!title}
                       className="text-sm font-medium text-text-main truncate text-left hover:underline disabled:no-underline disabled:cursor-default"
-                      title={title ? '前往這篇筆記' : undefined}
+                      title={title ? t('voiceRecordings.goToNote') : undefined}
                     >
-                      {title ?? '（筆記已刪除）'}
+                      {title ?? t('voiceRecordings.noteDeleted')}
                     </button>
                     <span className="text-xs text-text-secondary flex-shrink-0 tabular-nums">{formatMB(rec.totalBytes)}</span>
                   </div>
@@ -118,7 +120,7 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
                       className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
                     >
                       <ExportIcon className="w-3.5 h-3.5" />
-                      下載音檔
+                      {t('voiceRecordings.downloadAudio')}
                     </button>
                     <button
                       type="button"
@@ -126,7 +128,7 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
                       className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
                     >
                       <ExportIcon className="w-3.5 h-3.5" />
-                      下載逐字稿
+                      {t('voiceRecordings.downloadTranscript')}
                     </button>
                     <button
                       type="button"
@@ -134,7 +136,7 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
                       className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-400"
                     >
                       <TrashIcon className="w-3.5 h-3.5" />
-                      刪除
+                      {t('voiceRecordings.delete')}
                     </button>
                   </div>
                 </div>
@@ -152,7 +154,7 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
             className="flex items-center gap-2 text-xs text-red-500 hover:text-red-400 transition-colors duration-150 ease-apple"
           >
             <TrashIcon className="w-3.5 h-3.5" />
-            清除所有語音錄音
+            {t('voiceRecordings.clearAll')}
           </button>
         </div>
       )}

@@ -1,4 +1,5 @@
 import { GoogleGenAI, Chat } from "@google/genai";
+import { getCurrentLanguage, translate } from '../i18n/translations';
 
 /**
  * Thrown when no Gemini API key has been configured yet. The caller is
@@ -6,7 +7,7 @@ import { GoogleGenAI, Chat } from "@google/genai";
  */
 export class MissingApiKeyError extends Error {
     constructor() {
-        super("尚未設定 Gemini API 金鑰。");
+        super(translate('gemini.missingApiKey'));
         this.name = "MissingApiKeyError";
     }
 }
@@ -29,7 +30,7 @@ export const extractGeminiErrorMessage = (error: unknown): string => {
         }
         return error.message;
     }
-    return '發生未知的錯誤。';
+    return translate('gemini.unknownError');
 };
 
 /**
@@ -58,10 +59,14 @@ export const createChatSession = async (
 
     try {
         const ai = new GoogleGenAI({ apiKey });
+        const language = getCurrentLanguage();
+        const systemInstruction = language === 'en'
+            ? 'You are an AI learning assistant. A user has provided you with their notes. Your role is to help them understand, summarize, or quiz them on the provided content in a conversational manner. Be helpful and encouraging. Always respond in English.'
+            : 'You are an AI learning assistant. A user has provided you with their notes. Your role is to help them understand, summarize, or quiz them on the provided content in a conversational manner. Be helpful and encouraging. Always respond in Traditional Chinese (繁體中文).';
         const chat: Chat = ai.chats.create({
             model: 'gemini-3.6-flash',
             config: {
-                systemInstruction: 'You are an AI learning assistant. A user has provided you with their notes. Your role is to help them understand, summarize, or quiz them on the provided content in a conversational manner. Be helpful and encouraging.',
+                systemInstruction,
             },
         });
 
@@ -93,22 +98,29 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
         throw new MissingApiKeyError();
     }
     if (!transcript.trim()) {
-        throw new Error('逐字稿是空的，無法生成筆記。');
+        throw new Error(translate('gemini.emptyTranscript'));
     }
 
     try {
         const ai = new GoogleGenAI({ apiKey });
+        const language = getCurrentLanguage();
+        const contents = language === 'en'
+            ? `Please organize the following speech transcript into a well-structured note. Use "#"/"##" headings to divide topics, and "-" bullet lists to present key points, preserving the original meaning and important details while removing filler words, repetition, and off-topic content. Headings alone are enough to separate sections — do not insert "---" horizontal rule dividers between them. Regardless of what language the transcript itself is in, write the note entirely in English (proper nouns, technical terms, code, etc. that can't be translated accurately may stay in their original form). Output only the Markdown note itself, with no explanatory text or Markdown code block markers.\n\nTranscript:\n${transcript}`
+            : `請將以下語音逐字稿整理成一份結構清楚的筆記。使用「#」「##」等標題劃分主題，並用「-」列表呈現重點，保留原意與重要細節，並移除口語贅字、重複與離題內容。標題本身就足以區隔段落，不要在段落之間插入「---」之類的分隔線。不論逐字稿本身是什麼語言，筆記內容一律使用繁體中文撰寫（人名、專有名詞、程式碼等無法翻譯或翻譯後會失真的內容可保留原文）。只輸出 Markdown 筆記本身，不要加上任何說明文字或 Markdown 程式碼區塊符號。\n\n逐字稿：\n${transcript}`;
+        const systemInstruction = language === 'en'
+            ? 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in English, regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them.'
+            : 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in Traditional Chinese (繁體中文), regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them.';
         const response = await ai.models.generateContent({
             model: 'gemini-3.6-flash',
-            contents: `請將以下語音逐字稿整理成一份結構清楚的筆記。使用「#」「##」等標題劃分主題，並用「-」列表呈現重點，保留原意與重要細節，並移除口語贅字、重複與離題內容。標題本身就足以區隔段落，不要在段落之間插入「---」之類的分隔線。不論逐字稿本身是什麼語言，筆記內容一律使用繁體中文撰寫（人名、專有名詞、程式碼等無法翻譯或翻譯後會失真的內容可保留原文）。只輸出 Markdown 筆記本身，不要加上任何說明文字或 Markdown 程式碼區塊符號。\n\n逐字稿：\n${transcript}`,
+            contents,
             config: {
-                systemInstruction: 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in Traditional Chinese (繁體中文), regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them.',
+                systemInstruction,
             },
         });
 
         const noteMarkdown = response.text?.trim();
         if (!noteMarkdown) {
-            throw new Error('AI 未能從逐字稿生成筆記內容，請再試一次。');
+            throw new Error(translate('gemini.noteGenerationFailed'));
         }
         return noteMarkdown;
     } catch (error) {

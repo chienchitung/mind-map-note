@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { FileSystemTree, FileSystemNode } from '../types';
 import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon } from './icons';
+import { useTranslation } from '../contexts/LanguageContext';
 
 // A modal component for moving a node to a new folder.
 const MoveToModal: React.FC<{
@@ -9,6 +10,7 @@ const MoveToModal: React.FC<{
   onClose: () => void;
   onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
 }> = ({ tree, nodeToMove, onClose, onMoveNode }) => {
+  const { t } = useTranslation();
 
   // Helper to find all descendants of a folder to prevent moving a folder into itself.
   const getDescendantIds = (nodeId: string): Set<string> => {
@@ -64,7 +66,7 @@ const MoveToModal: React.FC<{
               >
                 <FolderIcon className="w-5 h-5 mr-2 flex-shrink-0" />
                 <span className="truncate">{child.name}</span>
-                {childId === nodeToMove.parentId && <span className="ml-auto text-xs text-accent">（目前位置）</span>}
+                {childId === nodeToMove.parentId && <span className="ml-auto text-xs text-accent">{t('fileExplorer.currentLocation')}</span>}
               </div>
               <FolderTree parentId={childId} level={level + 1} />
             </div>
@@ -77,7 +79,7 @@ const MoveToModal: React.FC<{
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content text-text-main" role="dialog" aria-modal="true" aria-labelledby="move-modal-title" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title="關閉 (Esc)" aria-label="關閉">
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title={t('common.closeEsc')} aria-label={t('common.close')}>
           <XIcon className="w-5 h-5" />
         </button>
 
@@ -86,7 +88,7 @@ const MoveToModal: React.FC<{
             <FolderIcon className="w-5 h-5" />
           </div>
           <h2 id="move-modal-title" className="text-lg font-semibold tracking-tight truncate">
-            移動「<span className="text-accent">{nodeToMove.name}</span>」到...
+            {t('fileExplorer.moveModalTitle', { name: nodeToMove.name })}
           </h2>
         </div>
 
@@ -101,8 +103,8 @@ const MoveToModal: React.FC<{
               }}
             >
               <FolderIcon className="w-5 h-5 mr-2 flex-shrink-0" />
-              <span>根目錄</span>
-              {nodeToMove.parentId === 'root' && <span className="ml-auto text-xs text-accent">（目前位置）</span>}
+              <span>{t('fileExplorer.rootFolder')}</span>
+              {nodeToMove.parentId === 'root' && <span className="ml-auto text-xs text-accent">{t('fileExplorer.currentLocation')}</span>}
             </div>
             <FolderTree parentId="root" level={0} />
         </div>
@@ -158,6 +160,7 @@ const Node: React.FC<{
 }> = ({ node, tree, level, activeNoteId, onSelectNote, onMoveNode }) => {
   const context = useContext(FileExplorerContext);
   if (!context) throw new Error("Node must be used within a FileExplorerContext");
+  const { t } = useTranslation();
 
   const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu, draggingNodeId, setDraggingNodeId } = context;
 
@@ -296,8 +299,8 @@ const Node: React.FC<{
         )}
         {isHovering && !isRenaming && (
           <div className="flex-shrink-0 ml-auto flex items-center gap-0.5">
-            <button onClick={(e) => { e.stopPropagation(); setRenamingNodeId(node.id); }} title="重新命名" aria-label="重新命名" className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><PencilIcon className="w-3.5 h-3.5" /></button>
-            {node.parentId !== null && <button onClick={(e) => { e.stopPropagation(); if(confirm(`確定要刪除 "${node.name}" 嗎？`)) onDeleteNode(node.id); }} title="刪除" aria-label="刪除" className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><TrashIcon className="w-3.5 h-3.5" /></button>}
+            <button onClick={(e) => { e.stopPropagation(); setRenamingNodeId(node.id); }} title={t('fileExplorer.rename')} aria-label={t('fileExplorer.rename')} className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><PencilIcon className="w-3.5 h-3.5" /></button>
+            {node.parentId !== null && <button onClick={(e) => { e.stopPropagation(); if(confirm(t('fileExplorer.deleteConfirm', { name: node.name }))) onDeleteNode(node.id); }} title={t('common.delete')} aria-label={t('common.delete')} className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><TrashIcon className="w-3.5 h-3.5" /></button>}
           </div>
         )}
       </div>
@@ -321,6 +324,7 @@ const Node: React.FC<{
 };
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
+  const { t } = useTranslation();
   const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode } = props;
   const rootNode = tree['root'];
   
@@ -373,7 +377,7 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
               className="flex items-center gap-2 px-3 py-2 mb-1 rounded-xl border-2 border-dashed border-accent/50 bg-accent/5 text-accent text-xs font-medium"
             >
               <FolderIcon className="w-4 h-4 flex-shrink-0" />
-              <span>拖放到此處以移出資料夾</span>
+              <span>{t('fileExplorer.dropToMoveOut')}</span>
             </div>
           )}
           {rootNode.childrenIds.map(childId => (
@@ -401,27 +405,27 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
               onClick={() => { setRenamingNodeId(contextMenu.nodeId); closeContextMenu(); }}
               className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
             >
-              <PencilIcon className="w-4 h-4" /> <span>重新命名</span>
+              <PencilIcon className="w-4 h-4" /> <span>{t('fileExplorer.rename')}</span>
             </button>
             <button
               onClick={() => { setMoveToModalNodeId(contextMenu.nodeId); closeContextMenu(); }}
               className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
             >
-              <FolderIcon className="w-4 h-4" /> <span>移動到...</span>
+              <FolderIcon className="w-4 h-4" /> <span>{t('fileExplorer.moveTo')}</span>
             </button>
             {contextNode.parentId !== null && (
               <>
                 <div className="h-px bg-border-color my-1 mx-1"></div>
                 <button
                   onClick={() => {
-                    if(confirm(`確定要刪除 "${contextNode.name}" 嗎？`)) {
+                    if(confirm(t('fileExplorer.deleteConfirm', { name: contextNode.name }))) {
                       onDeleteNode(contextMenu.nodeId);
                     }
                     closeContextMenu();
                   }}
                   className="w-full text-left px-3 py-1.5 text-sm rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
                 >
-                  <TrashIcon className="w-4 h-4" /> <span>刪除</span>
+                  <TrashIcon className="w-4 h-4" /> <span>{t('common.delete')}</span>
                 </button>
               </>
             )}

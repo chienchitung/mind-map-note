@@ -21,6 +21,7 @@ import type { Chat } from '@google/genai';
 import { parseMarkdownToMindMap, findBlockOrdinal } from './utils/markdownParser';
 import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
+import { useTranslation } from './contexts/LanguageContext';
 
 // The AI chat panel (and the @google/genai SDK it pulls in) is only ever
 // needed once a user with an API key opens it, so it's loaded on demand
@@ -66,6 +67,7 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 
 
 const App: React.FC = () => {
+  const { t } = useTranslation();
   const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError } = useFileSystem();
   
   const findFirstFile = () => {
@@ -285,7 +287,7 @@ const App: React.FC = () => {
 
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
-  const activeNoteName = activeNoteId ? tree[activeNoteId]?.name ?? '筆記' : '筆記';
+  const activeNoteName = activeNoteId ? tree[activeNoteId]?.name ?? t('app.untitledNote') : t('app.untitledNote');
   const mindMapData = useMemo(() => parseMarkdownToMindMap(markdown, activeNoteName), [markdown, activeNoteName]);
 
   const globalSearchResults = useMemo(() => {
@@ -454,7 +456,7 @@ const App: React.FC = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    setActionMessage({ text: '已匯出備份檔案。', variant: 'success' });
+    setActionMessage({ text: t('app.exportedBackup'), variant: 'success' });
   };
 
   const handleImportBackup = (file: File) => {
@@ -465,7 +467,7 @@ const App: React.FC = () => {
         data = JSON.parse(reader.result as string);
       } catch (error) {
         console.error('Failed to parse backup file', error);
-        setActionMessage({ text: '無法讀取備份檔案，請確認檔案格式正確。', variant: 'warning' });
+        setActionMessage({ text: t('app.importBackupReadError'), variant: 'warning' });
         return;
       }
 
@@ -474,11 +476,11 @@ const App: React.FC = () => {
         data.notes && typeof data.notes === 'object';
 
       if (!isValid) {
-        setActionMessage({ text: '這不是有效的備份檔案。', variant: 'warning' });
+        setActionMessage({ text: t('app.importBackupInvalid'), variant: 'warning' });
         return;
       }
 
-      if (!window.confirm('匯入備份將會取代目前所有的筆記與資料夾，此動作無法復原。確定要繼續嗎？')) {
+      if (!window.confirm(t('app.importBackupConfirm'))) {
         return;
       }
 
@@ -487,10 +489,10 @@ const App: React.FC = () => {
         notes: data.notes as NotesContent,
         images: (data.images && typeof data.images === 'object') ? data.images as Images : {},
       });
-      setActionMessage({ text: '已成功匯入備份。', variant: 'success' });
+      setActionMessage({ text: t('app.importBackupSuccess'), variant: 'success' });
     };
     reader.onerror = () => {
-      setActionMessage({ text: '讀取檔案時發生錯誤。', variant: 'warning' });
+      setActionMessage({ text: t('app.importBackupReadFileError'), variant: 'warning' });
     };
     reader.readAsText(file);
   };
@@ -555,11 +557,11 @@ const App: React.FC = () => {
     }
     setActiveNoteId(newNoteId);
     setIsVoiceNoteModalOpen(false);
-    setActionMessage({ text: '已從錄音建立新筆記。', variant: 'success' });
+    setActionMessage({ text: t('app.voiceNoteCreated'), variant: 'success' });
 
     voiceRecordingsStorage.saveRecording(newNoteId, recording.transcript, recording.timestampedTranscript, recording.segments).catch(error => {
       console.error('Failed to save voice recording:', error);
-      setActionMessage({ text: '筆記已建立，但保存原始錄音與逐字稿時發生錯誤（可能是儲存空間不足）。', variant: 'warning' });
+      setActionMessage({ text: t('app.voiceNoteSaveError'), variant: 'warning' });
     });
   };
 
@@ -567,9 +569,9 @@ const App: React.FC = () => {
   // this is what makes an error surfaceable while the recorder is minimized.
   const handleVoiceNoteError = useCallback((message: string) => {
     if (!isVoiceNoteModalOpen) {
-      setActionMessage({ text: `語音筆記發生錯誤：${message}`, variant: 'warning' });
+      setActionMessage({ text: t('app.voiceNoteErrorPrefix', { message }), variant: 'warning' });
     }
-  }, [isVoiceNoteModalOpen]);
+  }, [isVoiceNoteModalOpen, t]);
 
   // Lives at the App level (not inside the modal) so recording and the
   // transcribe/generate pipeline keep running even while the modal is
@@ -595,7 +597,7 @@ const App: React.FC = () => {
     }
     if (!apiKey || !groqApiKey) {
       setIsSettingsOpen(true);
-      setActionMessage({ text: '請先在設定中填入 Groq 與 Gemini API 金鑰，才能使用語音筆記功能。', variant: 'warning' });
+      setActionMessage({ text: t('app.voiceNoteMissingKeys'), variant: 'warning' });
       return;
     }
     setIsVoiceNoteModalOpen(true);
@@ -635,11 +637,11 @@ const App: React.FC = () => {
         // returns — only surface it if the user hasn't since closed the
         // panel or switched to a different note's session in the meantime.
         if (chatSessionTokenRef.current !== sessionToken) return;
-        setChatMessages(prev => [...prev, { role: 'model', text: `（提醒：讀取這篇筆記的內容時發生錯誤，後續回答可能沒有參考到筆記內容：${errorMessage}）` }]);
+        setChatMessages(prev => [...prev, { role: 'model', text: t('aiPanel.contextErrorReminder', { error: errorMessage }) }]);
       });
       if (chatSessionTokenRef.current !== sessionToken) return;
       setChatSession(session);
-      setChatMessages([{ role: 'model', text: `你好！我已經閱讀完 **${activeNoteName}** 的內容了。我可以協助你做什麼呢？試試看問我：\n\n- 幫我總結這份筆記\n- 根據筆記內容出幾道練習題\n- 用更簡單的方式解釋第二段` }]);
+      setChatMessages([{ role: 'model', text: t('aiPanel.greeting', { noteName: activeNoteName }) }]);
     } catch (error) {
       console.error("Failed to start chat session:", error);
       const { MissingApiKeyError, extractGeminiErrorMessage } = await import('./services/geminiChatService');
@@ -649,7 +651,7 @@ const App: React.FC = () => {
         return;
       }
       const errorMessage = extractGeminiErrorMessage(error);
-      setChatMessages([{ role: 'model', text: `抱歉，發生錯誤：${errorMessage}` }]);
+      setChatMessages([{ role: 'model', text: t('aiPanel.errorPrefix', { error: errorMessage }) }]);
     } finally {
       setIsAILoading(false);
     }
@@ -701,7 +703,7 @@ const App: React.FC = () => {
       console.error("Chat error:", error);
       const { extractGeminiErrorMessage } = await import('./services/geminiChatService');
       const errorMessage = extractGeminiErrorMessage(error);
-      const modelErrorMessage: ChatMessage = { role: 'model', text: `抱歉，發生錯誤： ${errorMessage}` };
+      const modelErrorMessage: ChatMessage = { role: 'model', text: t('app.chatErrorPrefix', { error: errorMessage }) };
       setChatMessages(prev => [...prev, modelErrorMessage]);
     } finally {
       setIsAILoading(false);
@@ -728,16 +730,16 @@ const App: React.FC = () => {
           await voiceRecordingsStorage.deleteRecording(noteId);
         } catch (error) {
           console.error('Failed to delete voice recording:', error);
-          setActionMessage({ text: '刪除語音錄音時發生錯誤。', variant: 'warning' });
+          setActionMessage({ text: t('app.deleteRecordingError'), variant: 'warning' });
         }
       }}
       onClearVoiceRecordings={async () => {
         try {
           await voiceRecordingsStorage.clearAll();
-          setActionMessage({ text: '已清除所有已保存的語音錄音。', variant: 'success' });
+          setActionMessage({ text: t('app.clearRecordingsSuccess'), variant: 'success' });
         } catch (error) {
           console.error('Failed to clear voice recordings:', error);
-          setActionMessage({ text: '清除語音錄音時發生錯誤。', variant: 'warning' });
+          setActionMessage({ text: t('app.clearRecordingsError'), variant: 'warning' });
         }
       }}
     />
@@ -810,7 +812,7 @@ const App: React.FC = () => {
         <main className="flex-grow flex overflow-hidden">
           {!activeNoteId ? (
               <div className="w-full h-full flex items-center justify-center text-text-secondary text-sm">
-                請選擇一篇筆記或建立新筆記
+                {t('app.selectOrCreateNote')}
               </div>
           ) : viewMode === ViewMode.Editor || viewMode === ViewMode.Preview ? (
             <div className="flex h-full w-full relative">
@@ -858,7 +860,7 @@ const App: React.FC = () => {
                       theme={theme}
                       noteId={activeNoteId}
                   />
-              ) : <div className="text-center text-text-secondary text-sm">請在編輯器中新增內容以生成思維導圖。</div>}
+              ) : <div className="text-center text-text-secondary text-sm">{t('mindMap.emptyState')}</div>}
             </div>
           )}
         </main>

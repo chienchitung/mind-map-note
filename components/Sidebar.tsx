@@ -6,6 +6,7 @@ import VoiceRecordingsPanel from './VoiceRecordingsPanel';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { PlusIcon, FolderPlusIcon, XIcon } from './icons';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface SidebarProps {
   tree: FileSystemTree;
@@ -48,6 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onDeleteVoiceRecording,
   onClearVoiceRecordings,
 }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useLocalStorage<SidebarTab>('mind-map-sidebar-tab', 'files');
 
   const tabClass = (tab: SidebarTab) =>
@@ -59,22 +61,22 @@ const Sidebar: React.FC<SidebarProps> = ({
     <div className="h-full bg-primary flex flex-col">
       <div className="flex items-center gap-2 px-3 py-3 flex-shrink-0">
         <div className="flex rounded-full bg-secondary p-1 flex-grow">
-          <button onClick={() => setActiveTab('files')} className={tabClass('files')}>檔案</button>
-          <button onClick={() => setActiveTab('outline')} className={tabClass('outline')}>大綱</button>
-          <button onClick={() => setActiveTab('recordings')} className={tabClass('recordings')}>錄音</button>
+          <button onClick={() => setActiveTab('files')} className={tabClass('files')}>{t('sidebar.tabFiles')}</button>
+          <button onClick={() => setActiveTab('outline')} className={tabClass('outline')}>{t('sidebar.tabOutline')}</button>
+          <button onClick={() => setActiveTab('recordings')} className={tabClass('recordings')}>{t('sidebar.tabRecordings')}</button>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {activeTab === 'files' && (
             <>
-              <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="新增筆記" aria-label="新增筆記">
+              <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newNote')} aria-label={t('sidebar.newNote')}>
                 <PlusIcon className="w-4 h-4" />
               </button>
-              <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="新增資料夾" aria-label="新增資料夾">
+              <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newFolder')} aria-label={t('sidebar.newFolder')}>
                 <FolderPlusIcon className="w-4 h-4" />
               </button>
             </>
           )}
-          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title="收合側邊欄" aria-label="收合側邊欄">
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.collapseSidebar')} aria-label={t('sidebar.collapseSidebar')}>
             <XIcon className="w-4 h-4" />
           </button>
         </div>
@@ -101,7 +103,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         ) : mindMapData ? (
           <OutlineView data={mindMapData} activeLine={activeLine} onNodeClick={onOutlineNodeClick} />
         ) : (
-          <div className="p-6 text-sm text-text-secondary text-center">請先選擇或建立一篇筆記</div>
+          <div className="p-6 text-sm text-text-secondary text-center">{t('sidebar.selectOrCreateNote')}</div>
         )}
       </div>
     </div>

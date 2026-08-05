@@ -503,6 +503,12 @@ const App: React.FC = () => {
   const handleOutlineNodeClick = (lineNumber: number) => {
     setScrollToLine(lineNumber);
     setScrollToBlockOrdinal(mindMapData ? findBlockOrdinal(mindMapData, lineNumber) : null);
+    // Marks the clicked entry active (blue highlight) immediately. Without
+    // this, activeLine only ever moved via the plain textarea's own cursor
+    // tracking (see Editor's onCursorActivity) — scrolling to a line, on
+    // its own, never touches the cursor, so a click here never highlighted
+    // anything, in any editor mode.
+    setActiveLine(lineNumber);
     setSearchQuery('');
     if (isMobile) setIsMobileSidebarOpen(false);
   };

@@ -188,6 +188,18 @@ export const transcribeAudio = (
         formData.append('file', audioBlob, filename);
         formData.append('model', GROQ_WHISPER_MODEL);
         formData.append('response_format', 'verbose_json');
+        // Without an explicit language hint, Whisper auto-detects the
+        // language from roughly the first 30s of each *submitted clip* —
+        // when that happens to be silence or ambient noise (e.g. before the
+        // user starts speaking), it tends to hallucinate plausible-sounding
+        // English phrases instead of returning nothing, and later portions
+        // of the same recording can then flip back and forth between
+        // languages as detection re-runs. Recordings here are predominantly
+        // Mandarin with occasional English terms, so pinning the language
+        // sidesteps the misdetection outright — Whisper still transcribes
+        // genuine English loanwords/terms within otherwise-Chinese speech
+        // reasonably well even with this set.
+        formData.append('language', 'zh');
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', GROQ_TRANSCRIPTION_ENDPOINT);

@@ -3,6 +3,27 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { Images } from '../types';
 
+// marked's CommonMark-compliant `**bold**` parsing mis-pairs multiple bold
+// spans on the same line when they abut CJK text/punctuation with no
+// surrounding whitespace — e.g. `**A（X）**或**B（Y）**` (extremely common
+// in Chinese output, since CJK prose doesn't use spaces between words)
+// resolves as `**A（X）` + `<strong>或</strong>` + `B（Y）**` instead of two
+// separate bold spans. This bypasses marked's own delimiter-run resolution
+// entirely: pairing `**` markers strictly left-to-right (1st opens, 2nd
+// closes, 3rd opens, ...) and emitting literal `<strong>` tags, which
+// marked passes through unchanged, matches what's virtually always
+// intended and sidesteps the ambiguity altogether. Code fences/spans are
+// left untouched, since a literal `**` inside one (e.g. Python's `2**3`)
+// isn't emphasis.
+const convertBoldMarkersToHtml = (text: string): string => {
+    const segments = text.split(/(```[\s\S]*?```|`[^`\n]*`)/);
+    return segments
+        .map((segment, i) => (i % 2 === 1
+            ? segment
+            : segment.replace(/\*\*(?!\*)([^\n]+?)(?<!\*)\*\*(?!\*)/g, '<strong>$1</strong>')))
+        .join('');
+};
+
 interface MarkdownPreviewProps {
     markdown: string;
     images: Images;
@@ -36,7 +57,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ markdown, images, scr
             return out;
         };
 
-        const parsedHtml = marked.parse(markdown, { renderer });
+        const parsedHtml = marked.parse(convertBoldMarkersToHtml(markdown), { renderer });
         const rawHtml = typeof parsedHtml === 'string' ? parsedHtml : '';
 
         // Notes may contain content pasted from untrusted sources, so the rendered

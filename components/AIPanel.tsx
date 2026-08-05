@@ -28,7 +28,19 @@ const TypewriterMessage: React.FC<{ text: string; images: Images, scrollRef: Rea
       let i = 0;
       const intervalId = setInterval(() => {
         if (i < text.length) {
-          setDisplayedText(prev => prev + text.charAt(i));
+          // Captured *now*, as a plain string value, rather than reading
+          // text.charAt(i) from inside the updater below — React doesn't
+          // guarantee it invokes a functional setState updater synchronously
+          // at the call site; if it's deferred even slightly (batching,
+          // this component's own render cost, etc.), later ticks of this
+          // same interval keep mutating `i` in the meantime, so an updater
+          // reading `i` live from the closure can end up applying a
+          // since-advanced index — silently skipping or duplicating
+          // characters. Capturing the character by value sidesteps that
+          // entirely, since the updater no longer depends on `i`'s value at
+          // whatever later moment it actually runs.
+          const charToAppend = text.charAt(i);
+          setDisplayedText(prev => prev + charToAppend);
           i++;
         } else {
           clearInterval(intervalId);

@@ -245,20 +245,40 @@ const App: React.FC = () => {
   // stale and skip updating state for whatever session is current now.
   const chatSessionTokenRef = useRef(0);
   const previousNoteIdForChatRef = useRef(activeNoteId);
+  // Each note keeps its own conversation — switching notes doesn't discard
+  // one, it just stashes it here and swaps in whichever conversation (if
+  // any) belongs to the note being switched to, so leaving and coming back
+  // continues right where it left off instead of restarting every time.
+  const chatSessionsByNoteRef = useRef<Record<string, { session: Chat; messages: ChatMessage[] }>>({});
   useEffect(() => {
-    // The AI session was primed with the *previous* note's content — if it
-    // stayed open across a note switch, it would otherwise keep answering
-    // as if the old note were still active, with nothing telling the user
-    // anything changed. Closing it makes that obvious; reopening starts a
-    // fresh session for whatever note is active now.
-    if (previousNoteIdForChatRef.current !== activeNoteId) {
-      if (isAIPanelOpen) {
-        chatSessionTokenRef.current++;
-        setIsAIPanelOpen(false);
-        setChatSession(null);
-        setChatMessages([]);
+    const previousNoteId = previousNoteIdForChatRef.current;
+    if (previousNoteId === activeNoteId) return;
+    previousNoteIdForChatRef.current = activeNoteId;
+
+    // Invalidate any in-flight priming callback from the outgoing note's
+    // session so it can't land after we've already moved on to another one.
+    chatSessionTokenRef.current++;
+
+    if (previousNoteId && chatSession) {
+      chatSessionsByNoteRef.current[previousNoteId] = { session: chatSession, messages: chatMessages };
+    }
+
+    const cached = activeNoteId ? chatSessionsByNoteRef.current[activeNoteId] : undefined;
+    if (cached) {
+      setChatSession(cached.session);
+      setChatMessages(cached.messages);
+    } else {
+      setChatSession(null);
+      setChatMessages([]);
+      // The panel was already open and showing a different note's
+      // conversation — prime a fresh one for this note right away instead
+      // of leaving it looking stuck/empty until the user does something.
+      // `notes[activeNoteId]` (not the live `markdown` state) is used here
+      // since `markdown` is a separate, debounced editor buffer that hasn't
+      // necessarily caught up to the new note yet at this exact point.
+      if (isAIPanelOpen && activeNoteId && apiKey) {
+        void startNewChatSession(notes[activeNoteId]);
       }
-      previousNoteIdForChatRef.current = activeNoteId;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNoteId]);
@@ -593,10 +613,15 @@ const App: React.FC = () => {
     setSearchQuery('');
   };
 
-  // Shared by the initial open (when no session exists yet) and the panel's
-  // own "clear conversation, start over" button.
-  const startNewChatSession = async () => {
-    if (!activeNoteId || !markdown || !apiKey) return;
+  // Shared by the initial open (when no session exists yet), the panel's
+  // own "clear conversation, start over" button, and auto-priming a fresh
+  // conversation when switching to a note that doesn't have one cached yet
+  // (see chatSessionsByNoteRef) — that last caller passes `contentOverride`
+  // since it can't rely on the live `markdown` buffer, which lags a note
+  // switch by a render.
+  const startNewChatSession = async (contentOverride?: string) => {
+    const content = contentOverride ?? markdown;
+    if (!activeNoteId || !content || !apiKey) return;
 
     setIsAILoading(true);
     setChatMessages([]);
@@ -605,7 +630,7 @@ const App: React.FC = () => {
 
     try {
       const { createChatSession } = await import('./services/geminiChatService');
-      const session = await createChatSession(markdown, apiKey, (errorMessage) => {
+      const session = await createChatSession(content, apiKey, (errorMessage) => {
         // Fire-and-forget context priming can fail well after this function
         // returns — only surface it if the user hasn't since closed the
         // panel or switched to a different note's session in the meantime.
@@ -645,11 +670,10 @@ const App: React.FC = () => {
 
     setIsAIPanelOpen(true);
 
-    // A session for this note is already active — the user is just
-    // re-expanding a collapsed panel, not starting over. Show the existing
-    // conversation as-is instead of discarding it and re-priming a brand
-    // new session (the note-switch effect above already clears chatSession
-    // when it's genuinely time to start fresh).
+    // A session for this note is already active — either the panel was
+    // just collapsed, or the note-switch effect above already restored this
+    // note's own cached conversation. Either way, show it as-is instead of
+    // discarding it and re-priming a brand new session.
     if (chatSession) return;
 
     await startNewChatSession();

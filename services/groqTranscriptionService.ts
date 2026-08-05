@@ -124,6 +124,23 @@ export interface TranscriptionResult {
     duration: number;
 }
 
+// Whisper defaults to Simplified Chinese characters for Mandarin speech
+// regardless of the speaker's actual variant, and Groq's API has no
+// parameter to request Traditional output directly — so any Simplified
+// text is converted to Traditional (Taiwan, with phrase-level
+// localization — e.g. 软件 -> 軟體, not just 软件 -> 軟件) after the fact.
+// A no-op for text with no Simplified characters, so this is safe to run
+// unconditionally without language detection. Dynamically imported (and
+// memoized) so the conversion dictionary only loads for users who actually
+// transcribe audio, not on every page load.
+let toTraditionalPromise: Promise<(text: string) => string> | null = null;
+const getToTraditionalConverter = (): Promise<(text: string) => string> => {
+    if (!toTraditionalPromise) {
+        toTraditionalPromise = import('opencc-js/cn2t').then(({ default: OpenCC }) => OpenCC.Converter({ from: 'cn', to: 'twp' }));
+    }
+    return toTraditionalPromise;
+};
+
 /**
  * Sends an audio clip — either a live recording or an uploaded file — to
  * Groq's Whisper transcription API and returns the resulting transcript,
@@ -161,6 +178,12 @@ export const transcribeAudio = (
             return;
         }
 
+        // Kicked off now, in parallel with the network request below, so the
+        // conversion dictionary is very likely already loaded (or in
+        // flight) by the time a response arrives — the finished
+        // transcription isn't held up waiting on it separately.
+        const converterPromise = getToTraditionalConverter();
+
         const formData = new FormData();
         formData.append('file', audioBlob, filename);
         formData.append('model', GROQ_WHISPER_MODEL);
@@ -176,18 +199,20 @@ export const transcribeAudio = (
             }
         };
 
-        xhr.onload = () => {
+        xhr.onload = async () => {
             if (xhr.status >= 200 && xhr.status < 300) {
                 try {
                     const data = JSON.parse(xhr.responseText);
-                    const text = typeof data?.text === 'string' ? data.text.trim() : '';
-                    if (!text) {
+                    const rawText = typeof data?.text === 'string' ? data.text.trim() : '';
+                    if (!rawText) {
                         reject(new Error('沒有辨識到任何語音內容，請確認錄音時有清楚說話。'));
                         return;
                     }
+                    const convert = await converterPromise;
+                    const text = convert(rawText);
                     const segments: TranscriptionSegment[] = Array.isArray(data?.segments)
                         ? data.segments
-                            .map((seg: any) => ({ start: Number(seg?.start) || 0, end: Number(seg?.end) || 0, text: typeof seg?.text === 'string' ? seg.text.trim() : '' }))
+                            .map((seg: any) => ({ start: Number(seg?.start) || 0, end: Number(seg?.end) || 0, text: convert(typeof seg?.text === 'string' ? seg.text.trim() : '') }))
                             .filter((seg: TranscriptionSegment) => seg.text)
                         : [];
                     const duration = Number(data?.duration) || segments[segments.length - 1]?.end || 0;

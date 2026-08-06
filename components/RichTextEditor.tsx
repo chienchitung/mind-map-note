@@ -9,6 +9,7 @@ import { Images } from '../types';
 import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
 import { compressImageFile } from '../utils/imageCompression';
 import { useTranslation } from '../contexts/LanguageContext';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 
 interface RichTextEditorProps {
   value: string;
@@ -96,6 +97,10 @@ const getMarkdownStorage = (editor: ReturnType<typeof useEditor>): { getMarkdown
 const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }) => {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // On mobile, the toolbar is pinned above the on-screen keyboard (like a
+  // native app's input accessory view) instead of sitting at the top of the
+  // screen — see Editor.tsx's plain-mode toolbar for the same treatment.
+  const keyboardInset = useKeyboardInset();
 
   const editor = useEditor({
     extensions: [
@@ -203,40 +208,47 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
 
   if (!editor) return null;
 
+  const toolbarButtons = (
+    <>
+      <ToolbarButton title={t('richEditor.heading1')} active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
+        H1
+      </ToolbarButton>
+      <ToolbarButton title={t('richEditor.heading2')} active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
+        H2
+      </ToolbarButton>
+      <ToolbarButton title={t('richEditor.heading3')} active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
+        H3
+      </ToolbarButton>
+      <div className="w-px h-5 bg-border-color mx-1 flex-shrink-0"></div>
+      <ToolbarButton title={t('richEditor.bold')} active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}>
+        <BoldIcon className="w-4 h-4" />
+      </ToolbarButton>
+      <ToolbarButton title={t('richEditor.italic')} active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}>
+        <ItalicIcon className="w-4 h-4" />
+      </ToolbarButton>
+      <div className="w-px h-5 bg-border-color mx-1 flex-shrink-0"></div>
+      <ToolbarButton title={t('richEditor.blockquote')} active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
+        <QuoteIcon className="w-4 h-4" />
+      </ToolbarButton>
+      <ToolbarButton title={t('richEditor.bulletList')} active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
+        <BulletListIcon className="w-4 h-4" />
+      </ToolbarButton>
+      <ToolbarButton title={t('richEditor.orderedList')} active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
+        <OrderedListIcon className="w-4 h-4" />
+      </ToolbarButton>
+      <div className="w-px h-5 bg-border-color mx-1 flex-shrink-0"></div>
+      <ToolbarButton title={t('richEditor.insertImage')} active={false} onClick={() => fileInputRef.current?.click()}>
+        <ImageIcon className="w-4 h-4" />
+      </ToolbarButton>
+      {toolbarExtras && <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">{toolbarExtras}</div>}
+    </>
+  );
+
   return (
     <div className="h-full w-full flex flex-col">
-      <div className="flex items-center gap-1 px-2 py-2 border-b border-border-color/70 flex-wrap flex-shrink-0">
-        <ToolbarButton title={t('richEditor.heading1')} active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
-          H1
-        </ToolbarButton>
-        <ToolbarButton title={t('richEditor.heading2')} active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
-          H2
-        </ToolbarButton>
-        <ToolbarButton title={t('richEditor.heading3')} active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
-          H3
-        </ToolbarButton>
-        <div className="w-px h-5 bg-border-color mx-1"></div>
-        <ToolbarButton title={t('richEditor.bold')} active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}>
-          <BoldIcon className="w-4 h-4" />
-        </ToolbarButton>
-        <ToolbarButton title={t('richEditor.italic')} active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}>
-          <ItalicIcon className="w-4 h-4" />
-        </ToolbarButton>
-        <div className="w-px h-5 bg-border-color mx-1"></div>
-        <ToolbarButton title={t('richEditor.blockquote')} active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
-          <QuoteIcon className="w-4 h-4" />
-        </ToolbarButton>
-        <ToolbarButton title={t('richEditor.bulletList')} active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
-          <BulletListIcon className="w-4 h-4" />
-        </ToolbarButton>
-        <ToolbarButton title={t('richEditor.orderedList')} active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
-          <OrderedListIcon className="w-4 h-4" />
-        </ToolbarButton>
-        <div className="w-px h-5 bg-border-color mx-1"></div>
-        <ToolbarButton title={t('richEditor.insertImage')} active={false} onClick={() => fileInputRef.current?.click()}>
-          <ImageIcon className="w-4 h-4" />
-        </ToolbarButton>
-        {toolbarExtras && <div className="ml-auto flex items-center gap-1.5">{toolbarExtras}</div>}
+      {/* Desktop: normal in-flow toolbar at the top. */}
+      <div className="hidden md:flex items-center gap-1 px-2 py-2 border-b border-border-color/70 flex-wrap flex-shrink-0">
+        {toolbarButtons}
       </div>
       <input
         type="file"
@@ -249,6 +261,15 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
         <ImagesContext.Provider value={images}>
           <EditorContent editor={editor} className="h-full" />
         </ImagesContext.Provider>
+      </div>
+      {/* Mobile: pinned above the keyboard, scrolling horizontally instead of
+          wrapping to multiple lines — see Editor.tsx's plain-mode toolbar for
+          the same treatment and rationale. */}
+      <div
+        className="flex md:hidden items-center gap-1 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] overflow-x-auto fixed left-0 right-0 z-30 bg-primary/95 backdrop-blur-apple border-t border-border-color/60"
+        style={{ bottom: keyboardInset }}
+      >
+        {toolbarButtons}
       </div>
     </div>
   );

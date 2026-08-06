@@ -349,11 +349,23 @@ const Editor: React.FC<EditorProps> = ({
       )}
 
       {mode === 'plain' && (
-        <div className="hidden md:flex absolute top-3 right-3 z-10 items-center gap-1.5">
-          {modeToggle}
-          {uploadButton}
-          {copyButton}
-        </div>
+        <>
+          {/* Mobile: a normal in-flow toolbar row above the text, so it
+              never sits on top of the first line the user is writing —
+              unlike the floating desktop version, narrow screens have no
+              margin for it to float in without covering content. */}
+          <div className="flex md:hidden items-center gap-1.5 px-3 pt-3 pb-1 flex-shrink-0">
+            {modeToggle}
+            {uploadButton}
+            <div className="flex-grow" />
+            {copyButton}
+          </div>
+          <div className="hidden md:flex absolute top-3 right-3 z-10 items-center gap-1.5">
+            {modeToggle}
+            {uploadButton}
+            {copyButton}
+          </div>
+        </>
       )}
 
       <input
@@ -398,21 +410,6 @@ const Editor: React.FC<EditorProps> = ({
               onScrollComplete={onBlockScrollComplete}
             />
           </Suspense>
-        </div>
-      )}
-
-      {/* Mobile: an in-flow row below the content instead of floating at the
-          top like the desktop version — the app shell shrinks to the dvh
-          viewport when the keyboard opens (see index.html's
-          interactive-widget=resizes-content and App.tsx's h-dvh root), so
-          this ends up sitting right above the keyboard, like a native app's
-          input accessory bar, without needing to track it manually. */}
-      {mode === 'plain' && (
-        <div className="flex md:hidden items-center gap-1.5 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex-shrink-0 border-t border-border-color/60">
-          {modeToggle}
-          {uploadButton}
-          <div className="flex-grow" />
-          {copyButton}
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import Spinner from './Spinner';
 import { Images } from '../types';
 import { compressImageFile } from '../utils/imageCompression';
 import { useTranslation } from '../contexts/LanguageContext';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 
 // TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
 // a user opts into rich mode, so keep them out of the initial bundle that
@@ -50,6 +51,11 @@ const Editor: React.FC<EditorProps> = ({
   // by the same underlying Markdown string — neither replaces the other,
   // both edit the identical `value`/`onChange`.
   const [mode, setMode] = useState<EditMode>('plain');
+  // On mobile, the toolbar is pinned above the on-screen keyboard (like a
+  // native app's input accessory view) instead of sitting at the top of the
+  // screen, so it stays within thumb's reach while typing without having to
+  // scroll back up to it.
+  const keyboardInset = useKeyboardInset();
 
 
   useEffect(() => {
@@ -350,11 +356,15 @@ const Editor: React.FC<EditorProps> = ({
 
       {mode === 'plain' && (
         <>
-          {/* Mobile: a normal in-flow toolbar row above the text, so it
-              never sits on top of the first line the user is writing —
-              unlike the floating desktop version, narrow screens have no
-              margin for it to float in without covering content. */}
-          <div className="flex md:hidden items-center gap-1.5 px-3 pt-3 pb-1 flex-shrink-0">
+          {/* Mobile: pinned above the keyboard (fixed to the viewport, offset
+              by keyboardInset) instead of floating at the top like the desktop
+              version — narrow screens have no margin for a floating toolbar
+              without covering content, and the top of the screen is far from
+              where a thumb naturally rests while typing. */}
+          <div
+            className="flex md:hidden items-center gap-1.5 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] fixed left-0 right-0 z-30 bg-primary/95 backdrop-blur-apple border-t border-border-color/60"
+            style={{ bottom: keyboardInset }}
+          >
             {modeToggle}
             {uploadButton}
             <div className="flex-grow" />

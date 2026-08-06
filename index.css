@@ -234,6 +234,16 @@ body {
   color: inherit;
 }
 
+/* Reserve room below the last line of text for the mobile toolbar (fixed
+ * to the bottom of the viewport — see Editor.tsx/RichTextEditor.tsx), so it
+ * never covers content instead of just sitting below it. */
+@media (max-width: 767px) {
+  .editor-backdrop,
+  .editor-textarea {
+    padding-bottom: 4.5rem;
+  }
+}
+
 /* Rich (WYSIWYG) editor mode — the ProseMirror-managed contenteditable
  * root rendered by RichTextEditor.tsx. Typography intentionally mirrors
  * .markdown-preview below so switching modes doesn't change how the note
@@ -245,6 +255,12 @@ body {
   outline: none;
   color: var(--color-text-main);
   line-height: 1.65;
+}
+
+@media (max-width: 767px) {
+  .rich-editor-content {
+    padding-bottom: 4.5rem;
+  }
 }
 
 .rich-editor-content p {

@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import { Images } from '../types';
 
 // marked's CommonMark-compliant `**bold**` parsing mis-pairs multiple bold
@@ -22,6 +24,43 @@ const convertBoldMarkersToHtml = (text: string): string => {
             ? segment
             : segment.replace(/\*\*(?!\*)([^\n]+?)(?<!\*)\*\*(?!\*)/g, '<strong>$1</strong>')))
         .join('');
+};
+
+// Renders LaTeX math ($$...$$ block, $...$ inline) via KaTeX before marked
+// ever sees it — CommonMark would otherwise mangle LaTeX's own use of `_`,
+// `*` and `\` as its own emphasis/escape syntax. Matches are pulled out into
+// placeholder tokens (plain private-use-area characters marked won't touch
+// or reinterpret) and only substituted back into the HTML *after* marked has
+// run, so the final DOMPurify.sanitize() pass still covers the KaTeX output
+// too, same as everything else. Skips code fences/spans, so e.g. a shell
+// snippet's `$HOME` isn't mistaken for math. The inline pattern requires a
+// non-whitespace character on both sides of the `$`s (and no `$`/newline in
+// between) so ordinary prose like "$5 and $10" isn't matched as math.
+const extractMath = (text: string): { text: string; mathHtml: Record<string, string> } => {
+    const mathHtml: Record<string, string> = {};
+    let counter = 0;
+    const renderMath = (expr: string, displayMode: boolean): string => {
+        const token = `MATH${counter++}`;
+        try {
+            mathHtml[token] = katex.renderToString(expr, { throwOnError: false, displayMode });
+        } catch {
+            // Malformed LaTeX the renderer itself couldn't recover from —
+            // fall back to the original source rather than losing the text.
+            mathHtml[token] = displayMode ? `$$${expr}$$` : `$${expr}$`;
+        }
+        return token;
+    };
+
+    const segments = text.split(/(```[\s\S]*?```|`[^`\n]*`)/);
+    const processedText = segments
+        .map((segment, i) => (i % 2 === 1
+            ? segment
+            : segment
+                .replace(/\$\$([\s\S]+?)\$\$/g, (_match, expr) => renderMath(expr, true))
+                .replace(/\$(?!\s)((?:\\\$|[^$\n])+?)(?<!\s)\$/g, (_match, expr) => renderMath(expr, false))))
+        .join('');
+
+    return { text: processedText, mathHtml };
 };
 
 interface MarkdownPreviewProps {
@@ -57,8 +96,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ markdown, images, scr
             return out;
         };
 
-        const parsedHtml = marked.parse(convertBoldMarkersToHtml(markdown), { renderer });
-        const rawHtml = typeof parsedHtml === 'string' ? parsedHtml : '';
+        const { text: mathExtractedMarkdown, mathHtml } = extractMath(markdown);
+        const parsedHtml = marked.parse(convertBoldMarkersToHtml(mathExtractedMarkdown), { renderer });
+        let rawHtml = typeof parsedHtml === 'string' ? parsedHtml : '';
+        for (const [token, renderedMath] of Object.entries(mathHtml)) {
+            rawHtml = rawHtml.split(token).join(renderedMath);
+        }
 
         // Notes may contain content pasted from untrusted sources, so the rendered
         // HTML must be sanitized before it is injected into the DOM.

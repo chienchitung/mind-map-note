@@ -759,7 +759,7 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-dvh font-sans bg-primary print:h-auto print:overflow-visible print:bg-white">
+    <div className="flex flex-col h-screen font-sans bg-primary print:h-auto print:overflow-visible print:bg-white">
     <div className="print:hidden flex flex-col h-full">
       <Header
         viewMode={viewMode}

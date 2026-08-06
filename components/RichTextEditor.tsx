@@ -9,7 +9,6 @@ import { Images } from '../types';
 import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
 import { compressImageFile } from '../utils/imageCompression';
 import { useTranslation } from '../contexts/LanguageContext';
-import { useKeyboardInset } from '../hooks/useKeyboardInset';
 
 interface RichTextEditorProps {
   value: string;
@@ -97,10 +96,6 @@ const getMarkdownStorage = (editor: ReturnType<typeof useEditor>): { getMarkdown
 const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }) => {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // On mobile, the toolbar is pinned above the on-screen keyboard (like a
-  // native app's input accessory view) instead of sitting at the top of the
-  // screen — see Editor.tsx's plain-mode toolbar for the same treatment.
-  const keyboardInset = useKeyboardInset();
 
   const editor = useEditor({
     extensions: [
@@ -262,13 +257,11 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
           <EditorContent editor={editor} className="h-full" />
         </ImagesContext.Provider>
       </div>
-      {/* Mobile: pinned above the keyboard, scrolling horizontally instead of
-          wrapping to multiple lines — see Editor.tsx's plain-mode toolbar for
-          the same treatment and rationale. */}
-      <div
-        className="flex md:hidden items-center gap-1 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] overflow-x-auto fixed left-0 right-0 z-30 bg-primary/95 backdrop-blur-apple border-t border-border-color/60"
-        style={{ bottom: keyboardInset }}
-      >
+      {/* Mobile: an in-flow row below the content instead of floating at the
+          top, scrolling horizontally instead of wrapping to multiple lines —
+          see Editor.tsx's plain-mode toolbar for the same treatment and the
+          dvh/interactive-widget setup that puts it right above the keyboard. */}
+      <div className="flex md:hidden items-center gap-1 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] overflow-x-auto flex-shrink-0 border-t border-border-color/70">
         {toolbarButtons}
       </div>
     </div>

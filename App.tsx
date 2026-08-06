@@ -793,14 +793,25 @@ const App: React.FC = () => {
       />
       <div className="flex-grow flex overflow-hidden relative">
         {isMobile ? (
-          isMobileSidebarOpen && (
-            <>
-              <div className="fixed inset-0 bg-black/40 z-40" onClick={closeSidebar} />
-              <aside className="fixed inset-y-0 left-0 w-[85vw] max-w-sm bg-primary z-50 shadow-apple-lg">
-                {sidebarElement}
-              </aside>
-            </>
-          )
+          <>
+            {/* Both stay mounted (rather than only rendering while open) so
+                closing animates too, not just opening — a transform/opacity
+                transition needs the element present on both sides of the
+                state change to have something to animate between. */}
+            <div
+              className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-300 ease-apple ${
+                isMobileSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+              }`}
+              onClick={closeSidebar}
+            />
+            <aside
+              className={`fixed inset-y-0 left-0 w-[85vw] max-w-sm bg-primary z-50 shadow-apple-lg transition-transform duration-300 ease-apple ${
+                isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+              }`}
+            >
+              {sidebarElement}
+            </aside>
+          </>
         ) : (
           <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isSidebarVisible ? 'w-1/4 max-w-xs border-r border-border-color/60' : 'w-0'}`}>
             <div className="h-full overflow-hidden">

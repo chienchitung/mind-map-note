@@ -6,6 +6,7 @@ import TiptapImage from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Markdown } from 'tiptap-markdown';
 import { JoinAdjacentLists } from '../extensions/joinAdjacentLists';
+import { ArrowInputRules } from '../extensions/arrowInputRules';
 import { Images } from '../types';
 import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
 import { compressImageFile } from '../utils/imageCompression';
@@ -107,6 +108,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
       Placeholder.configure({ placeholder: t('richEditor.placeholder') }),
       Markdown.configure({ html: false, transformPastedText: true, transformCopiedText: true }),
       JoinAdjacentLists,
+      ArrowInputRules,
     ],
     content: value,
     onUpdate: ({ editor }) => {

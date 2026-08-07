@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ExportIcon, TrashIcon } from './icons';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
 import { extensionForMimeType } from '../services/groqTranscriptionService';
-import { downloadBlob } from '../utils/downloadBlob';
+import { downloadBlob, sanitizeFilename } from '../utils/downloadBlob';
 import { useTranslation } from '../contexts/LanguageContext';
 
 interface VoiceRecordingsPanelProps {
@@ -22,19 +22,24 @@ const formatMB = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1
 // A stored recording's segments are downloaded as a single file — same
 // "concatenate only when there's more than one" approach used elsewhere,
 // since these are always plain audio (video is never persisted here).
-const downloadStoredAudio = (recording: StoredVoiceRecording) => {
+// Uses the note's own display name (as shown in the sidebar) as the
+// filename when it's still known; falls back to the old noteId-based name
+// for a recording whose note has since been deleted/is otherwise unnamed.
+const downloadStoredAudio = (recording: StoredVoiceRecording, noteTitle: string | undefined) => {
   const mimeType = recording.segments[0]?.type || 'audio/webm';
   const blob = recording.segments.length === 1
     ? recording.segments[0]
     : new Blob(recording.segments, { type: mimeType });
-  downloadBlob(blob, `voice-note-${recording.noteId}.${extensionForMimeType(mimeType)}`);
+  const baseName = sanitizeFilename(noteTitle || `voice-note-${recording.noteId}`);
+  downloadBlob(blob, `${baseName}.${extensionForMimeType(mimeType)}`);
 };
 
 // Prefers the `[MM:SS] text` timestamped format; recordings saved before
 // that field existed fall back to the plain transcript.
-const downloadTranscript = (recording: StoredVoiceRecording) => {
+const downloadTranscript = (recording: StoredVoiceRecording, noteTitle: string | undefined) => {
   const content = recording.timestampedTranscript || recording.transcript;
-  downloadBlob(new Blob([content], { type: 'text/plain;charset=utf-8' }), `voice-note-${recording.noteId}-transcript.txt`);
+  const baseName = sanitizeFilename(noteTitle || `voice-note-${recording.noteId}`);
+  downloadBlob(new Blob([content], { type: 'text/plain;charset=utf-8' }), `${baseName}-transcript.txt`);
 };
 
 // Browsable list of everything saved by useVoiceRecordingsStorage — lives in
@@ -116,7 +121,7 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => downloadStoredAudio(rec)}
+                      onClick={() => downloadStoredAudio(rec, title)}
                       className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
                     >
                       <ExportIcon className="w-3.5 h-3.5" />
@@ -124,7 +129,7 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => downloadTranscript(rec)}
+                      onClick={() => downloadTranscript(rec, title)}
                       className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
                     >
                       <ExportIcon className="w-3.5 h-3.5" />

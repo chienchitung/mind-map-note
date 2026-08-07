@@ -3,6 +3,7 @@ import { FileSystemTree, MindMapNode } from '../types';
 import FileExplorer from './FileExplorer';
 import OutlineView from './OutlineView';
 import VoiceRecordingsPanel from './VoiceRecordingsPanel';
+import TrashPanel from './TrashPanel';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { PlusIcon, FolderPlusIcon, XIcon } from './icons';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
@@ -15,6 +16,8 @@ interface SidebarProps {
   onCreateNode: (type: 'file' | 'folder', parentId: string | null) => void;
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
+  onRestoreNode: (nodeId: string) => void;
+  onPermanentlyDeleteNode: (nodeId: string) => void;
   onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
   mindMapData: MindMapNode | null;
   activeLine: number;
@@ -26,7 +29,7 @@ interface SidebarProps {
   onClearVoiceRecordings: () => void;
 }
 
-type SidebarTab = 'files' | 'outline' | 'recordings';
+type SidebarTab = 'files' | 'outline' | 'recordings' | 'trash';
 
 // Combines the file explorer and the current note's outline behind a single
 // tab switcher instead of two separately-collapsible panels — one set of
@@ -39,6 +42,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onCreateNode,
   onRenameNode,
   onDeleteNode,
+  onRestoreNode,
+  onPermanentlyDeleteNode,
   onMoveNode,
   mindMapData,
   activeLine,
@@ -64,6 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <button onClick={() => setActiveTab('files')} className={tabClass('files')}>{t('sidebar.tabFiles')}</button>
           <button onClick={() => setActiveTab('outline')} className={tabClass('outline')}>{t('sidebar.tabOutline')}</button>
           <button onClick={() => setActiveTab('recordings')} className={tabClass('recordings')}>{t('sidebar.tabRecordings')}</button>
+          <button onClick={() => setActiveTab('trash')} className={tabClass('trash')}>{t('sidebar.tabTrash')}</button>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {activeTab === 'files' && (
@@ -99,6 +105,12 @@ const Sidebar: React.FC<SidebarProps> = ({
             onClearVoiceRecordings={onClearVoiceRecordings}
             getNoteTitle={(noteId) => tree[noteId]?.name}
             onSelectNote={onSelectNote}
+          />
+        ) : activeTab === 'trash' ? (
+          <TrashPanel
+            tree={tree}
+            onRestoreNode={onRestoreNode}
+            onPermanentlyDeleteNode={onPermanentlyDeleteNode}
           />
         ) : mindMapData ? (
           <OutlineView data={mindMapData} activeLine={activeLine} onNodeClick={onOutlineNodeClick} />

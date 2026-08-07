@@ -17,6 +17,10 @@ export interface FileSystemNode {
   type: 'file' | 'folder';
   parentId: string | null;
   childrenIds: string[];
+  // Set when the node is in the trash (soft-deleted from its parent's
+  // childrenIds, but still present in the tree/notes so it can be
+  // restored). Absent for a node that's live and visible normally.
+  deletedAt?: number;
 }
 
 export interface FileSystemTree {

@@ -31,7 +31,12 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
           <p className="text-lg font-medium">{translate('errorBoundary.title')}</p>
           <p className="text-sm text-text-secondary max-w-md">{this.state.error.message}</p>
           <button
-            onClick={() => this.setState({ error: null })}
+            // A bare state reset rarely actually fixes anything here — most
+            // render errors this boundary catches stem from state that's
+            // still there after the reset — so this reloads the page
+            // instead, same as the vite:preloadError handler in index.tsx
+            // does for the stale-chunk-after-a-new-deploy case specifically.
+            onClick={() => window.location.reload()}
             className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition-opacity"
           >
             {translate('errorBoundary.retry')}

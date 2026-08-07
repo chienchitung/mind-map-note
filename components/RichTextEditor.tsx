@@ -1,15 +1,19 @@
-import React, { useContext, useEffect, useRef } from 'react';
+import React, { useContext, useEffect, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
-import type { NodeViewProps } from '@tiptap/core';
+import { Extension, Node, type NodeViewProps } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import TiptapImage from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
+import DOMPurify from 'dompurify';
+import 'katex/dist/katex.min.css';
 import { Markdown } from 'tiptap-markdown';
 import { JoinAdjacentLists } from '../extensions/joinAdjacentLists';
 import { ArrowInputRules } from '../extensions/arrowInputRules';
 import { Images } from '../types';
 import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
 import { compressImageFile } from '../utils/imageCompression';
+import { renderMathToHtml } from '../utils/renderMathToHtml';
 import { useTranslation } from '../contexts/LanguageContext';
 
 interface RichTextEditorProps {
@@ -66,6 +70,161 @@ const ResolvingImage = TiptapImage.extend({
   },
 });
 
+// Renders the node's stored LaTeX via the same shared renderer
+// MarkdownPreview.tsx uses (same backslash-quirk handling, same
+// html-only-output choice), so a note's math renders identically whether
+// viewed in Preview or edited here in Aa mode. Unlike MarkdownPreview,
+// nothing downstream sanitizes this node's output afterward, so it's
+// sanitized right here before injection.
+const MathNodeView: React.FC<NodeViewProps> = ({ node }) => {
+  const latex: string = node.attrs.latex || '';
+  const displayMode: boolean = !!node.attrs.displayMode;
+  const html = useMemo(
+    () => DOMPurify.sanitize(renderMathToHtml(latex, displayMode)),
+    [latex, displayMode]
+  );
+
+  return (
+    <NodeViewWrapper
+      as="span"
+      className={displayMode ? 'block my-1' : 'inline'}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+};
+
+// An atomic (not directly text-editable) inline node — same trade-off as
+// images above: editing means deleting and retyping it, not clicking in to
+// tweak the source, but that keeps this consistent with how images already
+// work here rather than building a second, different in-place-edit
+// interaction just for math.
+const MathNode = Node.create({
+  name: 'math',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      latex: { default: '' },
+      displayMode: { default: false },
+    };
+  },
+
+  parseHTML() {
+    return [{
+      tag: 'span[data-math-latex]',
+      getAttrs: (element) => ({
+        latex: (element as HTMLElement).getAttribute('data-math-latex') || '',
+        displayMode: (element as HTMLElement).getAttribute('data-math-display') === 'true',
+      }),
+    }];
+  },
+
+  renderHTML({ node }) {
+    return ['span', { 'data-math-latex': node.attrs.latex, 'data-math-display': String(node.attrs.displayMode) }];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(MathNodeView);
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: { write: (text: string) => void }, node: { attrs: { latex: string; displayMode: boolean } }) {
+          const latex = node.attrs.latex || '';
+          state.write(node.attrs.displayMode ? `$$${latex}$$` : `$${latex}$`);
+        },
+      },
+    };
+  },
+});
+
+// tiptap-markdown's underlying parser has no notion of $...$/$$...$$ math
+// (it isn't CommonMark), so raw LaTeX just comes through as plain text —
+// this converts it into MathNode after the fact instead, the same
+// heal-after-the-edit approach JoinAdjacentLists uses, rather than hooking
+// into the markdown-it tokenizer directly. Runs on every transaction, so it
+// also fires while live-typing: the moment a closing `$` completes a match,
+// that span converts immediately, the same as the arrow input rules do.
+// Skips text inside inline code or a code block, so e.g. a shell snippet's
+// `$HOME` isn't mistaken for math. Mirrors extractMath's heuristics in
+// MarkdownPreview.tsx: the inline pattern requires a non-whitespace
+// character on both sides of the `$`s (and no `$`/newline in between) so
+// ordinary prose like "$5 and $10" isn't matched as math.
+const BLOCK_MATH_PATTERN = /\$\$([\s\S]+?)\$\$/;
+const INLINE_MATH_PATTERN = /\$(?!\s)((?:\\\$|[^$\n])+?)(?<!\s)\$/;
+
+const MathConversion = Extension.create({
+  name: 'mathConversion',
+
+  addProseMirrorPlugins() {
+    const extension = this;
+
+    // Finds the first remaining $...$/$$...$$ run and replaces it, as its
+    // own transaction dispatched directly against the view. Returns whether
+    // it found (and converted) one, so the caller can loop until none are
+    // left — a single edit (e.g. pasting a note with several formulas) can
+    // contain more than one.
+    const convertOnce = (): boolean => {
+      const { view } = extension.editor;
+      const mathType = view.state.schema.nodes.math;
+      if (!mathType) return false;
+
+      let match: { from: number; to: number; latex: string; displayMode: boolean } | null = null;
+      view.state.doc.descendants((node, pos, parent) => {
+        if (match) return false;
+        if (!node.isText || !node.text) return true;
+        if (node.marks.some((mark) => mark.type.name === 'code')) return true;
+        if (parent?.type.name === 'codeBlock') return true;
+
+        const blockMatch = BLOCK_MATH_PATTERN.exec(node.text);
+        const inlineMatch = !blockMatch ? INLINE_MATH_PATTERN.exec(node.text) : null;
+        const found = blockMatch || inlineMatch;
+        if (!found || found.index === undefined) return true;
+
+        match = {
+          from: pos + found.index,
+          to: pos + found.index + found[0].length,
+          latex: found[1],
+          displayMode: !!blockMatch,
+        };
+        return false;
+      });
+
+      if (!match) return false;
+      const { from, to, latex, displayMode } = match;
+      view.dispatch(view.state.tr.replaceWith(from, to, mathType.create({ latex, displayMode })));
+      return true;
+    };
+
+    return [
+      new Plugin({
+        key: new PluginKey('mathConversion'),
+        appendTransaction(transactions) {
+          if (!transactions.some((transaction) => transaction.docChanged)) return null;
+          // Creating a NodeView-backed node synchronously inside
+          // appendTransaction can fire while React is still mid-render for
+          // the keystroke that triggered it ("flushSync was called from
+          // inside a lifecycle method"). Deferring to a microtask lets that
+          // render finish first; each dispatch below becomes its own
+          // independent update cycle instead of nesting inside the original one.
+          queueMicrotask(() => {
+            if (extension.editor.isDestroyed) return;
+            let guard = 0;
+            while (convertOnce() && guard++ < 50) {
+              // keep converting until nothing's left to convert
+            }
+          });
+          return null;
+        },
+      }),
+    ];
+  },
+});
+
 interface ToolbarButtonProps {
   onClick: () => void;
   active: boolean;
@@ -109,6 +268,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
       Markdown.configure({ html: false, transformPastedText: true, transformCopiedText: true }),
       JoinAdjacentLists,
       ArrowInputRules,
+      MathNode,
+      MathConversion,
     ],
     content: value,
     onUpdate: ({ editor }) => {

@@ -42,7 +42,16 @@ const extractMath = (text: string): { text: string; mathHtml: Record<string, str
     const renderMath = (expr: string, displayMode: boolean): string => {
         const token = `MATH${counter++}`;
         try {
-            mathHtml[token] = katex.renderToString(expr, { throwOnError: false, displayMode });
+            // 'html' only, not the default 'htmlAndMathml' — the MathML
+            // branch is meant to be visually hidden (screen-reader-only) via
+            // KaTeX's own CSS, but that hiding didn't survive the production
+            // build, and DOMPurify separately strips its <semantics>/
+            // <annotation> wrapper tags while keeping their raw-LaTeX text
+            // content, leaving that stray text sitting visible in the DOM
+            // right next to the correctly-rendered symbol. Not worth
+            // chasing either issue down when the visible HTML rendering
+            // doesn't need MathML at all.
+            mathHtml[token] = katex.renderToString(expr, { throwOnError: false, displayMode, output: 'html' });
         } catch {
             // Malformed LaTeX the renderer itself couldn't recover from —
             // fall back to the original source rather than losing the text.

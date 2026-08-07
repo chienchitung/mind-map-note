@@ -68,7 +68,7 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 
 const App: React.FC = () => {
   const { t } = useTranslation();
-  const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError } = useFileSystem();
+  const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError } = useFileSystem();
   
   const findFirstFile = () => {
       const root = tree['root'];
@@ -101,9 +101,10 @@ const App: React.FC = () => {
     setPersistedActiveNoteId(id);
   }, [setPersistedActiveNoteId]);
 
-  // If the active note disappears (deleted from another view), fall back to another file.
+  // If the active note disappears — deleted from another view, or just
+  // moved to the trash — fall back to another file.
   useEffect(() => {
-    if (activeNoteId && !tree[activeNoteId]) {
+    if (activeNoteId && (!tree[activeNoteId] || tree[activeNoteId].deletedAt)) {
       setActiveNoteId(findFirstFile());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -308,7 +309,7 @@ const App: React.FC = () => {
         const match = regex.exec(content);
 
         if (match) {
-          if (tree[noteId]) {
+          if (tree[noteId] && !tree[noteId].deletedAt) {
             const matchIndex = match.index;
             const start = Math.max(0, matchIndex - SNIPPET_RADIUS);
             const end = Math.min(
@@ -718,6 +719,8 @@ const App: React.FC = () => {
       onCreateNode={createNode}
       onRenameNode={renameNode}
       onDeleteNode={deleteNode}
+      onRestoreNode={restoreNode}
+      onPermanentlyDeleteNode={permanentlyDeleteNode}
       onMoveNode={moveNode}
       mindMapData={mindMapData}
       activeLine={activeLine}

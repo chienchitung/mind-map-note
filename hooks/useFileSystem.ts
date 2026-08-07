@@ -22,6 +22,9 @@ const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2
 // — including any base64 images — on every single state change.
 const PERSIST_DEBOUNCE_MS = 400;
 
+// How long a trashed node sticks around before it's purged for good.
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 // Matches `![alt](image://<id>)` references embedded in note markdown.
 const IMAGE_REFERENCE_REGEX = /!\[.*?\]\(image:\/\/(.*?)\)/g;
 
@@ -51,6 +54,52 @@ const garbageCollectImages = (notes: NotesContent, images: Images): Images => {
     const newImages = { ...images };
     orphanedIds.forEach(id => delete newImages[id]);
     return newImages;
+};
+
+// Permanently removes one or more subtrees (each root plus every
+// descendant) from a state snapshot: drops them from tree/notes, cleans up
+// any voice recording saved against them, detaches each root from its
+// parent's childrenIds (a no-op if it was already detached, as a trashed
+// node already is), and garbage-collects any image left orphaned by the
+// removed notes. Shared by permanentlyDeleteNode (an explicit "delete
+// forever" from the trash) and the on-load expired-trash sweep.
+const purgeNodesFromState = (
+    state: { tree: FileSystemTree; notes: NotesContent; images: Images },
+    rootIds: string[]
+): { tree: FileSystemTree; notes: NotesContent; images: Images } => {
+    const newTree = { ...state.tree };
+    const newNotes = { ...state.notes };
+
+    const nodesToDelete = new Set<string>();
+    const queue = [...rootIds];
+    while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        if (nodesToDelete.has(currentId)) continue;
+        nodesToDelete.add(currentId);
+        newTree[currentId]?.childrenIds.forEach(childId => queue.push(childId));
+    }
+
+    nodesToDelete.forEach(id => {
+        delete newTree[id];
+        if (id in newNotes) {
+            delete newNotes[id];
+        }
+    });
+
+    // Best-effort cleanup of any voice recording saved against a deleted
+    // note — IndexedDB deletes on a missing key are silent no-ops.
+    nodesToDelete.forEach(id => { void deleteVoiceRecording(id); });
+
+    rootIds.forEach(rootId => {
+        const node = state.tree[rootId];
+        if (node?.parentId && newTree[node.parentId]) {
+            const parent = newTree[node.parentId];
+            newTree[parent.id] = { ...parent, childrenIds: parent.childrenIds.filter(id => id !== rootId) };
+        }
+    });
+
+    const newImages = garbageCollectImages(newNotes, state.images);
+    return { tree: newTree, notes: newNotes, images: newImages };
 };
 
 const getInitialFileSystem = () => {
@@ -186,45 +235,70 @@ export const useFileSystem = () => {
         });
     }, []);
 
+    // Moves a node (and, implicitly, its whole subtree) to the trash: marks
+    // it with a deletedAt timestamp and detaches it from its parent's
+    // childrenIds so it disappears from the normal file tree, but leaves
+    // it — and every descendant, its notes, and any voice recording —
+    // completely untouched otherwise, so it can be restored intact later.
+    // Descendants aren't individually marked; they stay attached under the
+    // trashed root and come back automatically when it's restored.
     const deleteNode = useCallback((nodeId: string) => {
         setState(prevState => {
-            const newTree = { ...prevState.tree };
-            const newNotes = { ...prevState.notes };
-            const nodeToDelete = newTree[nodeId];
-
+            const nodeToDelete = prevState.tree[nodeId];
             if (!nodeToDelete) return prevState;
 
-            const nodesToDelete = new Set<string>();
-            const queue = [nodeId];
-
-            while (queue.length > 0) {
-                const currentId = queue.shift()!;
-                nodesToDelete.add(currentId);
-                newTree[currentId]?.childrenIds.forEach(childId => queue.push(childId));
-            }
-
-            nodesToDelete.forEach(id => {
-                delete newTree[id];
-                if (id in newNotes) {
-                    delete newNotes[id];
-                }
-            });
-
-            // Best-effort cleanup of any voice recording saved against a
-            // deleted note — most notes won't have one; IndexedDB deletes on
-            // a missing key are silent no-ops, so this is safe to fire for
-            // every deleted id without checking first.
-            nodesToDelete.forEach(id => { void deleteVoiceRecording(id); });
-
+            const newTree = { ...prevState.tree, [nodeId]: { ...nodeToDelete, deletedAt: Date.now() } };
             if (nodeToDelete.parentId && newTree[nodeToDelete.parentId]) {
                 const parent = newTree[nodeToDelete.parentId];
                 newTree[parent.id] = { ...parent, childrenIds: parent.childrenIds.filter(id => id !== nodeId) };
             }
 
-            // Garbage-collect any images that were only referenced by the deleted note(s).
-            const newImages = garbageCollectImages(newNotes, prevState.images);
+            return { ...prevState, tree: newTree };
+        });
+    }, []);
 
-            return { tree: newTree, notes: newNotes, images: newImages };
+    // Brings a trashed node back: re-attaches it to its original parent's
+    // childrenIds (or to root, if that parent no longer exists or is
+    // itself currently trashed) and clears deletedAt.
+    const restoreNode = useCallback((nodeId: string) => {
+        setState(prevState => {
+            const node = prevState.tree[nodeId];
+            if (!node || !node.deletedAt) return prevState;
+
+            const newTree = { ...prevState.tree };
+            const originalParent = node.parentId ? newTree[node.parentId] : undefined;
+            const targetParentId = originalParent && !originalParent.deletedAt ? node.parentId as string : 'root';
+
+            const { deletedAt, ...restoredNode } = node;
+            newTree[nodeId] = { ...restoredNode, parentId: targetParentId };
+
+            const targetParent = newTree[targetParentId];
+            if (targetParent) {
+                newTree[targetParentId] = { ...targetParent, childrenIds: [...targetParent.childrenIds, nodeId] };
+            }
+
+            return { ...prevState, tree: newTree };
+        });
+    }, []);
+
+    // Deletes a trashed node for good — same hard-delete behavior deleteNode
+    // used to have directly, now reserved for an explicit "delete forever"
+    // from the trash (or the expired-trash sweep below).
+    const permanentlyDeleteNode = useCallback((nodeId: string) => {
+        setState(prevState => (prevState.tree[nodeId] ? purgeNodesFromState(prevState, [nodeId]) : prevState));
+    }, []);
+
+    // Sweeps anything that's been sitting in the trash past the retention
+    // window and purges it for good. Runs once per app load — trashed
+    // items are also swept next time the app is opened, so nothing needs a
+    // running timer while the tab stays open.
+    useEffect(() => {
+        setState(prevState => {
+            const now = Date.now();
+            const expiredRootIds = Object.values(prevState.tree)
+                .filter(node => node.deletedAt !== undefined && now - node.deletedAt > TRASH_RETENTION_MS)
+                .map(node => node.id);
+            return expiredRootIds.length > 0 ? purgeNodesFromState(prevState, expiredRootIds) : prevState;
         });
     }, []);
 
@@ -280,5 +354,5 @@ export const useFileSystem = () => {
         setState(data);
     }, []);
 
-    return { tree, notes, images, createNode, updateNote, renameNode, deleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError: () => setStorageError(null) };
+    return { tree, notes, images, createNode, updateNote, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError: () => setStorageError(null) };
 };

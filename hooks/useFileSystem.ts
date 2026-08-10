@@ -313,6 +313,14 @@ export const useFileSystem = () => {
             const nodeToMove = newTree[nodeId];
             if (!nodeToMove) return prevState;
             if (nodeToMove.parentId === newParentId && beforeNodeId === undefined) return prevState;
+            // A node can never be its own anchor: this happens when dropping
+            // just after a node's own immediate predecessor, since that
+            // predecessor's "next sibling" is the node itself. It's already
+            // in the requested position, so treat it as a no-op rather than
+            // falling through to indexOf(beforeNodeId) below, which would
+            // fail (the node is removed from the array first) and push the
+            // node to the end instead of leaving it where it was.
+            if (beforeNodeId === nodeId) return prevState;
 
             // Prevent moving a folder into itself or one of its own descendants.
             let tempParentId = newParentId;

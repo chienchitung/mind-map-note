@@ -247,6 +247,16 @@ const Node: React.FC<{
     const droppedNodeId = e.dataTransfer.getData('text/plain');
     setDropIndicator(null);
     if (!droppedNodeId) return;
+    // Reset the dragging state here rather than relying on the source row's
+    // `dragend` to do it: when the drop reparents the node (moving it into
+    // a different folder than it started in), that row unmounts from its
+    // old spot in the tree and remounts under its new parent as part of
+    // this same synchronous update — before the browser gets a chance to
+    // fire `dragend` on the now-detached original element. `dragend` never
+    // fires on a removed node, so `draggingNodeId` would otherwise stay
+    // stuck, permanently showing the "drop here to move out of folder"
+    // banner and breaking every future drag until the page reloads.
+    setDraggingNodeId(null);
     if (dropIndicator === 'inside') {
       onMoveNode(droppedNodeId, node.id);
       return;

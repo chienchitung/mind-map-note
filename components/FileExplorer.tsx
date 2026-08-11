@@ -259,6 +259,17 @@ const Node: React.FC<{
       onMoveNode(droppedNodeId, node.id);
       return;
     }
+    // When a folder's own child lands on the folder row's 'after' zone
+    // (the narrow strip between the folder name and its first visible
+    // child), the user almost certainly overshot while trying to reorder
+    // above the first child — keep it inside the folder instead of
+    // ejecting it to the parent level.
+    if (dropIndicator === 'after' && node.type === 'folder' && isExpanded
+        && tree[droppedNodeId]?.parentId === node.id) {
+      const firstSibling = node.childrenIds.find(id => id !== droppedNodeId);
+      onMoveNode(droppedNodeId, node.id, firstSibling ?? null);
+      return;
+    }
     // 'before' inserts right ahead of this node; 'after' inserts ahead of
     // whichever sibling currently follows it (or appends, if it's last).
     const siblings = node.parentId ? tree[node.parentId]?.childrenIds ?? [] : [];

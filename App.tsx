@@ -22,6 +22,7 @@ import { parseMarkdownToMindMap, findBlockOrdinal } from './utils/markdownParser
 import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 import { useTranslation } from './contexts/LanguageContext';
+import { TRANSCRIPTION_LANGUAGE_STORAGE_KEY, type TranscriptionLanguage } from './utils/transcriptionLanguage';
 
 // The AI chat panel (and the @google/genai SDK it pulls in) is only ever
 // needed once a user with an API key opens it, so it's loaded on demand
@@ -193,6 +194,7 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
   const [groqApiKey, setGroqApiKey] = useLocalStorage<string>('groq-api-key', '');
+  const [transcriptionLanguage, setTranscriptionLanguage] = useLocalStorage<TranscriptionLanguage>(TRANSCRIPTION_LANGUAGE_STORAGE_KEY, 'auto');
   const [isVoiceNoteModalOpen, setIsVoiceNoteModalOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -904,6 +906,8 @@ const App: React.FC = () => {
         onSaveApiKey={setApiKey}
         groqApiKey={groqApiKey}
         onSaveGroqApiKey={setGroqApiKey}
+        transcriptionLanguage={transcriptionLanguage}
+        onSaveTranscriptionLanguage={setTranscriptionLanguage}
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
       />

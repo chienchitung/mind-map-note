@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { XIcon, KeyIcon, SettingsIcon, ArchiveIcon, ExportIcon, ImportIcon } from './icons';
 import { useTranslation } from '../contexts/LanguageContext';
+import type { TranscriptionLanguage } from '../utils/transcriptionLanguage';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface SettingsModalProps {
   onSaveApiKey: (key: string) => void;
   groqApiKey: string;
   onSaveGroqApiKey: (key: string) => void;
+  transcriptionLanguage: TranscriptionLanguage;
+  onSaveTranscriptionLanguage: (language: TranscriptionLanguage) => void;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
 }
@@ -20,6 +23,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaveApiKey,
   groqApiKey,
   onSaveGroqApiKey,
+  transcriptionLanguage,
+  onSaveTranscriptionLanguage,
   onExportBackup,
   onImportBackup,
 }) => {
@@ -211,6 +216,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               {t('settings.clearKey')}
             </button>
+          </div>
+
+          <div className="mt-5">
+            <h4 className="text-sm font-medium text-text-main mb-1.5">{t('settings.transcriptionLanguage')}</h4>
+            <p className="text-sm text-text-secondary mb-3 leading-relaxed">{t('settings.transcriptionLanguageDescription')}</p>
+            <div className="flex rounded-full bg-secondary p-1 w-fit">
+              {(['auto', 'zh', 'en'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onSaveTranscriptionLanguage(option)}
+                  aria-pressed={transcriptionLanguage === option}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
+                    transcriptionLanguage === option ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
+                  }`}
+                >
+                  {option === 'auto' ? t('settings.transcriptionLanguageAuto') : option === 'zh' ? t('settings.languageZh') : t('settings.languageEn')}
+                </button>
+              ))}
+            </div>
           </div>
         </section>
 

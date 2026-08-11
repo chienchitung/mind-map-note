@@ -1,4 +1,5 @@
-import { translate, getCurrentLanguage } from '../i18n/translations';
+import { translate } from '../i18n/translations';
+import { getTranscriptionLanguage } from '../utils/transcriptionLanguage';
 
 /**
  * Thrown when no Groq API key has been configured yet. The caller is
@@ -196,15 +197,15 @@ export const transcribeAudio = (
         // user starts speaking), it tends to hallucinate plausible-sounding
         // phrases instead of returning nothing, and later portions of the
         // same recording can then flip back and forth between languages as
-        // detection re-runs. Pinning the language sidesteps the
-        // misdetection outright — Whisper still transcribes genuine
-        // loanwords/terms in the other language reasonably well even with
-        // this set. This used to be hardcoded to 'zh' unconditionally, which
-        // forced every English recording through a Mandarin hint and
-        // produced garbled or mistranslated text — it now follows the
-        // user's current UI language instead, since that's the language
-        // they're actually recording notes in.
-        formData.append('language', getCurrentLanguage());
+        // detection re-runs. The user's transcription-language setting
+        // (Settings > Voice Note, independent from the interface display
+        // language — see utils/transcriptionLanguage.ts) lets them pin a
+        // language to sidestep this; 'auto' (the default) leaves it
+        // unset and trusts Whisper's own per-clip detection.
+        const transcriptionLanguage = getTranscriptionLanguage();
+        if (transcriptionLanguage !== 'auto') {
+            formData.append('language', transcriptionLanguage);
+        }
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', GROQ_TRANSCRIPTION_ENDPOINT);

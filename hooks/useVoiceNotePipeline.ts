@@ -593,7 +593,13 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     // very call is in flight, without being confused by a stale one.
     cancelledRef.current = false;
     try {
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Explicit rather than bare `audio: true` — leaving these unset
+      // relies on each browser's own default, which isn't guaranteed to
+      // enable noise suppression/echo cancellation consistently, and shows
+      // up as noticeably noisier recordings on some platforms.
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       if (cancelledRef.current) {
         micStream.getTracks().forEach(track => track.stop());
         return;
@@ -663,6 +669,19 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         // whole screen was shared instead of a tab, which don't offer
         // "share tab audio"), mixedAudioStream just stays mic-only — video,
         // if kept, still gets recorded for download.
+      }
+
+      // Give the browser's audio-processing pipeline (echo cancellation /
+      // noise suppression / auto gain control) a moment to calibrate before
+      // capture actually starts recording — skipping this warm-up meant the
+      // very first ~1s of speech was frequently muted or heavily
+      // attenuated, since that calibration runs on the track's first audio
+      // samples. The UI only switches to "recording" after this wait, so
+      // there's no indicator inviting the user to start speaking too early.
+      await new Promise(resolve => setTimeout(resolve, 400));
+      if (cancelledRef.current) {
+        releaseStream();
+        return;
       }
 
       streamRef.current = mixedAudioStream;

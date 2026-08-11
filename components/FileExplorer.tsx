@@ -210,7 +210,10 @@ const Node: React.FC<{
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', node.id);
     e.dataTransfer.effectAllowed = 'move';
-    setDraggingNodeId(node.id);
+    // Defer the state update so the DOM doesn't shift (due to the root
+    // drop-zone appearing) while the browser is still capturing the drag
+    // image — a synchronous shift here can cancel the drag in some browsers.
+    requestAnimationFrame(() => setDraggingNodeId(node.id));
   };
 
   const handleDragEnd = () => {
@@ -224,12 +227,13 @@ const Node: React.FC<{
   // Skipping preventDefault() here instead makes the browser show its
   // native "not allowed" cursor and refuses the drop outright.
   const handleDragOver = (e: React.DragEvent) => {
-    if (draggingNodeId === null || isNodeOrDescendant(tree, draggingNodeId, node.id)) return;
+    // During the first frame after dragstart, draggingNodeId is still null
+    // (deferred via rAF to avoid layout shift) — fall back to the
+    // dataTransfer types list, which is always available during dragover.
+    const hasDragData = draggingNodeId !== null || e.dataTransfer.types.includes('text/plain');
+    if (!hasDragData || (draggingNodeId !== null && isNodeOrDescendant(tree, draggingNodeId, node.id))) return;
     e.preventDefault();
-    // The row is split into zones by where the cursor is vertically: a
-    // folder's middle 50% moves the dragged node *into* it (unchanged
-    // behavior), while the top/bottom edges (the whole row, for a file,
-    // which has no "inside") reorder it as a sibling above/below instead.
+    e.dataTransfer.dropEffect = 'move';
     const rect = e.currentTarget.getBoundingClientRect();
     const relativeY = (e.clientY - rect.top) / rect.height;
     if (node.type === 'folder') {
@@ -242,21 +246,15 @@ const Node: React.FC<{
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    if (!dropIndicator) return;
     e.preventDefault();
+    // Always reset drag state, even on early returns — relying solely on
+    // the source row's `dragend` is unreliable when React unmounts the
+    // source during reparenting.
+    setDraggingNodeId(null);
+    if (!dropIndicator) { setDropIndicator(null); return; }
     const droppedNodeId = e.dataTransfer.getData('text/plain');
     setDropIndicator(null);
     if (!droppedNodeId) return;
-    // Reset the dragging state here rather than relying on the source row's
-    // `dragend` to do it: when the drop reparents the node (moving it into
-    // a different folder than it started in), that row unmounts from its
-    // old spot in the tree and remounts under its new parent as part of
-    // this same synchronous update — before the browser gets a chance to
-    // fire `dragend` on the now-detached original element. `dragend` never
-    // fires on a removed node, so `draggingNodeId` would otherwise stay
-    // stuck, permanently showing the "drop here to move out of folder"
-    // banner and breaking every future drag until the page reloads.
-    setDraggingNodeId(null);
     if (dropIndicator === 'inside') {
       onMoveNode(droppedNodeId, node.id);
       return;
@@ -356,6 +354,17 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Catch-all: if dragend fires anywhere in the document (even on a
+  // detached element that still bubbles), make sure we reset the drag
+  // state.  This covers edge-cases where neither handleDrop nor the
+  // per-row handleDragEnd fire (e.g. dropping outside any valid target
+  // when the source row has been reparented/remounted).
+  useEffect(() => {
+    const reset = () => setDraggingNodeId(null);
+    document.addEventListener('dragend', reset);
+    return () => document.removeEventListener('dragend', reset);
+  }, []);
   
   const handleContextMenu = (event: React.MouseEvent, nodeId: string) => {
     event.preventDefault();
@@ -377,21 +386,6 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
     <FileExplorerContext.Provider value={contextValue}>
       <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
         <div className="flex-grow overflow-y-auto px-2.5 pt-2 pb-2 space-y-0.5">
-          {showRootDropZone && (
-            <div
-              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const droppedNodeId = e.dataTransfer.getData('text/plain');
-                if (droppedNodeId) onMoveNode(droppedNodeId, 'root');
-                setDraggingNodeId(null);
-              }}
-              className="flex items-center gap-2 px-3 py-2 mb-1 rounded-xl border-2 border-dashed border-accent/50 bg-accent/5 text-accent text-xs font-medium"
-            >
-              <FolderIcon className="w-4 h-4 flex-shrink-0" />
-              <span>{t('fileExplorer.dropToMoveOut')}</span>
-            </div>
-          )}
           {rootNode.childrenIds.map(childId => (
             tree[childId] ? (
               <Node
@@ -406,6 +400,21 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
             ) : null
           ))}
         </div>
+        {showRootDropZone && (
+          <div
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const droppedNodeId = e.dataTransfer.getData('text/plain');
+              if (droppedNodeId) onMoveNode(droppedNodeId, 'root');
+              setDraggingNodeId(null);
+            }}
+            className="flex items-center gap-2 mx-2.5 mb-2 px-3 py-2 rounded-xl border-2 border-dashed border-accent/50 bg-accent/5 text-accent text-xs font-medium"
+          >
+            <FolderIcon className="w-4 h-4 flex-shrink-0" />
+            <span>{t('fileExplorer.dropToMoveOut')}</span>
+          </div>
+        )}
 
         {contextMenu && contextNode && (
           <div

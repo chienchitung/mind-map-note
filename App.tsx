@@ -560,7 +560,16 @@ const App: React.FC = () => {
     }
     setActiveNoteId(newNoteId);
     setIsVoiceNoteModalOpen(false);
-    setActionMessage({ text: t('app.voiceNoteCreated'), variant: 'success' });
+    // A segment Groq couldn't transcribe (e.g. rejected as an undecodable
+    // clip) is skipped rather than aborting the whole recording — the note
+    // still gets generated from whatever did transcribe, but the user
+    // should know it may be missing a piece rather than assuming it's
+    // complete.
+    setActionMessage(
+      recording.skippedSegmentCount > 0
+        ? { text: t('app.voiceNotePartialTranscript', { count: recording.skippedSegmentCount }), variant: 'warning' }
+        : { text: t('app.voiceNoteCreated'), variant: 'success' }
+    );
 
     voiceRecordingsStorage.saveRecording(newNoteId, recording.transcript, recording.timestampedTranscript, recording.segments).catch(error => {
       console.error('Failed to save voice recording:', error);

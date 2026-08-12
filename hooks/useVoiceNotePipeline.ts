@@ -6,6 +6,8 @@ import {
   isVideoFile,
   MAX_UPLOAD_BYTES,
   RateLimitError,
+  MissingGroqApiKeyError,
+  InvalidGroqApiKeyError,
   type TranscriptionResult,
 } from '../services/groqTranscriptionService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
@@ -65,6 +67,12 @@ export interface VoiceRecordingData {
   // still what's sent to Gemini for note generation.
   timestampedTranscript: string;
   segments: Blob[];
+  // How many recorded/uploaded segments failed to transcribe and were
+  // skipped rather than aborting the whole session (see drainQueue in
+  // useVoiceNotePipeline) — 0 when every segment transcribed cleanly.
+  // Callers can use this to warn the user the transcript may be missing a
+  // piece even though a note was still generated.
+  skippedSegmentCount: number;
 }
 
 interface UseVoiceNotePipelineOptions {
@@ -234,6 +242,13 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   // handed off to the caller alongside the generated note — not just the
   // transcript.
   const audioSegmentsRef = useRef<Blob[]>([]);
+  // How many segments this session failed to transcribe (e.g. Groq
+  // rejecting one as an undecodable/corrupted clip) and were skipped rather
+  // than aborting the whole recording — see drainQueue. Surfaced to the
+  // caller via VoiceRecordingData.skippedSegmentCount once the note is
+  // generated, so the user knows the transcript may be missing a piece
+  // instead of that failure just silently vanishing.
+  const skippedSegmentCountRef = useRef(0);
 
   // The parallel recorder that captures shared-screen video (+ mixed
   // audio) purely for download/preview — never touches transcription.
@@ -385,6 +400,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
           transcript: combinedTranscript,
           timestampedTranscript: timestampedTranscriptPartsRef.current.join('\n'),
           segments: audioSegmentsRef.current,
+          skippedSegmentCount: skippedSegmentCountRef.current,
         });
         resetToIdle();
       } catch (error) {
@@ -475,8 +491,22 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
           }));
         } catch (error) {
           if (cancelledRef.current) return;
-          handlePipelineError(error);
-          return;
+          // A missing/revoked API key or an exhausted rate limit affects
+          // every remaining segment identically, so there's no point
+          // continuing — abort the whole session as before. Anything else
+          // (most commonly Groq rejecting one clip as undecodable/corrupt —
+          // "could not process file") is specific to that one segment: skip
+          // it and keep going, so a single bad clip doesn't cut off a
+          // recording that's still in progress or throw away every other
+          // segment that transcribed fine. The user's told how many were
+          // dropped once the note is generated — see skippedSegmentCountRef.
+          if (error instanceof MissingGroqApiKeyError || error instanceof InvalidGroqApiKeyError || error instanceof RateLimitError) {
+            handlePipelineError(error);
+            return;
+          }
+          console.error('Skipping a segment that failed to transcribe:', error);
+          skippedSegmentCountRef.current += 1;
+          setState(s => ({ ...s, completedSegments: s.completedSegments + 1, currentUploadFraction: 0 }));
         }
       }
     } finally {
@@ -691,6 +721,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       transcriptPartsRef.current = [];
       timestampedTranscriptPartsRef.current = [];
       cumulativeAudioSecondsRef.current = 0;
+      skippedSegmentCountRef.current = 0;
       segmentQueueRef.current = [];
       audioSegmentsRef.current = [];
       rawRecordingBlobsRef.current = [];
@@ -764,6 +795,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     transcriptPartsRef.current = [];
     timestampedTranscriptPartsRef.current = [];
     cumulativeAudioSecondsRef.current = 0;
+    skippedSegmentCountRef.current = 0;
     segmentQueueRef.current = [];
     audioSegmentsRef.current = [];
     rawRecordingBlobsRef.current = [];
@@ -903,6 +935,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     transcriptPartsRef.current = [];
     timestampedTranscriptPartsRef.current = [];
     cumulativeAudioSecondsRef.current = 0;
+    skippedSegmentCountRef.current = 0;
     audioSegmentsRef.current = [];
     rawRecordingBlobsRef.current = [];
     uploadedFileRef.current = null;

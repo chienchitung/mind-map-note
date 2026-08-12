@@ -98,6 +98,20 @@ export class RateLimitError extends Error {
     }
 }
 
+/**
+ * Thrown on an HTTP 401/403 from Groq — the configured key is invalid,
+ * revoked, or lacks access, as opposed to MissingGroqApiKeyError (no key
+ * configured at all). Unlike a single clip Groq can't decode, this affects
+ * every remaining segment identically, so callers should treat it as fatal
+ * for the whole session rather than skipping just this one request.
+ */
+export class InvalidGroqApiKeyError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "InvalidGroqApiKeyError";
+    }
+}
+
 interface TranscribeOptions {
     // AbortSignal so an in-flight request can be cancelled if the user
     // closes the recording dialog or cancels the pipeline early.
@@ -259,6 +273,11 @@ export const transcribeAudio = (
                     retryAfterSeconds = match ? parseFloat(match[1]) : 15;
                 }
                 reject(new RateLimitError(message, retryAfterSeconds));
+                return;
+            }
+
+            if (xhr.status === 401 || xhr.status === 403) {
+                reject(new InvalidGroqApiKeyError(message));
                 return;
             }
 

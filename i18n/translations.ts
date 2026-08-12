@@ -200,6 +200,8 @@ const zh = {
   'editor.uploadImage': '上傳圖片',
   'editor.dropImageHint': '拖曳圖片至此以上傳',
   'editor.placeholder': '在這裡開始您的筆記...',
+  'editor.stats': '{{chars}} 字元・{{words}} 字',
+  'editor.statsLabel': '字元數與字數統計',
 
   // --- rich text editor toolbar ---
   'richEditor.imageLoading': '圖片載入中…',
@@ -522,6 +524,8 @@ const en: Record<TranslationKey, string> = {
   'editor.uploadImage': 'Upload image',
   'editor.dropImageHint': 'Drop image here to upload',
   'editor.placeholder': 'Start writing your note here...',
+  'editor.stats': '{{chars}} chars · {{words}} words',
+  'editor.statsLabel': 'Character and word count',
 
   // --- rich text editor toolbar ---
   'richEditor.imageLoading': 'Loading image…',

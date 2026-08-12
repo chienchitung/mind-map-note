@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { CopyIcon, CheckIcon, ImageIcon } from './icons';
 import Spinner from './Spinner';
 import { Images } from '../types';
 import { compressImageFile } from '../utils/imageCompression';
+import { computeTextStats } from '../utils/textStats';
 import { useTranslation } from '../contexts/LanguageContext';
 
 // TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
@@ -335,6 +336,16 @@ const Editor: React.FC<EditorProps> = ({
     </button>
   );
 
+  const { characters, words } = useMemo(() => computeTextStats(value), [value]);
+  const statsBadge = (
+    <div
+      className="px-2.5 py-1 rounded-full bg-elevated shadow-apple-xs text-xs text-text-secondary whitespace-nowrap select-none"
+      title={t('editor.statsLabel')}
+    >
+      {t('editor.stats', { chars: characters.toLocaleString(), words: words.toLocaleString() })}
+    </div>
+  );
+
   return (
     <div
       className="h-full w-full editor-wrapper relative flex flex-col"
@@ -358,9 +369,11 @@ const Editor: React.FC<EditorProps> = ({
             {modeToggle}
             {uploadButton}
             <div className="flex-grow" />
+            {statsBadge}
             {copyButton}
           </div>
           <div className="hidden md:flex absolute top-3 right-3 z-10 items-center gap-1.5">
+            {statsBadge}
             {modeToggle}
             {uploadButton}
             {copyButton}
@@ -405,7 +418,7 @@ const Editor: React.FC<EditorProps> = ({
               onChange={onChange}
               onImagePasted={onImagePasted}
               images={images}
-              toolbarExtras={<>{modeToggle}{copyButton}</>}
+              toolbarExtras={<>{statsBadge}{modeToggle}{copyButton}</>}
               scrollToBlockOrdinal={scrollToBlockOrdinal}
               onScrollComplete={onBlockScrollComplete}
             />

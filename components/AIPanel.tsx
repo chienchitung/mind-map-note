@@ -15,6 +15,7 @@ interface AIPanelProps {
   onNewConversation: () => void;
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
+  onStopGenerating: () => void;
   isLoading: boolean;
   images: Images;
 }
@@ -61,7 +62,7 @@ const TypewriterMessage: React.FC<{ text: string; images: Images, scrollRef: Rea
 };
 
 
-const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, messages, onSendMessage, isLoading, images }) => {
+const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, messages, onSendMessage, onStopGenerating, isLoading, images }) => {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -179,7 +180,12 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                // isComposing is true while an IME (Chinese/Japanese/Korean
+                // pinyin, etc.) candidate window is open — Enter there
+                // confirms the candidate, it isn't the user asking to send.
+                // keyCode 229 is the older fallback some browsers still use
+                // instead of (or alongside) nativeEvent.isComposing.
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                     e.preventDefault();
                     handleSubmit(e);
                 }
@@ -191,17 +197,31 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
             style={{ maxHeight: '200px', minHeight: '52px' }}
             disabled={isLoading}
           />
-          <button
-            type="submit"
-            disabled={isLoading || !input.trim()}
-            title={t('aiPanel.sendShortcut')}
-            aria-label={t('aiPanel.send')}
-            className="absolute right-2 bottom-2 w-9 h-9 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/35 disabled:cursor-not-allowed transition-all duration-150 ease-apple active:scale-90 hover:opacity-90"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-            </svg>
-          </button>
+          {isLoading ? (
+            <button
+              type="button"
+              onClick={onStopGenerating}
+              title={t('aiPanel.stopGenerating')}
+              aria-label={t('aiPanel.stopGenerating')}
+              className="absolute right-2 bottom-2 w-9 h-9 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center transition-all duration-150 ease-apple active:scale-90 hover:opacity-90"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5">
+                  <rect x="5" y="5" width="14" height="14" rx="2" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              title={t('aiPanel.sendShortcut')}
+              aria-label={t('aiPanel.send')}
+              className="absolute right-2 bottom-2 w-9 h-9 flex-shrink-0 bg-accent text-white rounded-full flex items-center justify-center disabled:bg-accent/35 disabled:cursor-not-allowed transition-all duration-150 ease-apple active:scale-90 hover:opacity-90"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                  <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+              </svg>
+            </button>
+          )}
         </form>
       </div>
     </div>

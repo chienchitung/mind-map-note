@@ -249,6 +249,10 @@ const App: React.FC = () => {
   // that lands after the user has already moved on) can recognize it's
   // stale and skip updating state for whatever session is current now.
   const chatSessionTokenRef = useRef(0);
+  // The in-flight chat request's AbortController, if any — lets the AI
+  // panel's stop button actually cancel a reply that's still generating,
+  // rather than the button just sitting there disabled with no effect.
+  const chatAbortControllerRef = useRef<AbortController | null>(null);
   const previousNoteIdForChatRef = useRef(activeNoteId);
   // Each note keeps its own conversation — switching notes doesn't discard
   // one, it just stashes it here and swaps in whichever conversation (if
@@ -707,19 +711,43 @@ const App: React.FC = () => {
     setChatMessages(prev => [...prev, userMessage]);
     setIsAILoading(true);
 
+    const controller = new AbortController();
+    chatAbortControllerRef.current = controller;
+
     try {
-      const response = await chatSession.sendMessage({ message });
+      const response = await chatSession.sendMessage({ message, config: { abortSignal: controller.signal } });
       const modelMessage: ChatMessage = { role: 'model', text: normalizeAiMarkdown(response.text ?? '') };
       setChatMessages(prev => [...prev, modelMessage]);
     } catch (error) {
-      console.error("Chat error:", error);
-      const { extractGeminiErrorMessage } = await import('./services/geminiChatService');
-      const errorMessage = extractGeminiErrorMessage(error);
-      const modelErrorMessage: ChatMessage = { role: 'model', text: t('app.chatErrorPrefix', { error: errorMessage }) };
-      setChatMessages(prev => [...prev, modelErrorMessage]);
+      // The SDK's abortSignal only cancels the client-side request (see its
+      // own doc comment) — the model reply that comes back is simply
+      // discarded rather than shown, with a short note explaining why
+      // instead of the user's message looking like it vanished with no
+      // response at all.
+      if (controller.signal.aborted) {
+        setChatMessages(prev => [...prev, { role: 'model', text: t('app.chatStopped') }]);
+      } else {
+        console.error("Chat error:", error);
+        const { extractGeminiErrorMessage } = await import('./services/geminiChatService');
+        const errorMessage = extractGeminiErrorMessage(error);
+        const modelErrorMessage: ChatMessage = { role: 'model', text: t('app.chatErrorPrefix', { error: errorMessage }) };
+        setChatMessages(prev => [...prev, modelErrorMessage]);
+      }
     } finally {
+      // Only clear the ref if it's still pointing at *this* request's
+      // controller — a stale finally from an already-superseded send
+      // (shouldn't normally overlap, since the composer is disabled while
+      // isLoading, but is cheap to guard against) shouldn't null out a
+      // newer one still in flight.
+      if (chatAbortControllerRef.current === controller) {
+        chatAbortControllerRef.current = null;
+      }
       setIsAILoading(false);
     }
+  };
+
+  const handleStopChatGeneration = () => {
+    chatAbortControllerRef.current?.abort();
   };
 
   const sidebarElement = (
@@ -766,6 +794,7 @@ const App: React.FC = () => {
         onNewConversation={handleNewConversation}
         messages={chatMessages}
         onSendMessage={handleSendChatMessage}
+        onStopGenerating={handleStopChatGeneration}
         isLoading={isAILoading}
         images={images}
       />

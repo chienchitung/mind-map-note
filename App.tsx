@@ -18,6 +18,15 @@ import Toast from './components/Toast';
 import Spinner from './components/Spinner';
 import VoiceNoteStatusPill from './components/VoiceNoteStatusPill';
 import type { Chat } from '@google/genai';
+// Bundles a Chat instance with the exact systemInstruction it was created
+// with — needed because the SDK's per-message config (used to attach an
+// abortSignal for the stop button) replaces the chat's own config rather
+// than merging with it, so a cancelable send has to pass this back
+// explicitly on every call or silently lose the note context.
+interface ChatSessionHandle {
+  chat: Chat;
+  systemInstruction: string;
+}
 import { parseMarkdownToMindMap, findBlockOrdinal } from './utils/markdownParser';
 import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
@@ -232,7 +241,7 @@ const App: React.FC = () => {
 
   // State for the new AI Panel
   const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
-  const [chatSession, setChatSession] = useState<Chat | null>(null);
+  const [chatSession, setChatSession] = useState<ChatSessionHandle | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isAILoading, setIsAILoading] = useState(false);
   // On desktop the panel stays mounted (width just collapses to 0) so its
@@ -258,14 +267,14 @@ const App: React.FC = () => {
   // one, it just stashes it here and swaps in whichever conversation (if
   // any) belongs to the note being switched to, so leaving and coming back
   // continues right where it left off instead of restarting every time.
-  const chatSessionsByNoteRef = useRef<Record<string, { session: Chat; messages: ChatMessage[] }>>({});
+  const chatSessionsByNoteRef = useRef<Record<string, { session: ChatSessionHandle; messages: ChatMessage[] }>>({});
   useEffect(() => {
     const previousNoteId = previousNoteIdForChatRef.current;
     if (previousNoteId === activeNoteId) return;
     previousNoteIdForChatRef.current = activeNoteId;
 
-    // Invalidate any in-flight priming callback from the outgoing note's
-    // session so it can't land after we've already moved on to another one.
+    // Invalidate any in-flight session-creation callback from the outgoing
+    // note so it can't land after we've already moved on to another one.
     chatSessionTokenRef.current++;
 
     if (previousNoteId && chatSession) {
@@ -648,13 +657,7 @@ const App: React.FC = () => {
 
     try {
       const { createChatSession } = await import('./services/geminiChatService');
-      const session = await createChatSession(content, apiKey, (errorMessage) => {
-        // Fire-and-forget context priming can fail well after this function
-        // returns — only surface it if the user hasn't since closed the
-        // panel or switched to a different note's session in the meantime.
-        if (chatSessionTokenRef.current !== sessionToken) return;
-        setChatMessages(prev => [...prev, { role: 'model', text: t('aiPanel.contextErrorReminder', { error: errorMessage }) }]);
-      });
+      const session = await createChatSession(content, apiKey);
       if (chatSessionTokenRef.current !== sessionToken) return;
       setChatSession(session);
       setChatMessages([{ role: 'model', text: t('aiPanel.greeting', { noteName: activeNoteName }) }]);
@@ -715,7 +718,14 @@ const App: React.FC = () => {
     chatAbortControllerRef.current = controller;
 
     try {
-      const response = await chatSession.sendMessage({ message, config: { abortSignal: controller.signal } });
+      const response = await chatSession.chat.sendMessage({
+        message,
+        // Passing `config` here replaces the chat's own config (set at
+        // creation) rather than merging with it — systemInstruction has to
+        // be repeated explicitly or this message would lose the note
+        // context entirely, not just the abortSignal being added to it.
+        config: { abortSignal: controller.signal, systemInstruction: chatSession.systemInstruction },
+      });
       const modelMessage: ChatMessage = { role: 'model', text: normalizeAiMarkdown(response.text ?? '') };
       setChatMessages(prev => [...prev, modelMessage]);
     } catch (error) {

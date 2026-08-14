@@ -35,7 +35,21 @@ export const extractGeminiErrorMessage = (error: unknown): string => {
 
 /**
  * Creates a new conversational chat session with the Gemini API.
- * The session is initialized with the content of the user's note for context.
+ * The session is initialized with the content of the user's note as part of
+ * its system instruction, so every request in the conversation has that
+ * context available from the very first message — no separate "priming"
+ * request is sent up front.
+ *
+ * (This used to send the note content as an actual first chat message,
+ * fired-and-forgotten right after creating the session. That doesn't work
+ * well with an SDK-level detail of the Chat class: `sendMessage()` always
+ * waits for whatever the *previous* call on that same Chat instance is
+ * still doing before it even issues its own request. Since that priming
+ * message had no cancellation wired to it, the user's actual first message
+ * — sent moments later — would silently queue up behind it, and clicking
+ * "stop" on that first message did nothing, because its request hadn't
+ * even started yet. Folding the note into the system instruction removes
+ * the extra call (and the queueing) entirely.)
  *
  * The API key is supplied by the caller (sourced from the user's own
  * browser-local Settings) rather than baked in at build time, so it is
@@ -43,16 +57,18 @@ export const extractGeminiErrorMessage = (error: unknown): string => {
  *
  * @param noteContent The text of the current note to provide as context.
  * @param apiKey The user's Gemini API key.
- * @param onContextError Called if the context-priming message below fails —
- *   the caller doesn't wait for it (see comment), so a failure can't just
- *   throw; it has to be reported out-of-band once it happens.
- * @returns A promise that resolves to a Chat instance.
+ * @returns A promise that resolves to the Chat instance alongside the exact
+ *   systemInstruction it was created with. The Chat SDK's per-message
+ *   `config` (used to attach an abortSignal — see AIPanel's stop button)
+ *   *replaces* the chat's own config rather than merging with it, so
+ *   callers that want both cancellation and the note context need to pass
+ *   this systemInstruction back on every call, not just rely on it being
+ *   set once at creation time.
  */
 export const createChatSession = async (
     noteContent: string,
     apiKey: string,
-    onContextError?: (message: string) => void,
-): Promise<Chat> => {
+): Promise<{ chat: Chat; systemInstruction: string }> => {
     if (!apiKey) {
         throw new MissingApiKeyError();
     }
@@ -60,9 +76,13 @@ export const createChatSession = async (
     try {
         const ai = new GoogleGenAI({ apiKey });
         const language = getCurrentLanguage();
-        const systemInstruction = language === 'en'
-            ? 'You are an AI learning assistant. A user has provided you with their notes. Your role is to help them understand, summarize, or quiz them on the provided content in a conversational manner. Be helpful and encouraging. Always respond in English. For a simple logical or flow relationship (e.g. "A leads to B"), just write the arrow directly as plain text (A → B) — no special syntax needed. Reserve LaTeX for genuine mathematical or chemical formulas (fractions, exponents, equations, etc.): wrap inline formulas in a single `$` (e.g. `$x^2$`) and standalone block formulas in `$$` (e.g. `$$E=mc^2$$`). LaTeX commands always use a single backslash (e.g. `\\frac{a}{b}`) — never double it.'
-            : 'You are an AI learning assistant. A user has provided you with their notes. Your role is to help them understand, summarize, or quiz them on the provided content in a conversational manner. Be helpful and encouraging. Always respond in Traditional Chinese (繁體中文). 單純的邏輯/流程關係（例如「A 導致 B」）請直接用文字箭頭表示（A → B），不需要任何特殊語法。LaTeX 語法只留給真正的數學或化學公式（分數、次方、方程式等）：行內公式用單一 `$` 包住（如 `$x^2$`），獨立成行的公式用 `$$` 包住（如 `$$E=mc^2$$`）。LaTeX 指令一律使用單一反斜線（如 `\\frac{a}{b}`），不要重複跳脫。';
+        const roleInstruction = language === 'en'
+            ? 'You are an AI learning assistant. A user has provided you with their notes below. Your role is to help them understand, summarize, or quiz them on the provided content in a conversational manner. Be helpful and encouraging. Always respond in English. For a simple logical or flow relationship (e.g. "A leads to B"), just write the arrow directly as plain text (A → B) — no special syntax needed. Reserve LaTeX for genuine mathematical or chemical formulas (fractions, exponents, equations, etc.): wrap inline formulas in a single `$` (e.g. `$x^2$`) and standalone block formulas in `$$` (e.g. `$$E=mc^2$$`). LaTeX commands always use a single backslash (e.g. `\\frac{a}{b}`) — never double it.'
+            : 'You are an AI learning assistant. A user has provided you with their notes below. Your role is to help them understand, summarize, or quiz them on the provided content in a conversational manner. Be helpful and encouraging. Always respond in Traditional Chinese (繁體中文). 單純的邏輯/流程關係（例如「A 導致 B」）請直接用文字箭頭表示（A → B），不需要任何特殊語法。LaTeX 語法只留給真正的數學或化學公式（分數、次方、方程式等）：行內公式用單一 `$` 包住（如 `$x^2$`），獨立成行的公式用 `$$` 包住（如 `$$E=mc^2$$`）。LaTeX 指令一律使用單一反斜線（如 `\\frac{a}{b}`），不要重複跳脫。';
+        const noteContextLabel = language === 'en'
+            ? 'Here are the user\'s notes — use them as the context for this conversation:'
+            : '以下是使用者的筆記，請將其作為這次對話的背景資訊：';
+        const systemInstruction = `${roleInstruction}\n\n${noteContextLabel}\n\n---\n\n${noteContent}`;
         const chat: Chat = ai.chats.create({
             model: 'gemini-3.6-flash',
             config: {
@@ -70,18 +90,7 @@ export const createChatSession = async (
             },
         });
 
-        // Send the note content as the first message to establish context for the conversation.
-        // We don't need to wait for this response before returning the chat object. The user's first
-        // visible message will be the one that gets the first visible response. A failure here must
-        // still be caught, though — left unhandled, the user has no idea the AI never actually saw
-        // their note and just silently answers with no context.
-        chat.sendMessage({ message: `Here are my notes, please use them as the context for our conversation:\n\n---\n\n${noteContent}` })
-            .catch((error) => {
-                console.error('Failed to prime chat session with note context:', error);
-                onContextError?.(extractGeminiErrorMessage(error));
-            });
-
-        return chat;
+        return { chat, systemInstruction };
     } catch (error) {
         console.error("Error creating Gemini chat session:", error);
         throw new Error("Failed to create a chat session with the AI model.");

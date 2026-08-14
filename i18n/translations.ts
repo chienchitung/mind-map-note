@@ -227,7 +227,6 @@ const zh = {
   'aiPanel.send': '傳送訊息',
   'aiPanel.stopGenerating': '停止生成',
   'aiPanel.greeting': '你好！我已經閱讀完 **{{noteName}}** 的內容了。我可以協助你做什麼呢？試試看問我：\n\n- 幫我總結這份筆記\n- 根據筆記內容出幾道練習題\n- 用更簡單的方式解釋第二段',
-  'aiPanel.contextErrorReminder': '（提醒：讀取這篇筆記的內容時發生錯誤，後續回答可能沒有參考到筆記內容：{{error}}）',
   'aiPanel.errorPrefix': '抱歉，發生錯誤：{{error}}',
 
   // --- mind map ---
@@ -554,7 +553,6 @@ const en: Record<TranslationKey, string> = {
   'aiPanel.send': 'Send message',
   'aiPanel.stopGenerating': 'Stop generating',
   'aiPanel.greeting': "Hi! I've read through **{{noteName}}**. What can I help you with? Try asking me to:\n\n- Summarize this note\n- Come up with a few practice questions from it\n- Explain the second section more simply",
-  'aiPanel.contextErrorReminder': "(Note: there was an error reading this note's content, so my answers below may not be based on it: {{error}})",
   'aiPanel.errorPrefix': 'Sorry, something went wrong: {{error}}',
 
   // --- mind map ---

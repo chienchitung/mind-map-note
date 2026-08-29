@@ -404,6 +404,18 @@ body {
 @media print {
   @page {
     margin: 2cm;
+    /* A quiet page number in the outer margin — kept to just the number
+     * (no running document title) since Chromium's print engine doesn't
+     * reliably support the CSS (string-set/string()) that a per-page title
+     * would need; the title page below already states the document name
+     * once, prominently, which covers the same need without relying on
+     * that. */
+    @bottom-center {
+      content: counter(page);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Inter, Arial, sans-serif;
+      font-size: 9pt;
+      color: #86868b;
+    }
   }
 
   body {
@@ -412,6 +424,35 @@ body {
 
   #print-only-content {
     color: #1d1d1f !important;
+  }
+
+  /* Folder export's title page (App.tsx) — the document name front and
+   * center, then a thin accent rule and the export date, with generous
+   * whitespace above so it reads like a cover rather than a cramped
+   * header. break-after pushes the actual content onto its own page 2. */
+  #print-only-content .print-title-page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 22cm;
+    text-align: center;
+    break-after: page;
+  }
+
+  #print-only-content .print-title-page h1 {
+    margin: 0 0 0.6em;
+    padding: 0 0 0.5em;
+    border-bottom: 2px solid #0071e3;
+    font-size: 30pt;
+    font-weight: 600;
+    color: #1d1d1f !important;
+  }
+
+  #print-only-content .print-title-page p {
+    margin: 0;
+    font-size: 11pt;
+    color: #86868b !important;
   }
 
   #print-only-content .markdown-preview h1,
@@ -426,6 +467,32 @@ body {
 
   #print-only-content .markdown-preview h1 {
     border-bottom-color: #d2d2d7 !important;
+  }
+
+  /* Each note gets its own page in a combined folder export, so a dozen
+   * short notes don't all run together — see the .print-is-folder-export
+   * scoping. A plain single-note export is untouched: its own single H1
+   * sits at the very top of the page anyway, so this rule would be a
+   * no-op there regardless, but scoping it keeps that guarantee explicit
+   * rather than incidental. */
+  #print-only-content.print-is-folder-export .markdown-preview h1 {
+    break-before: page;
+  }
+
+  /* Folder/sub-folder section headings — see folderExport.ts, which emits
+   * these as raw `<h2>`/`<h3>`/... carrying this class instead of plain
+   * Markdown syntax, specifically so they can look distinct from a note's
+   * own (equally heading-level) title: accent blue rather than the
+   * near-black used everywhere else, with a lighter rule than a note
+   * title's own h1 border so the two read as different *kinds* of
+   * heading, not just different sizes of the same one. Each section also
+   * starts its own page, same reasoning as the per-note rule above. */
+  #print-only-content .markdown-preview .print-section-heading {
+    color: #0071e3 !important;
+    border-bottom: 1px solid #cce4fb;
+    padding-bottom: 0.35em;
+    break-before: page;
+    break-after: avoid;
   }
 
   #print-only-content .markdown-preview a {

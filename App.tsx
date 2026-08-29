@@ -78,7 +78,7 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 
 
 const App: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError } = useFileSystem();
   
   const findFirstFile = () => {
@@ -1042,7 +1042,17 @@ const App: React.FC = () => {
         pulling in a client-side PDF library. Shows the active note by
         default, or a folder's combined document while folderPrintOverride
         is set (see handleExportFolderPDF). */}
-    <div id="print-only-content" className="hidden print:block">
+    <div id="print-only-content" className={`hidden print:block${folderPrintOverride ? ' print-is-folder-export' : ''}`}>
+      {folderPrintOverride && (
+        <div className="print-title-page">
+          <h1>{folderPrintOverride.title}</h1>
+          <p>
+            {new Date().toLocaleDateString(language === 'en' ? 'en-US' : 'zh-TW', {
+              year: 'numeric', month: 'long', day: 'numeric',
+            })}
+          </p>
+        </div>
+      )}
       <MarkdownPreview markdown={folderPrintOverride ? folderPrintOverride.markdown : markdown} images={images} />
     </div>
     </div>

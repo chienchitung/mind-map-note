@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { FileSystemTree, FileSystemNode } from '../types';
-import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon } from './icons';
+import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon, ExportIcon, DocumentIcon } from './icons';
 import { useTranslation } from '../contexts/LanguageContext';
 
 // A modal component for moving a node to a new folder.
@@ -121,6 +121,8 @@ interface FileExplorerProps {
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
+  onExportFolderMarkdown: (folderId: string) => void;
+  onExportFolderPDF: (folderId: string) => void;
 }
 
 interface IFileExplorerContext {
@@ -346,7 +348,7 @@ const Node: React.FC<{
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const { t } = useTranslation();
-  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode } = props;
+  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode, onExportFolderMarkdown, onExportFolderPDF } = props;
   const rootNode = tree['root'];
   
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
@@ -445,6 +447,23 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
             >
               <FolderIcon className="w-4 h-4" /> <span>{t('fileExplorer.moveTo')}</span>
             </button>
+            {contextNode.type === 'folder' && (
+              <>
+                <div className="h-px bg-border-color my-1 mx-1"></div>
+                <button
+                  onClick={() => { onExportFolderMarkdown(contextMenu.nodeId); closeContextMenu(); }}
+                  className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
+                >
+                  <ExportIcon className="w-4 h-4" /> <span>{t('fileExplorer.exportFolderMarkdown')}</span>
+                </button>
+                <button
+                  onClick={() => { onExportFolderPDF(contextMenu.nodeId); closeContextMenu(); }}
+                  className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
+                >
+                  <DocumentIcon className="w-4 h-4" /> <span>{t('fileExplorer.exportFolderPDF')}</span>
+                </button>
+              </>
+            )}
             {contextNode.parentId !== null && (
               <>
                 <div className="h-px bg-border-color my-1 mx-1"></div>

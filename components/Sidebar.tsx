@@ -19,6 +19,8 @@ interface SidebarProps {
   onRestoreNode: (nodeId: string) => void;
   onPermanentlyDeleteNode: (nodeId: string) => void;
   onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
+  onExportFolderMarkdown: (folderId: string) => void;
+  onExportFolderPDF: (folderId: string) => void;
   mindMapData: MindMapNode | null;
   activeLine: number;
   onOutlineNodeClick: (lineNumber: number) => void;
@@ -45,6 +47,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onRestoreNode,
   onPermanentlyDeleteNode,
   onMoveNode,
+  onExportFolderMarkdown,
+  onExportFolderPDF,
   mindMapData,
   activeLine,
   onOutlineNodeClick,
@@ -96,6 +100,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             onRenameNode={onRenameNode}
             onDeleteNode={onDeleteNode}
             onMoveNode={onMoveNode}
+            onExportFolderMarkdown={onExportFolderMarkdown}
+            onExportFolderPDF={onExportFolderPDF}
           />
         ) : activeTab === 'recordings' ? (
           <VoiceRecordingsPanel

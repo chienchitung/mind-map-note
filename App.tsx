@@ -32,6 +32,7 @@ import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 import { useTranslation } from './contexts/LanguageContext';
 import { TRANSCRIPTION_LANGUAGE_STORAGE_KEY, type TranscriptionLanguage } from './utils/transcriptionLanguage';
+import { buildFolderExportDocument } from './utils/folderExport';
 
 // The AI chat panel (and the @google/genai SDK it pulls in) is only ever
 // needed once a user with an API key opens it, so it's loaded on demand
@@ -190,7 +191,11 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Editor);
   const [mindMapLayout, setMindMapLayout] = useState<MindMapLayout>(MindMapLayout.MindMap);
   const [theme, setTheme] = useLocalStorage<'light' | 'dark'>('theme', 'light');
-  
+  // Non-null while a folder-wide PDF export is in flight — see
+  // handleExportFolderPDF. Swaps #print-only-content's source over to the
+  // combined document for the duration of the print, then clears itself.
+  const [folderPrintOverride, setFolderPrintOverride] = useState<{ title: string; markdown: string } | null>(null);
+
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
   // Consumed by RichTextEditor (Aa mode) and MarkdownPreview — unlike
   // scrollToLine (a raw textarea line offset, meaningless to either of
@@ -444,6 +449,53 @@ const App: React.FC = () => {
     window.addEventListener('afterprint', restoreTitle);
     window.print();
   };
+
+  // Notes-to-export helper shared by both single-note and folder export: the
+  // active note's `notes` entry can lag the live `markdown` buffer by up to
+  // the typing-pause debounce, so its latest keystrokes are patched in
+  // explicitly — same reasoning as handleExportBackup below.
+  const getNotesForExport = (): NotesContent =>
+    activeNoteId ? { ...notes, [activeNoteId]: markdown } : notes;
+
+  const handleExportFolderMarkdown = (folderId: string) => {
+    const doc = buildFolderExportDocument(tree, getNotesForExport(), folderId);
+    if (!doc) return;
+    const blob = new Blob([doc.markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${doc.title}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Reuses the exact same print-to-PDF mechanism as handleExportPDF, but the
+  // #print-only-content container needs to render the combined document
+  // first — so this stashes it in state and lets the effect below (which
+  // only fires once that's actually committed to the DOM) trigger the print,
+  // rather than racing window.print() against a render that hasn't happened
+  // yet.
+  const handleExportFolderPDF = (folderId: string) => {
+    const doc = buildFolderExportDocument(tree, getNotesForExport(), folderId);
+    if (!doc) return;
+    setFolderPrintOverride(doc);
+  };
+
+  useEffect(() => {
+    if (!folderPrintOverride) return;
+    const previousTitle = document.title;
+    document.title = folderPrintOverride.title || previousTitle;
+    const cleanup = () => {
+      document.title = previousTitle;
+      setFolderPrintOverride(null);
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+    return () => window.removeEventListener('afterprint', cleanup);
+  }, [folderPrintOverride]);
 
   const handleExportBackup = () => {
     // Include the active note's latest keystrokes even if the typing-pause
@@ -771,6 +823,8 @@ const App: React.FC = () => {
       onRestoreNode={restoreNode}
       onPermanentlyDeleteNode={permanentlyDeleteNode}
       onMoveNode={moveNode}
+      onExportFolderMarkdown={handleExportFolderMarkdown}
+      onExportFolderPDF={handleExportFolderPDF}
       mindMapData={mindMapData}
       activeLine={activeLine}
       onOutlineNodeClick={handleOutlineNodeClick}
@@ -985,9 +1039,11 @@ const App: React.FC = () => {
     {/* Rendered only under @media print (see index.css) — window.print()
         in handleExportPDF turns this into the entire page, giving a real,
         text-searchable "PDF" via the browser's own print-to-PDF instead of
-        pulling in a client-side PDF library. */}
+        pulling in a client-side PDF library. Shows the active note by
+        default, or a folder's combined document while folderPrintOverride
+        is set (see handleExportFolderPDF). */}
     <div id="print-only-content" className="hidden print:block">
-      <MarkdownPreview markdown={markdown} images={images} />
+      <MarkdownPreview markdown={folderPrintOverride ? folderPrintOverride.markdown : markdown} images={images} />
     </div>
     </div>
   );

@@ -495,6 +495,35 @@ body {
     break-after: avoid;
   }
 
+  /* Chromium has a known print-rendering quirk where a bulleted list's
+   * marker glyph can silently fall back to a different (sometimes a
+   * colored emoji/symbol) font specifically for the first <li> landing
+   * right after a forced page break — exactly what the break-before rules
+   * above create throughout a folder export, which is why this only ever
+   * showed up on a list's first item, and only in the printed/exported
+   * PDF, never in the editor itself. Rather than chase that marker-box
+   * font resolution, this sidesteps it entirely: list-style: none turns
+   * off the browser's native marker box altogether, and a manually drawn
+   * "•" in the exact same explicit font stack as the rest of the page (via
+   * ::before, ordinary inline content — not a special marker box) replaces
+   * it, so there's nothing left for the browser to substitute a fallback
+   * font into. */
+  #print-only-content .markdown-preview ul {
+    list-style: none;
+  }
+
+  #print-only-content .markdown-preview ul > li {
+    position: relative;
+  }
+
+  #print-only-content .markdown-preview ul > li::before {
+    content: "•";
+    position: absolute;
+    left: -1.1em;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Inter, Arial, sans-serif;
+    color: #1d1d1f !important;
+  }
+
   #print-only-content .markdown-preview a {
     color: #0071e3 !important;
   }

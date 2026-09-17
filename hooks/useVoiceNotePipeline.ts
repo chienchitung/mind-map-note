@@ -944,29 +944,40 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   // blob(s) — regardless of whether transcription has finished or even
   // succeeded. A no-op if nothing is available yet.
   const downloadRecording = useCallback(() => {
-    let blob: Blob;
-    let filename: string;
-
     if (uploadedFileRef.current) {
-      blob = uploadedFileRef.current;
-      filename = uploadedFileRef.current.name;
-    } else if (rawRecordingBlobsRef.current.length > 0) {
-      const mimeType = rawRecordingBlobsRef.current[0].type || 'audio/webm';
-      // Concatenating multiple independent recorder blobs isn't a fully
-      // well-formed single container (each carries its own header) — in
-      // practice this only affects recordings long enough to rotate past
-      // SEGMENT_DURATION_MS (15 minutes by default), where some players may
-      // only play the first segment. The common case (one segment) is a
-      // perfectly valid file.
-      blob = rawRecordingBlobsRef.current.length === 1
-        ? rawRecordingBlobsRef.current[0]
-        : new Blob(rawRecordingBlobsRef.current, { type: mimeType });
-      filename = `recording-${Date.now()}.${extensionForDownload(mimeType)}`;
-    } else {
+      downloadBlob(uploadedFileRef.current, uploadedFileRef.current.name);
+      return;
+    }
+    if (rawRecordingBlobsRef.current.length === 0) return;
+
+    const mimeType = rawRecordingBlobsRef.current[0].type || 'audio/webm';
+    const extension = extensionForDownload(mimeType);
+    const baseName = `recording-${Date.now()}`;
+
+    if (rawRecordingBlobsRef.current.length === 1) {
+      downloadBlob(rawRecordingBlobsRef.current[0], `${baseName}.${extension}`);
       return;
     }
 
-    downloadBlob(blob, filename);
+    // A recording long enough to rotate past SEGMENT_DURATION_MS (15
+    // minutes by default) has multiple independent MediaRecorder blobs,
+    // each with its own container header — concatenating them into one
+    // Blob (as this used to do) produces a file most players only read the
+    // first segment of, silently truncating the rest with no error. Rather
+    // than re-encode everything into one file (expensive, and would bloat
+    // an hour-long recording from a few MB of compressed audio into
+    // hundreds of MB of raw PCM), each segment downloads as its own
+    // genuinely valid, individually playable file, numbered in order.
+    const total = rawRecordingBlobsRef.current.length;
+    rawRecordingBlobsRef.current.forEach((segmentBlob, index) => {
+      // Browsers can silently drop or block closely-spaced programmatic
+      // downloads (some treat a burst of `<a download>` clicks as a
+      // pop-up-like pattern), so these are staggered a little rather than
+      // fired all at once.
+      window.setTimeout(() => {
+        downloadBlob(segmentBlob, `${baseName}-part${index + 1}-of-${total}.${extension}`);
+      }, index * 300);
+    });
   }, []);
 
   // Aborts everything in flight and returns to a clean idle state — used

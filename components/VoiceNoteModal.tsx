@@ -53,7 +53,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
 
   const {
     inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments, currentUploadFraction,
-    errorMessage, rateLimitRetrySeconds, hasVideo, canDownload, previewUrl, awaitingVideoReview,
+    errorMessage, rateLimitRetrySeconds, generationRetrySeconds, hasVideo, canDownload, previewUrl, awaitingVideoReview,
   } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
   const kind = hasVideo ? t('voiceNote.kindVideo') : t('voiceNote.kindAudio');
@@ -295,6 +295,10 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
           label = totalSegments > 1
             ? t('voiceNote.rateLimitMultiSegment', { seconds: rateLimitRetrySeconds, completed: completedSegments, total: totalSegments })
             : t('voiceNote.rateLimitSingle', { seconds: rateLimitRetrySeconds });
+        }
+
+        if (generationRetrySeconds !== null) {
+          label = t('voiceNote.generationRetry', { seconds: generationRetrySeconds });
         }
 
         return (

@@ -1,4 +1,4 @@
-import { GoogleGenAI, Chat } from "@google/genai";
+import { GoogleGenAI, Chat, ApiError } from "@google/genai";
 import { getCurrentLanguage, translate } from '../i18n/translations';
 
 /**
@@ -11,6 +11,19 @@ export class MissingApiKeyError extends Error {
         this.name = "MissingApiKeyError";
     }
 }
+
+/**
+ * Whether a Gemini API failure is worth retrying automatically — a
+ * transient overload (HTTP 503, "the model is currently experiencing high
+ * demand") or rate limit (429), as opposed to something a retry can't fix
+ * (a bad request, a missing/invalid key, etc). Note generation is the very
+ * last step of a voice-note session — by the time it runs, a long
+ * recording may already represent many minutes of successful transcription
+ * work, so treating a momentary overload as instantly fatal would throw
+ * all of that away for something that usually clears up within seconds.
+ */
+export const isRetryableGeminiError = (error: unknown): boolean =>
+    error instanceof ApiError && (error.status === 503 || error.status === 429);
 
 /**
  * The @google/genai SDK often throws with `message` set to the raw JSON error
@@ -135,6 +148,13 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
     } catch (error) {
         if (error instanceof MissingApiKeyError) throw error;
         console.error('Error generating note from transcript:', error);
+        // A retryable error (503 overload, 429 rate limit) needs to survive
+        // as the original ApiError instance — the caller's retry loop
+        // checks `error instanceof ApiError` via isRetryableGeminiError, and
+        // wrapping it into a plain Error below (as every other failure
+        // gets, for a clean human-readable message) would erase that type
+        // information and make every failure here permanently unretryable.
+        if (isRetryableGeminiError(error)) throw error;
         throw new Error(extractGeminiErrorMessage(error));
     }
 };

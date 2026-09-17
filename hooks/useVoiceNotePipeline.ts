@@ -37,6 +37,13 @@ export interface VoiceNoteState {
   // Non-null while automatically waiting out a Groq rate-limit cooldown
   // before retrying the current segment, counting down the seconds left.
   rateLimitRetrySeconds: number | null;
+  // Non-null while automatically waiting out a transient Gemini failure
+  // (503 "model overloaded", 429 rate limit) before retrying note
+  // generation — the transcript is already fully in hand at this point, so
+  // this is the very last step of a session; without a retry here, a
+  // long recording's entire transcription work was thrown away by one
+  // momentary overload on Gemini's side.
+  generationRetrySeconds: number | null;
   // Whether the current session's source material includes a video track
   // (an uploaded video file, or a screen recording that kept its video) —
   // drives the "extracting audio" label, the <video> preview, and download
@@ -120,6 +127,17 @@ const AUDIO_BITS_PER_SECOND = 32000;
 // runaway retrying against a persistently exhausted quota.
 const MAX_RATE_LIMIT_RETRIES = 5;
 
+// How many times to automatically retry note generation after a transient
+// Gemini failure (503 overload, 429 rate limit) before giving up. Unlike
+// Groq's rate-limit retry, Gemini doesn't hand back a suggested wait time,
+// so this uses its own fixed exponential backoff (see generationBackoffSeconds).
+const MAX_GENERATION_RETRIES = 4;
+
+// 3s, 6s, 12s, 24s — capped at 30s. A 503 "high demand" overload typically
+// clears within seconds, so this starts short rather than copying the much
+// longer backoff a real rate-limit quota would need.
+const generationBackoffSeconds = (attempt: number): number => Math.min(30, 3 * 2 ** attempt);
+
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
 const pickSupportedMimeType = (): string | undefined => {
   if (typeof MediaRecorder === 'undefined') return undefined;
@@ -183,6 +201,7 @@ const initialState: VoiceNoteState = {
   transcriptSoFar: '',
   errorMessage: '',
   rateLimitRetrySeconds: null,
+  generationRetrySeconds: null,
   hasVideo: false,
   canDownload: false,
   previewUrl: null,
@@ -345,6 +364,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       transcriptSoFar: '',
       errorMessage: '',
       rateLimitRetrySeconds: null,
+      generationRetrySeconds: null,
       hasVideo: false,
       canDownload: false,
       previewUrl: null,
@@ -379,43 +399,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     // the error screen still offers a download of whatever was captured.
     videoReviewPendingRef.current = false;
     const message = error instanceof Error ? error.message : translate('pipeline.unknownError');
-    setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message, rateLimitRetrySeconds: null, awaitingVideoReview: false }));
+    setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message, rateLimitRetrySeconds: null, generationRetrySeconds: null, awaitingVideoReview: false }));
     onErrorRef.current?.(message);
   }, []);
-
-  const finalizeAndGenerate = useCallback(async () => {
-    if (cancelledRef.current) return;
-    const combinedTranscript = transcriptPartsRef.current.join('\n\n');
-    if (!combinedTranscript.trim()) {
-      handlePipelineError(new Error(translate('pipeline.noSpeechDetected')));
-      return;
-    }
-    setState(s => ({ ...s, processingPhase: 'generating' }));
-    try {
-      const { generateNoteFromTranscript, MissingApiKeyError } = await import('../services/geminiChatService');
-      try {
-        const noteMarkdown = await generateNoteFromTranscript(combinedTranscript, geminiApiKeyRef.current);
-        if (cancelledRef.current) return;
-        onNoteGeneratedRef.current(normalizeAiMarkdown(noteMarkdown), {
-          transcript: combinedTranscript,
-          timestampedTranscript: timestampedTranscriptPartsRef.current.join('\n'),
-          segments: audioSegmentsRef.current,
-          skippedSegmentCount: skippedSegmentCountRef.current,
-        });
-        resetToIdle();
-      } catch (error) {
-        if (cancelledRef.current) return;
-        if (error instanceof MissingApiKeyError) {
-          handlePipelineError(new Error(translate('pipeline.missingGeminiKey')));
-        } else {
-          handlePipelineError(error);
-        }
-      }
-    } catch (error) {
-      if (cancelledRef.current) return;
-      handlePipelineError(error);
-    }
-  }, [handlePipelineError, resetToIdle]);
 
   // Counts down `rateLimitRetrySeconds` in the UI while waiting out a Groq
   // 429 cooldown. Clamped to a sane range in case the server ever suggests
@@ -431,6 +417,76 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     }
     setState(s => ({ ...s, rateLimitRetrySeconds: null }));
   }, []);
+
+  // Same idea as waitForRateLimitCooldown above, but counts down
+  // `generationRetrySeconds` instead — kept separate so the two can show
+  // distinct messaging (this one has no "N/M segments" context, since
+  // transcription is already fully done by the time generation runs).
+  const waitForGenerationRetryCooldown = useCallback(async (seconds: number): Promise<void> => {
+    const endAt = Date.now() + seconds * 1000;
+    while (Date.now() < endAt) {
+      if (cancelledRef.current) break;
+      setState(s => ({ ...s, generationRetrySeconds: Math.ceil((endAt - Date.now()) / 1000) }));
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    setState(s => ({ ...s, generationRetrySeconds: null }));
+  }, []);
+
+  const finalizeAndGenerate = useCallback(async () => {
+    if (cancelledRef.current) return;
+    const combinedTranscript = transcriptPartsRef.current.join('\n\n');
+    if (!combinedTranscript.trim()) {
+      handlePipelineError(new Error(translate('pipeline.noSpeechDetected')));
+      return;
+    }
+    setState(s => ({ ...s, processingPhase: 'generating' }));
+    try {
+      const { generateNoteFromTranscript, MissingApiKeyError, isRetryableGeminiError, extractGeminiErrorMessage } = await import('../services/geminiChatService');
+      let attempt = 0;
+      for (;;) {
+        try {
+          const noteMarkdown = await generateNoteFromTranscript(combinedTranscript, geminiApiKeyRef.current);
+          if (cancelledRef.current) return;
+          onNoteGeneratedRef.current(normalizeAiMarkdown(noteMarkdown), {
+            transcript: combinedTranscript,
+            timestampedTranscript: timestampedTranscriptPartsRef.current.join('\n'),
+            segments: audioSegmentsRef.current,
+            skippedSegmentCount: skippedSegmentCountRef.current,
+          });
+          resetToIdle();
+          return;
+        } catch (error) {
+          if (cancelledRef.current) return;
+          if (error instanceof MissingApiKeyError) {
+            handlePipelineError(new Error(translate('pipeline.missingGeminiKey')));
+            return;
+          }
+          // The transcript is already fully in hand at this point — a
+          // transient overload here shouldn't cost the user everything a
+          // long recording just spent minutes transcribing. Anything that
+          // isn't retryable (or that's exhausted its retries) still falls
+          // through to the normal error screen below.
+          if (isRetryableGeminiError(error) && attempt < MAX_GENERATION_RETRIES) {
+            attempt += 1;
+            await waitForGenerationRetryCooldown(generationBackoffSeconds(attempt - 1));
+            if (cancelledRef.current) return;
+            continue;
+          }
+          // A raw ApiError's own .message is the unparsed JSON error body
+          // (needed above for the instanceof/status check, since wrapping
+          // it earlier would have erased that), so it still has to be
+          // converted to a human-readable message before it reaches the
+          // error screen — same treatment every other failure already gets
+          // inside generateNoteFromTranscript itself.
+          handlePipelineError(new Error(extractGeminiErrorMessage(error)));
+          return;
+        }
+      }
+    } catch (error) {
+      if (cancelledRef.current) return;
+      handlePipelineError(error);
+    }
+  }, [handlePipelineError, resetToIdle, waitForGenerationRetryCooldown]);
 
   // Wraps a single transcription call so a Groq rate-limit (429) response
   // waits out the server's own suggested cooldown and retries the exact
@@ -739,6 +795,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         currentUploadFraction: 0,
         transcriptSoFar: '',
         rateLimitRetrySeconds: null,
+        generationRetrySeconds: null,
         hasVideo: !!videoTrack,
         canDownload: false,
         previewUrl: null,
@@ -814,6 +871,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         currentUploadFraction: 0,
         transcriptSoFar: '',
         rateLimitRetrySeconds: null,
+        generationRetrySeconds: null,
         hasVideo: false,
         canDownload: true,
         previewUrl: null,
@@ -857,6 +915,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       currentUploadFraction: 0,
       transcriptSoFar: '',
       rateLimitRetrySeconds: null,
+      generationRetrySeconds: null,
       hasVideo: fileIsVideo,
       canDownload: true,
       previewUrl: previewUrlRef.current,
@@ -963,6 +1022,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       transcriptSoFar: '',
       errorMessage: '',
       rateLimitRetrySeconds: null,
+      generationRetrySeconds: null,
       hasVideo: false,
       canDownload: false,
       previewUrl: null,

@@ -152,8 +152,12 @@ const App: React.FC = () => {
     return () => {
       // Flush any edits to the outgoing note that hadn't been persisted yet
       // (typed within the last debounce window right before switching away).
+      // Garbage-collects orphaned images here (not in the debounced update
+      // below): resetHistory() above already wipes this note's undo stack
+      // the moment we leave it, so there's no more recoverability to protect
+      // — see updateNote's own comment in useFileSystem.ts.
       if (noteId && markdownRef.current !== (notes[noteId] ?? '')) {
-        updateNote(noteId, markdownRef.current);
+        updateNote(noteId, markdownRef.current, { collectGarbage: true });
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -618,7 +622,7 @@ const App: React.FC = () => {
   // as the whole operation failing.
   const handleVoiceNoteGenerated = (generatedMarkdown: string, recording: VoiceRecordingData) => {
     const newNoteId = createNode('file', 'root');
-    updateNote(newNoteId, generatedMarkdown);
+    updateNote(newNoteId, generatedMarkdown, { collectGarbage: true });
     const firstHeadingMatch = generatedMarkdown.match(/^#{1,6}\s+(.+)$/m);
     if (firstHeadingMatch) {
       renameNode(newNoteId, firstHeadingMatch[1].trim());

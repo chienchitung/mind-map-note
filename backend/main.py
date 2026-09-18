@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 import uvicorn
@@ -114,11 +115,24 @@ async def transcribe_stream(
 
             async def run_pipeline():
                 loop = asyncio.get_running_loop()
+                # Render's free tier gives no APM/tracing, so these prints
+                # (timestamped, one per phase) are the only way to see where
+                # a slow request's time actually went after the fact — check
+                # the service's Logs tab and diff consecutive timestamps.
+                t_start = time.monotonic()
+                request_id = f"{int(t_start * 1000) % 100000}"
+
+                def log(message: str) -> None:
+                    print(f"[{request_id}] +{time.monotonic() - t_start:6.2f}s  {message}", flush=True)
+
                 try:
+                    log(f"received upload, filename={audio.filename!r}")
                     with src_path.open("wb") as buffer:
                         await asyncio.to_thread(shutil.copyfileobj, audio.file, buffer)
+                    upload_bytes = src_path.stat().st_size
+                    log(f"upload saved to disk, {upload_bytes / (1024 * 1024):.1f}MB")
 
-                    if src_path.stat().st_size > MAX_UPLOAD_BYTES:
+                    if upload_bytes > MAX_UPLOAD_BYTES:
                         await queue.put(("error", {
                             "error_type": "too_large",
                             "message": f"This recording exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit.",
@@ -136,14 +150,24 @@ async def transcribe_stream(
                         )
 
                     normalized_path = await asyncio.to_thread(normalize_audio, str(src_path), emit_normalize_progress)
+                    log(f"normalized, {os.path.getsize(normalized_path) / (1024 * 1024):.1f}MB")
 
                     def emit_split_progress(percent: int) -> None:
+                        # Only the file exceeding Groq's per-request cap
+                        # (see GROQ_MAX_UPLOAD_BYTES) ever triggers this at
+                        # all — logged at the endpoints only, to confirm
+                        # from the Logs tab whether a slow request actually
+                        # needed splitting rather than flooding it with a
+                        # line per percent tick.
+                        if percent in (0, 100):
+                            log(f"splitting audio ({percent}%)")
                         loop.call_soon_threadsafe(
                             queue.put_nowait,
                             ("progress", {"phase": "splitting", "percent": percent}),
                         )
 
                     async def on_chunk_done(completed: int, total: int) -> None:
+                        log(f"transcribed chunk {completed}/{total}")
                         await queue.put(("progress", {"phase": "transcribing", "completed": completed, "total": total}))
 
                     async def on_rate_limited(wait_seconds: float, attempt: int, chunk_index: int, total_chunks: int) -> None:
@@ -160,6 +184,7 @@ async def transcribe_stream(
                         on_chunk_done=on_chunk_done,
                         on_rate_limited=on_rate_limited,
                     )
+                    log(f"transcription complete, {len(result['text'])} chars, duration={result['duration']:.1f}s")
 
                     if not result["text"].strip():
                         await queue.put(("error", {
@@ -169,20 +194,24 @@ async def transcribe_stream(
                         return
 
                     await queue.put(("final", result))
+                    log("done")
                 except asyncio.CancelledError:
                     raise
                 except InvalidGroqApiKeyError as e:
+                    log(f"failed: invalid Groq API key ({e})")
                     await queue.put(("error", {"error_type": "invalid_groq_key", "message": str(e)}))
                 except GroqRateLimitError as e:
+                    log(f"failed: Groq rate limited ({e})")
                     await queue.put(("error", {
                         "error_type": "rate_limited",
                         "message": str(e),
                         "retry_after_seconds": e.retry_after_seconds,
                     }))
                 except AudioProcessingError as e:
+                    log(f"failed: audio processing error ({e})")
                     await queue.put(("error", {"error_type": "processing_error", "message": str(e)}))
                 except Exception as e:
-                    print(f"Transcription pipeline error: {e}")
+                    log(f"failed: unexpected error ({e})")
                     await queue.put(("error", {
                         "error_type": "processing_error",
                         "message": "An unexpected error occurred while processing this recording.",

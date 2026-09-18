@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: mind-map-note-backend
+    env: python
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      # Comma-separated list of origins allowed to call this API — your
+      # deployed frontend URL(s), e.g. https://mind-map-note.vercel.app.
+      # See backend/main.py's ALLOWED_ORIGINS.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.15

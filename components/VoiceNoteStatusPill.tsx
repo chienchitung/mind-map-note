@@ -22,7 +22,7 @@ const formatDuration = (totalSeconds: number): string => {
 // click back in at any time. Only rendered by App.tsx while stage !== 'idle'.
 const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClick }) => {
   const { t } = useTranslation();
-  const { stage, elapsedSeconds, processingPhase, totalSegments, completedSegments, rateLimitRetrySeconds, hasVideo, awaitingVideoReview } = state;
+  const { stage, elapsedSeconds, processingPhase, totalSegments, completedSegments, rateLimitRetrySeconds, backendWakingUp, hasVideo, awaitingVideoReview } = state;
 
   let label = t('voicePill.processing');
   if (stage === 'recording') {
@@ -32,7 +32,7 @@ const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClic
   } else if (stage === 'processing') {
     if (awaitingVideoReview) {
       label = t('voicePill.awaitingVideoReview');
-    } else if (processingPhase === 'splitting') label = hasVideo ? t('voicePill.extractingAudio') : t('voicePill.splitting');
+    } else if (processingPhase === 'normalizing') label = hasVideo ? t('voicePill.extractingAudio') : t('voicePill.normalizing');
     else if (processingPhase === 'uploading') label = t('voicePill.uploading');
     else if (processingPhase === 'transcribing') {
       label = totalSegments > 1 ? t('voicePill.transcribingSegments', { completed: completedSegments, total: totalSegments }) : t('voicePill.transcribing');
@@ -41,6 +41,9 @@ const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClic
     }
     if (!awaitingVideoReview && rateLimitRetrySeconds !== null) {
       label = t('voicePill.rateLimited', { seconds: rateLimitRetrySeconds });
+    }
+    if (!awaitingVideoReview && backendWakingUp) {
+      label = t('voicePill.backendWakingUp');
     }
   } else if (stage === 'error') {
     label = t('voicePill.error');

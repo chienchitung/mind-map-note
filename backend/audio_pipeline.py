@@ -13,6 +13,7 @@ keeps decoding inside ffmpeg's own bounded streaming buffers, so peak added
 memory in this process stays small regardless of recording length.
 """
 import asyncio
+import json
 import os
 import re
 import shutil
@@ -92,6 +93,29 @@ def _probe_duration_seconds(path: str) -> float:
         return float(result.stdout.strip())
     except Exception:
         return 0.0
+
+
+def can_transcribe_webm_directly(path: str) -> bool:
+    """Skip an expensive transcode for small, audio-only WebM/Opus files.
+
+    Groq accepts WebM/Opus directly. A WebM with video, an unsupported codec,
+    or a file needing chunking still takes the normal extract/normalize path.
+    If probing fails, preserve that proven path rather than guessing.
+    """
+    if not FFPROBE_BIN or Path(path).suffix.lower() != ".webm":
+        return False
+    if os.path.getsize(path) > GROQ_MAX_UPLOAD_BYTES:
+        return False
+    try:
+        probe = subprocess.run(
+            [FFPROBE_BIN, "-v", "error", "-show_entries", "stream=codec_type,codec_name",
+             "-of", "json", path],
+            check=True, capture_output=True, text=True, timeout=10,
+        )
+        streams = json.loads(probe.stdout).get("streams", [])
+        return len(streams) == 1 and streams[0].get("codec_type") == "audio" and streams[0].get("codec_name") == "opus"
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return False
 
 
 def _run_ffmpeg_with_progress(cmd: list, total_seconds: float, on_progress: Optional[Callable[[int], None]] = None) -> None:
@@ -261,8 +285,8 @@ async def transcribe_audio(
     on_rate_limited: Optional[RateLimitCallback] = None,
 ) -> dict:
     """
-    Transcribes an already-normalized (mono 16kHz mp3) audio file, splitting
-    it into Groq-sized chunks first if needed. Returns
+    Transcribes a supported small audio file (or an already-normalized mono
+    16kHz mp3), splitting oversized normalized files first if needed. Returns
     {"text": str, "segments": [{"start", "end", "text"}], "duration": float}
     — the same shape the frontend's TranscriptionResult already has, with
     each chunk's segment timestamps offset onto one continuous timeline.

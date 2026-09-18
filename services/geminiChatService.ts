@@ -1,4 +1,4 @@
-import { GoogleGenAI, Chat, ApiError } from "@google/genai";
+import { GoogleGenAI, Chat, ApiError, ThinkingLevel } from "@google/genai";
 import { getCurrentLanguage, translate } from '../i18n/translations';
 
 /**
@@ -132,13 +132,38 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
         const systemInstruction = language === 'en'
             ? 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in English, regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them. For a simple logical or flow relationship (e.g. A leads to B), just write the arrow directly as plain text (A → B) — no special syntax needed. Reserve LaTeX for genuine math or chemical formulas, always with a single backslash per command (e.g. `\\frac{a}{b}`, never doubled) — inline formulas wrapped in a single `$`, block formulas in `$$`.'
             : 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in Traditional Chinese (繁體中文), regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them. 單純的邏輯/流程關係（例如「A 導致 B」）請直接用文字箭頭表示（A → B），不需要特殊語法。LaTeX 語法只留給真正的數學或化學公式，指令一律用單一反斜線（如 `\\frac{a}{b}`，絕不要重複），行內公式用單一 `$` 包住，獨立成行則用 `$$` 包住。';
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
+        const generate = (model: string) => ai.models.generateContent({
+            model,
             contents,
             config: {
                 systemInstruction,
+                // Structuring a transcript is a writing task; the default
+                // medium effort adds latency without being necessary here.
+                thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
             },
         });
+
+        let response;
+        try {
+            response = await generate('gemini-3.8-flash');
+        } catch (error) {
+            if (!(error instanceof ApiError && error.status === 503)) throw error;
+            // A model-specific capacity spike shouldn't waste a completed
+            // transcription. Keep the same prompt and try another Flash
+            // model before the hook's timed retries begin.
+            console.warn('Gemini 3.8 Flash is overloaded; retrying note generation with 3.5 Flash.');
+            try {
+                response = await generate('gemini-3.5-flash');
+            } catch (fallbackError) {
+                // Some keys may not have access to the backup model. Preserve
+                // the primary 503 so the existing delayed retry can still
+                // recover when 3.8 becomes available again.
+                if (fallbackError instanceof ApiError && (fallbackError.status === 403 || fallbackError.status === 404)) {
+                    throw error;
+                }
+                throw fallbackError;
+            }
+        }
 
         const noteMarkdown = response.text?.trim();
         if (!noteMarkdown) {

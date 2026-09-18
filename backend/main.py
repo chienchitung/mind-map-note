@@ -19,6 +19,7 @@ from audio_pipeline import (
     AudioProcessingError,
     GroqRateLimitError,
     InvalidGroqApiKeyError,
+    can_transcribe_webm_directly,
     normalize_audio,
     transcribe_audio,
 )
@@ -154,8 +155,13 @@ async def transcribe_stream(
                             ("progress", {"phase": "normalizing", "percent": percent}),
                         )
 
-                    normalized_path = await asyncio.to_thread(normalize_audio, str(src_path), emit_normalize_progress)
-                    log(f"normalized, {os.path.getsize(normalized_path) / (1024 * 1024):.1f}MB")
+                    if await asyncio.to_thread(can_transcribe_webm_directly, str(src_path)):
+                        normalized_path = str(src_path)
+                        emit_normalize_progress(100)
+                        log("audio-only WebM/Opus: skipped normalization")
+                    else:
+                        normalized_path = await asyncio.to_thread(normalize_audio, str(src_path), emit_normalize_progress)
+                        log(f"normalized, {os.path.getsize(normalized_path) / (1024 * 1024):.1f}MB")
 
                     def emit_split_progress(percent: int) -> None:
                         # Only the file exceeding Groq's per-request cap

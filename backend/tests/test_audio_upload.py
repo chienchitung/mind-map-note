@@ -1,6 +1,7 @@
 import asyncio
 import io
 import math
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -69,6 +70,42 @@ class AudioUploadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(groq.await_args.args[2], 'test-key')
         self.assertEqual(groq.await_args.args[3], 'en')
         self.assertTrue(groq.await_args.args[1].endswith('.mp3'))
+
+    async def test_audio_only_webm_skips_expensive_transcode(self):
+        with tempfile.TemporaryDirectory() as folder:
+            wav_path = Path(folder) / 'speech.wav'
+            webm_path = Path(folder) / 'speech.webm'
+            wav_path.write_bytes(sample_wav())
+            subprocess.run([
+                audio_pipeline.FFMPEG_BIN, '-y', '-loglevel', 'error', '-i', str(wav_path),
+                '-c:a', 'libopus', str(webm_path),
+            ], check=True)
+            self.assertTrue(audio_pipeline.can_transcribe_webm_directly(str(webm_path)))
+
+            response_from_groq = {
+                'text': 'Hello',
+                'segments': [{'start': 0, 'end': 1, 'text': 'Hello', 'no_speech_prob': 0}],
+                'duration': 1,
+            }
+            with patch.object(main, 'normalize_audio', side_effect=AssertionError('unexpected transcode')), \
+                 patch.object(audio_pipeline, '_transcribe_bytes', new=AsyncMock(return_value=response_from_groq)) as groq:
+                response = await self.client.post('/audio/transcribe/stream',
+                    files={'audio': ('speech.webm', webm_path.read_bytes(), 'audio/webm')},
+                    data={'groq_api_key': 'test-key'})
+
+        self.assertIn('event: final', response.text)
+        self.assertTrue(groq.await_args.args[1].endswith('.webm'))
+
+    async def test_webm_with_video_uses_normalization(self):
+        with tempfile.TemporaryDirectory() as folder:
+            webm_path = Path(folder) / 'video.webm'
+            subprocess.run([
+                audio_pipeline.FFMPEG_BIN, '-y', '-loglevel', 'error',
+                '-f', 'lavfi', '-i', 'color=c=black:s=16x16:d=1',
+                '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+                '-c:v', 'libvpx', '-c:a', 'libopus', '-shortest', str(webm_path),
+            ], check=True)
+            self.assertFalse(audio_pipeline.can_transcribe_webm_directly(str(webm_path)))
 
     async def test_silent_segments_do_not_generate_a_note(self):
         hallucinated = {

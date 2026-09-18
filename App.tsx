@@ -32,7 +32,8 @@ import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 import { useTranslation } from './contexts/LanguageContext';
 import { TRANSCRIPTION_LANGUAGE_STORAGE_KEY, type TranscriptionLanguage } from './utils/transcriptionLanguage';
-import { buildFolderExportDocument } from './utils/folderExport';
+import { buildFolderExportDocument, buildFolderExportZip } from './utils/folderExport';
+import { downloadBlob } from './utils/downloadBlob';
 
 // The AI chat panel (and the @google/genai SDK it pulls in) is only ever
 // needed once a user with an API key opens it, so it's loaded on demand
@@ -475,6 +476,15 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  // Alternative to handleExportFolderMarkdown above: one .md file per note
+  // (preserving the sidebar's folder structure) packaged as a .zip, instead
+  // of concatenating everything into a single combined document.
+  const handleExportFolderMarkdownZip = async (folderId: string) => {
+    const archive = await buildFolderExportZip(tree, getNotesForExport(), folderId);
+    if (!archive) return;
+    downloadBlob(archive.blob, `${archive.title}.zip`);
+  };
+
   // Reuses the exact same print-to-PDF mechanism as handleExportPDF, but the
   // #print-only-content container needs to render the combined document
   // first — so this stashes it in state and lets the effect below (which
@@ -828,6 +838,7 @@ const App: React.FC = () => {
       onPermanentlyDeleteNode={permanentlyDeleteNode}
       onMoveNode={moveNode}
       onExportFolderMarkdown={handleExportFolderMarkdown}
+      onExportFolderMarkdownZip={handleExportFolderMarkdownZip}
       onExportFolderPDF={handleExportFolderPDF}
       mindMapData={mindMapData}
       activeLine={activeLine}

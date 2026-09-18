@@ -20,6 +20,7 @@ interface SidebarProps {
   onPermanentlyDeleteNode: (nodeId: string) => void;
   onMoveNode: (nodeId: string, newParentId: string | null, beforeNodeId?: string | null) => void;
   onExportFolderMarkdown: (folderId: string) => void;
+  onExportFolderMarkdownZip: (folderId: string) => void;
   onExportFolderPDF: (folderId: string) => void;
   mindMapData: MindMapNode | null;
   activeLine: number;
@@ -48,6 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onPermanentlyDeleteNode,
   onMoveNode,
   onExportFolderMarkdown,
+  onExportFolderMarkdownZip,
   onExportFolderPDF,
   mindMapData,
   activeLine,
@@ -101,6 +103,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             onDeleteNode={onDeleteNode}
             onMoveNode={onMoveNode}
             onExportFolderMarkdown={onExportFolderMarkdown}
+            onExportFolderMarkdownZip={onExportFolderMarkdownZip}
             onExportFolderPDF={onExportFolderPDF}
           />
         ) : activeTab === 'recordings' ? (

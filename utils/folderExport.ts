@@ -1,4 +1,6 @@
+import JSZip from 'jszip';
 import { FileSystemTree, NotesContent } from '../types';
+import { sanitizeFilename } from './downloadBlob';
 
 const escapeHtml = (text: string): string =>
     text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -69,4 +71,75 @@ export const buildFolderExportDocument = (
     const folder = tree[folderId];
     if (!folder || folder.type !== 'folder') return null;
     return { title: folder.name, markdown: buildFolderMarkdown(tree, notes, folderId, 0) };
+};
+
+// Returns a unique name for `base` within one zip directory's listing —
+// JSZip silently accepts two entries at the same path (most unzip tools
+// then only ever surface one of them), and the sidebar itself allows two
+// notes/folders at the same level to share a display name, so a repeat
+// here gets " (2)", " (3)", etc. appended rather than clobbering the
+// earlier entry.
+const dedupeZipName = (base: string, usedNames: Set<string>): string => {
+    if (!usedNames.has(base)) {
+        usedNames.add(base);
+        return base;
+    }
+    let counter = 2;
+    let candidate = `${base} (${counter})`;
+    while (usedNames.has(candidate)) {
+        counter += 1;
+        candidate = `${base} (${counter})`;
+    }
+    usedNames.add(candidate);
+    return candidate;
+};
+
+// Mirrors the sidebar's folder hierarchy as real zip directories, one .md
+// file per note — unlike buildFolderMarkdown's combined-document mode, a
+// sub-folder doesn't need any special heading treatment here: a real
+// folder in the extracted archive already makes the structure obvious.
+const addFolderToZip = (
+    zip: JSZip,
+    tree: FileSystemTree,
+    notes: NotesContent,
+    folderId: string,
+): void => {
+    const folder = tree[folderId];
+    if (!folder) return;
+    const usedNames = new Set<string>();
+    folder.childrenIds.forEach(childId => {
+        const child = tree[childId];
+        if (!child) return;
+        if (child.type === 'folder') {
+            const dirName = dedupeZipName(sanitizeFilename(child.name), usedNames);
+            const subZip = zip.folder(dirName);
+            if (subZip) addFolderToZip(subZip, tree, notes, childId);
+        } else {
+            const fileName = `${dedupeZipName(sanitizeFilename(child.name), usedNames)}.md`;
+            zip.file(fileName, notes[childId] ?? '');
+        }
+    });
+};
+
+export interface FolderExportArchive {
+    // The folder's own name — used as the exported .zip's base filename.
+    title: string;
+    blob: Blob;
+}
+
+// Alternative to buildFolderExportDocument: instead of one combined
+// Markdown file, packages every note under `folder` as its own .md file
+// inside a .zip, preserving the folder structure.
+export const buildFolderExportZip = async (
+    tree: FileSystemTree,
+    notes: NotesContent,
+    folderId: string,
+): Promise<FolderExportArchive | null> => {
+    const folder = tree[folderId];
+    if (!folder || folder.type !== 'folder') return null;
+    const zip = new JSZip();
+    const root = zip.folder(sanitizeFilename(folder.name)) ?? zip;
+    addFolderToZip(root, tree, notes, folderId);
+    const blob = await zip.generateAsync({ type: 'blob' });
+    return { title: folder.name, blob };
 };

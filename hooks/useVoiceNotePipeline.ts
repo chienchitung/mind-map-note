@@ -114,14 +114,19 @@ const AUDIO_BITS_PER_SECOND = 32000;
 // Gemini failure (503 overload, 429 rate limit) before giving up. Unlike
 // Groq's rate-limit retry (now handled entirely server-side — see
 // backend/audio_pipeline.py), Gemini doesn't hand back a suggested wait
-// time, so this uses its own fixed exponential backoff (see
-// generationBackoffSeconds).
+// time, so this uses its own fixed backoff (see generationBackoffSeconds).
 const MAX_GENERATION_RETRIES = 4;
 
-// 3s, 6s, 12s, 24s — capped at 30s. A 503 "high demand" overload typically
-// clears within seconds, so this starts short rather than copying the much
-// longer backoff a real rate-limit quota would need.
-const generationBackoffSeconds = (attempt: number): number => Math.min(30, 3 * 2 ** attempt);
+// 15s, 30s, 45s, 60s (linear, base 15s) — mirrors ikea-data-agent's own
+// retry cadence for this exact error (MINUTES_GENERATION_RETRY_BASE_SECONDS
+// in its agents/meeting.py), which has proven reliable there. This used to
+// be a much shorter exponential backoff (3s/6s/12s/24s, capped at 30s) on
+// the assumption a 503 "high demand" spike clears within seconds — but per
+// ikea's own comment, a demand spike triggered by a large-transcript
+// request can outlast that; users hitting a sustained spike exhausted the
+// short budget and lost an already-fully-transcribed session, while ikea's
+// longer budget rode it out on the same underlying model.
+const generationBackoffSeconds = (attempt: number): number => 15 * attempt;
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
 const pickSupportedMimeType = (): string | undefined => {
@@ -436,7 +441,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
           // through to the normal error screen below.
           if (isRetryableGeminiError(error) && attempt < MAX_GENERATION_RETRIES) {
             attempt += 1;
-            await waitForGenerationRetryCooldown(generationBackoffSeconds(attempt - 1));
+            await waitForGenerationRetryCooldown(generationBackoffSeconds(attempt));
             if (cancelledRef.current) return;
             continue;
           }

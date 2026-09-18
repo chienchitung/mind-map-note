@@ -1045,10 +1045,25 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     setState(s => ({ ...s, inputMode: mode }));
   }, []);
 
-  // Retrying from an error goes back to idle, keeping whatever input mode
-  // the user had selected (so an upload failure doesn't bounce them back to
-  // the recording tab).
-  const retry = resetToIdle;
+  // Retrying from an error screen that still has a fully-transcribed
+  // transcript in hand (e.g. automatic retries on a transient Gemini
+  // overload were exhausted, but the overload was actually a longer-lived
+  // spike) picks generation back up from that transcript instead of
+  // discarding it — resetToIdle used to run unconditionally here, silently
+  // throwing away a long recording's finished transcription and forcing a
+  // full re-record just because Gemini needed more than the automatic
+  // retry window to recover. Only a failure with nothing usable to retry
+  // (e.g. a missing API key before any transcript existed) still falls
+  // back to the old "just go back to idle" behavior.
+  const retry = useCallback(() => {
+    if (transcriptPartsRef.current.length === 0) {
+      resetToIdle();
+      return;
+    }
+    cancelledRef.current = false;
+    setState(s => ({ ...s, stage: 'processing', errorMessage: '' }));
+    void finalizeAndGenerate();
+  }, [resetToIdle, finalizeAndGenerate]);
 
   // Release the mic / abort in-flight work if the whole app unmounts.
   // (Doesn't fire on ordinary modal open/close — that's the point.) Also

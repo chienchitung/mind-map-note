@@ -145,19 +145,19 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
 
         let response;
         try {
-            response = await generate('gemini-3.8-flash');
+            response = await generate('gemini-3.5-flash');
         } catch (error) {
             if (!(error instanceof ApiError && error.status === 503)) throw error;
             // A model-specific capacity spike shouldn't waste a completed
             // transcription. Keep the same prompt and try another Flash
             // model before the hook's timed retries begin.
-            console.warn('Gemini 3.8 Flash is overloaded; retrying note generation with 3.5 Flash.');
+            console.warn('Gemini 3.5 Flash is overloaded; retrying note generation with 3.5 Flash-Lite.');
             try {
-                response = await generate('gemini-3.5-flash');
+                response = await generate('gemini-3.5-flash-lite');
             } catch (fallbackError) {
                 // Some keys may not have access to the backup model. Preserve
                 // the primary 503 so the existing delayed retry can still
-                // recover when 3.8 becomes available again.
+                // recover when 3.5 Flash becomes available again.
                 if (fallbackError instanceof ApiError && (fallbackError.status === 403 || fallbackError.status === 404)) {
                     throw error;
                 }

@@ -132,12 +132,8 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
         const systemInstruction = language === 'en'
             ? 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in English, regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them. For a simple logical or flow relationship (e.g. A leads to B), just write the arrow directly as plain text (A → B) — no special syntax needed. Reserve LaTeX for genuine math or chemical formulas, always with a single backslash per command (e.g. `\\frac{a}{b}`, never doubled) — inline formulas wrapped in a single `$`, block formulas in `$$`.'
             : 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in Traditional Chinese (繁體中文), regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them. 單純的邏輯/流程關係（例如「A 導致 B」）請直接用文字箭頭表示（A → B），不需要特殊語法。LaTeX 語法只留給真正的數學或化學公式，指令一律用單一反斜線（如 `\\frac{a}{b}`，絕不要重複），行內公式用單一 `$` 包住，獨立成行則用 `$$` 包住。';
-        // Always gemini-3.6-flash, no fallback to a different model on a
-        // capacity spike — a 503 here just propagates to the caller's own
-        // timed retry loop (see MAX_GENERATION_RETRIES/generationBackoffSeconds
-        // in useVoiceNotePipeline.ts), which retries this same call.
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+        const generate = (model: string) => ai.models.generateContent({
+            model,
             contents,
             config: {
                 systemInstruction,
@@ -147,14 +143,34 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
             },
         });
 
-        const noteMarkdown = response.text?.trim();
-        if (!noteMarkdown) {
-            throw new Error(translate('gemini.noteGenerationFailed'));
+        // Capacity errors are model-specific. Try the smaller Flash models
+        // before the hook starts its timed retry cycle; keep 3.6 as the
+        // preferred model whenever it is available.
+        const models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'] as const;
+        let overloadError: ApiError | null = null;
+        for (const model of models) {
+            try {
+                const response = await generate(model);
+                const noteMarkdown = response.text?.trim();
+                if (!noteMarkdown) throw new Error(translate('gemini.noteGenerationFailed'));
+                return noteMarkdown;
+            } catch (error) {
+                if (error instanceof ApiError && error.status === 503) {
+                    overloadError ??= error;
+                    console.warn(`Model ${model} is overloaded; trying the next note model if available.`);
+                    continue;
+                }
+                // A backup model may be unavailable to this API key. Keep
+                // trying the remaining models, then retry the original 503.
+                if (overloadError && error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                    continue;
+                }
+                throw error;
+            }
         }
-        return noteMarkdown;
+        throw overloadError ?? new Error(translate('gemini.noteGenerationFailed'));
     } catch (error) {
         if (error instanceof MissingApiKeyError) throw error;
-        console.error('Error generating note from transcript:', error);
         // A retryable error (503 overload, 429 rate limit) needs to survive
         // as the original ApiError instance — the caller's retry loop
         // checks `error instanceof ApiError` via isRetryableGeminiError, and
@@ -162,6 +178,7 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
         // gets, for a clean human-readable message) would erase that type
         // information and make every failure here permanently unretryable.
         if (isRetryableGeminiError(error)) throw error;
+        console.error('Error generating note from transcript:', error);
         throw new Error(extractGeminiErrorMessage(error));
     }
 };

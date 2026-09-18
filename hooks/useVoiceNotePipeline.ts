@@ -9,6 +9,15 @@ import {
   type TranscriptionResult,
 } from '../services/groqTranscriptionService';
 import { transcribeViaBackend, MAX_BACKEND_UPLOAD_BYTES, type BackendTranscribeProgress } from '../services/backendAudioService';
+// Statically imported (not `await import(...)`) so this module is bundled
+// into the entry chunk rather than its own hashed lazy chunk — the same
+// reasoning as VoiceNoteModal's entry-bundle move: a deployment that
+// replaces this chunk's hash while a tab is mid-session would otherwise
+// 404 fetching the old one right at the note-generation step, discarding
+// an already-fully-transcribed recording. See index.tsx's vite:preloadError
+// handler, which recovers *other* stale chunks via a reload — but a reload
+// here would also wipe the in-memory transcript this step depends on.
+import { generateNoteFromTranscript, MissingApiKeyError, isRetryableGeminiError, extractGeminiErrorMessage } from '../services/geminiChatService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
 import { downloadBlob } from '../utils/downloadBlob';
 import { translate } from '../i18n/translations';
@@ -414,7 +423,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     }
     setState(s => ({ ...s, processingPhase: 'generating' }));
     try {
-      const { generateNoteFromTranscript, MissingApiKeyError, isRetryableGeminiError, extractGeminiErrorMessage } = await import('../services/geminiChatService');
       let attempt = 0;
       for (;;) {
         try {

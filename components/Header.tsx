@@ -34,6 +34,7 @@ interface HeaderProps {
   onOpenVoiceNote: () => void;
   onOpenSettings: () => void;
   onToggleSidebar: () => void;
+  onLogoClick: () => void;
   isMobile: boolean;
 }
 
@@ -65,6 +66,7 @@ const Header: React.FC<HeaderProps> = ({
   onOpenVoiceNote,
   onOpenSettings,
   onToggleSidebar,
+  onLogoClick,
   isMobile,
 }) => {
   const { t } = useTranslation();
@@ -161,14 +163,19 @@ const Header: React.FC<HeaderProps> = ({
         <button onClick={onToggleSidebar} className={`${iconButtonClass} ${enabledClass} flex-shrink-0`} title={t('header.sidebar')} aria-label={t('header.toggleSidebar')}>
           <MenuIcon className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2.5 flex-shrink-0">
+        <button
+          onClick={onLogoClick}
+          className="flex items-center gap-2.5 flex-shrink-0 transition-transform duration-150 ease-apple active:scale-95"
+          title={t('header.logoGoToFirstNote')}
+          aria-label={t('header.logoGoToFirstNote')}
+        >
             <div className="w-7 h-7 rounded-[9px] bg-accent flex items-center justify-center flex-shrink-0">
               <LogoIcon className="w-[18px] h-[18px] text-white" />
             </div>
             <h1 className="hidden md:block text-[15px] md:text-base whitespace-nowrap tracking-tight leading-none">
               <span className="font-semibold text-text-main">MindMap</span><span className="font-medium text-accent">Note</span>
             </h1>
-        </div>
+        </button>
         {!isMobile && (
           <SearchBar
             ref={searchInputRef}

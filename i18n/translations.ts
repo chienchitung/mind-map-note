@@ -15,6 +15,7 @@ const zh = {
   // --- header ---
   'header.toggleSidebar': '切換側邊欄',
   'header.sidebar': '側邊欄',
+  'header.logoGoToFirstNote': '回到第一篇筆記',
   'header.searchNotes': '搜尋筆記',
   'header.searchPlaceholder': '搜尋所有筆記... (⌘F)',
   'header.editorMode': '編輯模式',
@@ -341,6 +342,7 @@ const en: Record<TranslationKey, string> = {
   // --- header ---
   'header.toggleSidebar': 'Toggle sidebar',
   'header.sidebar': 'Sidebar',
+  'header.logoGoToFirstNote': 'Go to first note',
   'header.searchNotes': 'Search notes',
   'header.searchPlaceholder': 'Search all notes... (⌘F)',
   'header.editorMode': 'Editor mode',

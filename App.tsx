@@ -37,6 +37,10 @@ import { useTranslation } from './contexts/LanguageContext';
 import { TRANSCRIPTION_LANGUAGE_STORAGE_KEY, type TranscriptionLanguage } from './utils/transcriptionLanguage';
 import { buildFolderExportDocument, buildFolderExportZip } from './utils/folderExport';
 import { downloadBlob } from './utils/downloadBlob';
+// Statically imported for the same reason as in useVoiceNotePipeline.ts —
+// keeps this out of its own lazy chunk, which a deployment mid-session
+// (e.g. while a chat reply is in flight) could otherwise 404 on.
+import { createChatSession, MissingApiKeyError, extractGeminiErrorMessage } from './services/geminiChatService';
 
 // The AI chat panel (and the @google/genai SDK it pulls in) is only ever
 // needed once a user with an API key opens it, so it's loaded on demand
@@ -701,6 +705,16 @@ const App: React.FC = () => {
     if (isMobile) setIsMobileSidebarOpen(false);
   }, [setActiveNoteId, isMobile]);
 
+  // Clicking the header logo acts as a "home" action — jumps back to the
+  // same first note findFirstFile() already falls back to elsewhere (e.g.
+  // when the active note is deleted), so "first note" has one consistent
+  // meaning across the app.
+  const handleLogoClick = useCallback(() => {
+    const firstFileId = findFirstFile();
+    if (firstFileId) handleSelectNote(firstFileId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleSelectNote, tree]);
+
   const handleSearchResultClick = (noteId: string) => {
     setActiveNoteId(noteId);
     setSearchQuery('');
@@ -722,14 +736,12 @@ const App: React.FC = () => {
     const sessionToken = ++chatSessionTokenRef.current;
 
     try {
-      const { createChatSession } = await import('./services/geminiChatService');
       const session = await createChatSession(content, apiKey);
       if (chatSessionTokenRef.current !== sessionToken) return;
       setChatSession(session);
       setChatMessages([{ role: 'model', text: t('aiPanel.greeting', { noteName: activeNoteName }) }]);
     } catch (error) {
       console.error("Failed to start chat session:", error);
-      const { MissingApiKeyError, extractGeminiErrorMessage } = await import('./services/geminiChatService');
       if (error instanceof MissingApiKeyError) {
         setIsAIPanelOpen(false);
         setIsSettingsOpen(true);
@@ -804,7 +816,6 @@ const App: React.FC = () => {
         setChatMessages(prev => [...prev, { role: 'model', text: t('app.chatStopped') }]);
       } else {
         console.error("Chat error:", error);
-        const { extractGeminiErrorMessage } = await import('./services/geminiChatService');
         const errorMessage = extractGeminiErrorMessage(error);
         const modelErrorMessage: ChatMessage = { role: 'model', text: t('app.chatErrorPrefix', { error: errorMessage }) };
         setChatMessages(prev => [...prev, modelErrorMessage]);
@@ -911,6 +922,7 @@ const App: React.FC = () => {
         onOpenVoiceNote={handleOpenVoiceNote}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onToggleSidebar={toggleSidebar}
+        onLogoClick={handleLogoClick}
         isMobile={isMobile}
       />
       <div className="flex-grow flex overflow-hidden relative">

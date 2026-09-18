@@ -17,6 +17,9 @@ import SettingsModal from './components/SettingsModal';
 import Toast from './components/Toast';
 import Spinner from './components/Spinner';
 import VoiceNoteStatusPill from './components/VoiceNoteStatusPill';
+// Keep this small modal in the entry bundle: an old tab should never need
+// to fetch a deleted hashed chunk just to open the recorder.
+import VoiceNoteModal from './components/VoiceNoteModal';
 import type { Chat } from '@google/genai';
 // Bundles a Chat instance with the exact systemInstruction it was created
 // with — needed because the SDK's per-message config (used to attach an
@@ -39,9 +42,6 @@ import { downloadBlob } from './utils/downloadBlob';
 // needed once a user with an API key opens it, so it's loaded on demand
 // instead of padding out everyone's initial bundle.
 const AIPanel = lazy(() => import('./components/AIPanel'));
-// Same reasoning: the voice note recorder is only needed once a user with
-// both API keys configured actually opens it.
-const VoiceNoteModal = lazy(() => import('./components/VoiceNoteModal'));
 
 // Identifies exported workspace backup files so imports can sanity-check
 // they're not some unrelated JSON file.
@@ -1029,14 +1029,12 @@ const App: React.FC = () => {
         onImportBackup={handleImportBackup}
       />
       {isVoiceNoteModalOpen && (
-        <Suspense fallback={null}>
-          <VoiceNoteModal
-            isOpen={isVoiceNoteModalOpen}
-            onClose={() => setIsVoiceNoteModalOpen(false)}
-            state={voiceNotePipeline.state}
-            actions={voiceNotePipeline.actions}
-          />
-        </Suspense>
+        <VoiceNoteModal
+          isOpen={isVoiceNoteModalOpen}
+          onClose={() => setIsVoiceNoteModalOpen(false)}
+          state={voiceNotePipeline.state}
+          actions={voiceNotePipeline.actions}
+        />
       )}
       {!isVoiceNoteModalOpen && voiceNotePipeline.state.stage !== 'idle' && (
         <VoiceNoteStatusPill state={voiceNotePipeline.state} onClick={() => setIsVoiceNoteModalOpen(true)} />

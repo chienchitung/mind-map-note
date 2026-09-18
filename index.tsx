@@ -7,20 +7,16 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { LanguageProvider } from './contexts/LanguageContext';
 import './index.css';
 
-// Lazy-loaded chunks (RichTextEditor, AIPanel) are fetched by the exact
-// filename — including its content hash — the currently-loaded index.html
-// was built with. Deploying a new version replaces those files on the
-// server, so a tab left open across a deploy fails with "Failed to fetch
-// dynamically imported module" the moment it tries to load one. Vite fires
-// this event specifically for that case; reloading re-fetches index.html
-// and its now-current chunk references, which normally clears it right up.
-// Guarded to only auto-reload once per tab session, in case reloading
-// somehow doesn't help (e.g. genuinely offline) — better to fall through to
-// the ErrorBoundary than loop forever.
-window.addEventListener('vite:preloadError', () => {
+// A deployment can remove hashed chunks that an already-open tab still
+// references. Retry once for each entry bundle, so a second deployment in
+// the same tab can recover too. If the same bundle fails again after reload,
+// let ErrorBoundary show the error rather than entering a reload loop.
+window.addEventListener('vite:preloadError', (event) => {
   const guardKey = 'mind-map-reloaded-after-preload-error';
-  if (sessionStorage.getItem(guardKey)) return;
-  sessionStorage.setItem(guardKey, '1');
+  const entryUrl = import.meta.url;
+  if (sessionStorage.getItem(guardKey) === entryUrl) return;
+  sessionStorage.setItem(guardKey, entryUrl);
+  event.preventDefault();
   window.location.reload();
 });
 

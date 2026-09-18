@@ -916,6 +916,25 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     };
   }, []);
 
+  // Warns before an accidental page refresh/close/navigation while a
+  // recording or the upload/transcribe/generate pipeline is active — a
+  // reload destroys all of it, since the captured audio only lives in this
+  // tab's memory (chunksRef/audioSegmentsRef) until finalizeAndGenerate()
+  // successfully hands a finished note off to the caller. This can only
+  // stop an *accidental* reload (browsers show their own generic "Leave
+  // site?" text regardless of what's set here, and there's no way to
+  // recover a session that's already gone) — a deliberate reload still
+  // loses everything, same as before.
+  useEffect(() => {
+    if (state.stage === 'idle') return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [state.stage]);
+
   return {
     state,
     actions: { startRecording, stopRecording, selectFile, cancel, retry, setInputMode, downloadRecording, confirmVideoReviewed },

@@ -210,7 +210,22 @@ export const useFileSystem = () => {
         return id;
     }, []);
 
-    const updateNote = useCallback((noteId: string, content: string) => {
+    // `collectGarbage` defaults to false: App.tsx calls this on every typing
+    // pause while the user is still actively editing the same note, and
+    // undo/redo (see useHistory in App.tsx) only time-travels through the
+    // note's text — it doesn't know about `images` at all, and `images`
+    // itself isn't part of that history. Garbage-collecting eagerly here
+    // used to mean that deleting an image line and immediately hitting Undo
+    // brought the `image://<id>` reference back in the text with no data
+    // left to resolve it to (permanently stuck on the "loading" placeholder
+    // in RichTextEditor's ImageNodeView) — the image was gone before the
+    // user ever got a chance to undo. Callers that are done with a note for
+    // good (switching away — which is also when useHistory's undo stack for
+    // it gets reset, so recoverability is moot from that point on — or
+    // finishing a one-off write like a freshly generated voice note) pass
+    // `collectGarbage: true` to still reclaim storage from images that are
+    // genuinely no longer referenced anywhere.
+    const updateNote = useCallback((noteId: string, content: string, options?: { collectGarbage?: boolean }) => {
         setState(prevState => {
             // Guard against resurrecting a note that's been deleted since this
             // update was queued (e.g. a debounced flush racing a deletion) —
@@ -219,7 +234,9 @@ export const useFileSystem = () => {
             // persists to storage forever with no way to see or remove it.
             if (!prevState.tree[noteId]) return prevState;
             const newNotes = { ...prevState.notes, [noteId]: content };
-            const newImages = garbageCollectImages(newNotes, prevState.images);
+            const newImages = options?.collectGarbage
+                ? garbageCollectImages(newNotes, prevState.images)
+                : prevState.images;
             return { ...prevState, notes: newNotes, images: newImages };
         });
     }, []);

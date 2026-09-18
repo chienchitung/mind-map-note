@@ -97,7 +97,7 @@ export const createChatSession = async (
             : '以下是使用者的筆記，請將其作為這次對話的背景資訊：';
         const systemInstruction = `${roleInstruction}\n\n${noteContextLabel}\n\n---\n\n${noteContent}`;
         const chat: Chat = ai.chats.create({
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.8-flash',
             config: {
                 systemInstruction,
             },
@@ -133,7 +133,7 @@ export const generateNoteFromTranscript = async (transcript: string, apiKey: str
             ? 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in English, regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them. For a simple logical or flow relationship (e.g. A leads to B), just write the arrow directly as plain text (A → B) — no special syntax needed. Reserve LaTeX for genuine math or chemical formulas, always with a single backslash per command (e.g. `\\frac{a}{b}`, never doubled) — inline formulas wrapped in a single `$`, block formulas in `$$`.'
             : 'You are an expert note-taker. Convert raw speech transcripts into well-organized Markdown notes with clear headings and bullet points, preserving the original meaning and key details without adding commentary. Always write the note in Traditional Chinese (繁體中文), regardless of what language the transcript itself is in — proper nouns, technical terms, and code may stay in their original form when translating them would be inaccurate or lose meaning. Do not insert horizontal rule dividers ("---") between sections — headings alone are enough to separate them. 單純的邏輯/流程關係（例如「A 導致 B」）請直接用文字箭頭表示（A → B），不需要特殊語法。LaTeX 語法只留給真正的數學或化學公式，指令一律用單一反斜線（如 `\\frac{a}{b}`，絕不要重複），行內公式用單一 `$` 包住，獨立成行則用 `$$` 包住。';
         const response = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.8-flash',
             contents,
             config: {
                 systemInstruction,

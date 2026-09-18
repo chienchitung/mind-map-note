@@ -212,9 +212,6 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
               <span className="text-2xl font-semibold tabular-nums text-text-main">{formatDuration(elapsedSeconds)}</span>
             </div>
             {hasVideo && <p className="text-xs text-text-secondary mb-1">{t('voiceNote.recordingVideoHint')}</p>}
-            {completedSegments > 0 && (
-              <p className="text-xs text-text-secondary mb-4">{t('voiceNote.backgroundTranscribed', { count: completedSegments })}</p>
-            )}
             <button
               onClick={() => actions.stopRecording()}
               className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center shadow-apple-md hover:opacity-90 active:scale-95 transition-all duration-150 ease-apple mt-2"

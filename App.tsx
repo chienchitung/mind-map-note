@@ -701,6 +701,16 @@ const App: React.FC = () => {
     if (isMobile) setIsMobileSidebarOpen(false);
   }, [setActiveNoteId, isMobile]);
 
+  // Clicking the header logo acts as a "home" action — jumps back to the
+  // same first note findFirstFile() already falls back to elsewhere (e.g.
+  // when the active note is deleted), so "first note" has one consistent
+  // meaning across the app.
+  const handleLogoClick = useCallback(() => {
+    const firstFileId = findFirstFile();
+    if (firstFileId) handleSelectNote(firstFileId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleSelectNote, tree]);
+
   const handleSearchResultClick = (noteId: string) => {
     setActiveNoteId(noteId);
     setSearchQuery('');
@@ -911,6 +921,7 @@ const App: React.FC = () => {
         onOpenVoiceNote={handleOpenVoiceNote}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onToggleSidebar={toggleSidebar}
+        onLogoClick={handleLogoClick}
         isMobile={isMobile}
       />
       <div className="flex-grow flex overflow-hidden relative">

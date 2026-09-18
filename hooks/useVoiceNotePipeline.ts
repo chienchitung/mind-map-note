@@ -1,41 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  transcribeAudio,
   extensionForMimeType,
   isSupportedMediaFile,
   isVideoFile,
-  MAX_UPLOAD_BYTES,
-  RateLimitError,
   MissingGroqApiKeyError,
+  RateLimitError,
   InvalidGroqApiKeyError,
   type TranscriptionResult,
 } from '../services/groqTranscriptionService';
+import { transcribeViaBackend, MAX_BACKEND_UPLOAD_BYTES, type BackendTranscribeProgress } from '../services/backendAudioService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
-import { splitAudioFileIntoSegments, MAX_SPLITTABLE_FILE_BYTES } from '../utils/audioSplitter';
 import { downloadBlob } from '../utils/downloadBlob';
 import { translate } from '../i18n/translations';
 
 export type VoiceNoteStage = 'idle' | 'recording' | 'processing' | 'error';
 export type VoiceNoteInputMode = 'record' | 'upload';
-export type VoiceNoteProcessingPhase = 'splitting' | 'uploading' | 'transcribing' | 'generating';
+export type VoiceNoteProcessingPhase = 'uploading' | 'normalizing' | 'transcribing' | 'generating';
 
 export interface VoiceNoteState {
   stage: VoiceNoteStage;
   inputMode: VoiceNoteInputMode;
   elapsedSeconds: number;
   processingPhase: VoiceNoteProcessingPhase | null;
-  // For a live recording, the total grows as segments are produced and is
-  // only final once recording stops; for an upload it's fixed at 1.
+  // While transcribing, reflects the backend's own chunk progress (a long
+  // recording is split into several chunks server-side — see
+  // backend/audio_pipeline.py); both stay at 0/0 for phases before that.
   totalSegments: number;
   completedSegments: number;
-  // 0-1 fractional progress of whatever is currently uploading — blended
-  // with completedSegments/totalSegments so the bar advances smoothly
-  // instead of only jumping at segment boundaries.
-  currentUploadFraction: number;
   transcriptSoFar: string;
   errorMessage: string;
-  // Non-null while automatically waiting out a Groq rate-limit cooldown
-  // before retrying the current segment, counting down the seconds left.
+  // Non-null while the backend is waiting out a Groq rate-limit cooldown
+  // before retrying a chunk (counting down the seconds left) — driven by the
+  // backend's own 'rate_limited' progress event, since retrying now happens
+  // server-side rather than in this client.
   rateLimitRetrySeconds: number | null;
   // Non-null while automatically waiting out a transient Gemini failure
   // (503 "model overloaded", 429 rate limit) before retrying note
@@ -44,6 +41,10 @@ export interface VoiceNoteState {
   // long recording's entire transcription work was thrown away by one
   // momentary overload on Gemini's side.
   generationRetrySeconds: number | null;
+  // True once a Render free-tier cold start has been detected and this
+  // session is retrying automatically — see backendAudioService's
+  // pingBackendAwake.
+  backendWakingUp: boolean;
   // Whether the current session's source material includes a video track
   // (an uploaded video file, or a screen recording that kept its video) —
   // drives the "extracting audio" label, the <video> preview, and download
@@ -74,11 +75,11 @@ export interface VoiceRecordingData {
   // still what's sent to Gemini for note generation.
   timestampedTranscript: string;
   segments: Blob[];
-  // How many recorded/uploaded segments failed to transcribe and were
-  // skipped rather than aborting the whole session (see drainQueue in
-  // useVoiceNotePipeline) — 0 when every segment transcribed cleanly.
-  // Callers can use this to warn the user the transcript may be missing a
-  // piece even though a note was still generated.
+  // Always 0 now that a whole recording/file transcribes as a single
+  // backend call (all-or-nothing) rather than a queue of client-side
+  // segments that could partially fail — kept on the interface so existing
+  // callers (e.g. App.tsx's "partial transcript" notice) don't need to
+  // special-case its absence.
   skippedSegmentCount: number;
 }
 
@@ -105,32 +106,16 @@ export interface StartRecordingOptions {
   captureVideo?: boolean;
 }
 
-// A long recording is split into segments that are transcribed as they
-// complete (rather than one giant upload at the very end) so: (1) Groq's
-// per-file size cap can't be exceeded no matter how long the recording
-// runs, and (2) most segments are already transcribed by the time the user
-// stops, so there's only a short remainder to wait through instead of the
-// whole thing.
-//
-// Overridable via VITE_VOICE_SEGMENT_MS for testing — real usage always
-// falls back to 15 minutes.
-const SEGMENT_DURATION_MS = Number(import.meta.env.VITE_VOICE_SEGMENT_MS) || 15 * 60 * 1000;
-
-// 32kbps opus is plenty for intelligible speech and keeps a 15-minute
-// segment around ~3.6MB — comfortably under Groq's 25MB free-tier cap even
-// with encoding overhead.
+// 32kbps opus is plenty for intelligible speech and keeps upload size small
+// regardless of how long the recording runs.
 const AUDIO_BITS_PER_SECOND = 32000;
-
-// How many times to automatically wait out a Groq rate-limit (429) cooldown
-// and retry the SAME segment before giving up and surfacing a real error.
-// Each retry reuses the server's own suggested wait time, so this only caps
-// runaway retrying against a persistently exhausted quota.
-const MAX_RATE_LIMIT_RETRIES = 5;
 
 // How many times to automatically retry note generation after a transient
 // Gemini failure (503 overload, 429 rate limit) before giving up. Unlike
-// Groq's rate-limit retry, Gemini doesn't hand back a suggested wait time,
-// so this uses its own fixed exponential backoff (see generationBackoffSeconds).
+// Groq's rate-limit retry (now handled entirely server-side — see
+// backend/audio_pipeline.py), Gemini doesn't hand back a suggested wait
+// time, so this uses its own fixed exponential backoff (see
+// generationBackoffSeconds).
 const MAX_GENERATION_RETRIES = 4;
 
 // 3s, 6s, 12s, 24s — capped at 30s. A 503 "high demand" overload typically
@@ -165,9 +150,9 @@ const extensionForDownload = (mimeType: string): string => {
   return hasMp4 ? 'm4a' : 'webm';
 };
 
-// Formats a running offset (seconds, possibly spanning multiple chunks) as
-// `MM:SS`, or `HH:MM:SS` once the recording passes an hour — for the
-// per-line timestamps in the downloadable transcript.
+// Formats a running offset (seconds) as `MM:SS`, or `HH:MM:SS` once the
+// recording passes an hour — for the per-line timestamps in the
+// downloadable transcript.
 const formatTimestamp = (totalSeconds: number): string => {
   const wholeSeconds = Math.max(0, Math.floor(totalSeconds));
   const hours = Math.floor(wholeSeconds / 3600);
@@ -178,16 +163,15 @@ const formatTimestamp = (totalSeconds: number): string => {
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
 };
 
-// Turns one Groq transcription result into `[MM:SS] text` lines on the
-// recording's overall timeline, offsetting each segment's clip-relative
-// start time by how much audio has already been processed (`baseSeconds`).
-// Falls back to a single line anchored at `baseSeconds` when Whisper
-// returned no segment breakdown (e.g. a very short clip).
-const buildTimestampedLines = (result: TranscriptionResult, baseSeconds: number): string[] => {
+// Turns the backend's combined TranscriptionResult into `[MM:SS] text`
+// lines — its segments already sit on one continuous timeline across the
+// whole recording (the backend combines every chunk itself), so no offset
+// bookkeeping is needed here anymore.
+const buildTimestampedLines = (result: TranscriptionResult): string[] => {
   if (result.segments.length === 0) {
-    return result.text ? [`[${formatTimestamp(baseSeconds)}] ${result.text}`] : [];
+    return result.text ? [`[${formatTimestamp(0)}] ${result.text}`] : [];
   }
-  return result.segments.map(segment => `[${formatTimestamp(baseSeconds + segment.start)}] ${segment.text}`);
+  return result.segments.map(segment => `[${formatTimestamp(segment.start)}] ${segment.text}`);
 };
 
 const initialState: VoiceNoteState = {
@@ -197,11 +181,11 @@ const initialState: VoiceNoteState = {
   processingPhase: null,
   totalSegments: 0,
   completedSegments: 0,
-  currentUploadFraction: 0,
   transcriptSoFar: '',
   errorMessage: '',
   rateLimitRetrySeconds: null,
   generationRetrySeconds: null,
+  backendWakingUp: false,
   hasVideo: false,
   canDownload: false,
   previewUrl: null,
@@ -211,7 +195,7 @@ const initialState: VoiceNoteState = {
 export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated, onError }: UseVoiceNotePipelineOptions) => {
   const [state, setState] = useState<VoiceNoteState>(initialState);
 
-  // Long-lived async work (recording, the transcription queue, generation)
+  // Long-lived async work (recording, transcription upload, generation)
   // reads these instead of closing over the props directly, so it always
   // sees the latest values without needing to be torn down and restarted
   // whenever a prop changes mid-flight.
@@ -241,33 +225,22 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const cancelledRef = useRef(false);
   const finalizedRef = useRef(false);
   const elapsedTimerRef = useRef<number | null>(null);
-  const segmentTimerRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const segmentQueueRef = useRef<{ blob: Blob; filename: string }[]>([]);
-  const queueRunningRef = useRef(false);
+  // Chunks from the single continuous MediaRecorder capturing this
+  // recording — concatenating chunks from the same recorder session is
+  // always a valid, independently playable file (unlike stitching together
+  // blobs from *separate* MediaRecorder sessions, which don't share a
+  // container header).
+  const chunksRef = useRef<Blob[]>([]);
   const transcriptPartsRef = useRef<string[]>([]);
-  // Parallel to transcriptPartsRef, but each entry is that same chunk's
-  // text reformatted as `[MM:SS] text` lines on the recording's overall
-  // timeline — see buildTimestampedLines.
+  // Parallel to transcriptPartsRef, but each entry is that same result's
+  // text reformatted as `[MM:SS] text` lines — see buildTimestampedLines.
   const timestampedTranscriptPartsRef = useRef<string[]>([]);
-  // How many seconds of audio have already been transcribed so far this
-  // session — advanced by each chunk's own `duration` after it's
-  // processed, so the next chunk's segment timestamps (which are only
-  // relative to *that* chunk) continue the same running timeline instead
-  // of each one restarting at 00:00.
-  const cumulativeAudioSecondsRef = useRef<number>(0);
-  // Every segment successfully transcribed this session (recorded or
-  // split from an upload), kept around so the whole recording can be
-  // handed off to the caller alongside the generated note — not just the
-  // transcript.
+  // Every audio blob/file successfully transcribed this session, kept
+  // around so the whole recording can be handed off to the caller alongside
+  // the generated note — not just the transcript. Always at most one entry
+  // now that transcription is a single backend call per session.
   const audioSegmentsRef = useRef<Blob[]>([]);
-  // How many segments this session failed to transcribe (e.g. Groq
-  // rejecting one as an undecodable/corrupted clip) and were skipped rather
-  // than aborting the whole recording — see drainQueue. Surfaced to the
-  // caller via VoiceRecordingData.skippedSegmentCount once the note is
-  // generated, so the user knows the transcript may be missing a piece
-  // instead of that failure just silently vanishing.
-  const skippedSegmentCountRef = useRef(0);
 
   // The parallel recorder that captures shared-screen video (+ mixed
   // audio) purely for download/preview — never touches transcription.
@@ -275,9 +248,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const downloadChunksRef = useRef<Blob[]>([]);
   // Source material for the "download this recording" action: either the
   // originally uploaded file (kept as-is, at full original quality), or the
-  // raw MediaRecorder blob(s) from a live recording — mutually exclusive.
+  // raw MediaRecorder blob from a live recording — mutually exclusive.
   const uploadedFileRef = useRef<File | null>(null);
-  const rawRecordingBlobsRef = useRef<Blob[]>([]);
+  const rawRecordingBlobRef = useRef<Blob | null>(null);
   const hasVideoRef = useRef(false);
   const previewUrlRef = useRef<string | null>(null);
   // Gates finalizeAndGenerate() behind an explicit user confirmation after a
@@ -288,12 +261,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     if (elapsedTimerRef.current !== null) {
       window.clearInterval(elapsedTimerRef.current);
       elapsedTimerRef.current = null;
-    }
-  };
-  const clearSegmentTimer = () => {
-    if (segmentTimerRef.current !== null) {
-      window.clearInterval(segmentTimerRef.current);
-      segmentTimerRef.current = null;
     }
   };
   const releaseStream = () => {
@@ -318,7 +285,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   // Starts a second, independent MediaRecorder over the shared video track
   // (plus the same mixed audio the transcription recorder is using) so the
   // user can preview/download what was on screen — entirely separate from
-  // the audio-only segment queue that feeds transcription.
+  // the audio-only recording that feeds transcription.
   const startDownloadRecorder = (audioStream: MediaStream, capturedVideoTrack: MediaStreamTrack) => {
     const combinedStream = new MediaStream([...audioStream.getAudioTracks(), capturedVideoTrack]);
     const mimeType = pickSupportedVideoMimeType();
@@ -335,7 +302,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       const capturedMimeType = recorder.mimeType || 'video/webm';
       const blob = new Blob(downloadChunksRef.current, { type: capturedMimeType });
       if (blob.size > 0) {
-        rawRecordingBlobsRef.current = [blob];
+        rawRecordingBlobRef.current = blob;
         revokePreviewUrl();
         previewUrlRef.current = URL.createObjectURL(blob);
         setState(s => ({ ...s, canDownload: true, previewUrl: previewUrlRef.current }));
@@ -349,7 +316,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const resetToIdle = useCallback(() => {
     cancelledRef.current = false;
     uploadedFileRef.current = null;
-    rawRecordingBlobsRef.current = [];
+    rawRecordingBlobRef.current = null;
     hasVideoRef.current = false;
     videoReviewPendingRef.current = false;
     revokePreviewUrl();
@@ -360,11 +327,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       processingPhase: null,
       totalSegments: 0,
       completedSegments: 0,
-      currentUploadFraction: 0,
       transcriptSoFar: '',
       errorMessage: '',
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
+      backendWakingUp: false,
       hasVideo: false,
       canDownload: false,
       previewUrl: null,
@@ -376,12 +343,10 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     console.error('Voice note pipeline failed:', error);
     // Explicitly tear down recording rather than relying on the recorder
     // implicitly stopping once its stream is released — this can happen
-    // mid-recording (e.g. a background segment fails to transcribe because
-    // the API key was revoked), so it must stop cleanly rather than trying
-    // to rotate into yet another doomed segment.
+    // mid-recording (e.g. transcription fails because the API key was
+    // revoked), so it must stop cleanly rather than continuing to capture.
     isStillRecordingRef.current = false;
     discardRef.current = true;
-    clearSegmentTimer();
     clearElapsedTimer();
     releaseStream();
     const recorder = mediaRecorderRef.current;
@@ -399,14 +364,17 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     // the error screen still offers a download of whatever was captured.
     videoReviewPendingRef.current = false;
     const message = error instanceof Error ? error.message : translate('pipeline.unknownError');
-    setState(s => ({ ...s, stage: 'error', processingPhase: null, errorMessage: message, rateLimitRetrySeconds: null, generationRetrySeconds: null, awaitingVideoReview: false }));
+    setState(s => ({
+      ...s, stage: 'error', processingPhase: null, errorMessage: message,
+      rateLimitRetrySeconds: null, generationRetrySeconds: null, backendWakingUp: false, awaitingVideoReview: false,
+    }));
     onErrorRef.current?.(message);
   }, []);
 
-  // Counts down `rateLimitRetrySeconds` in the UI while waiting out a Groq
-  // 429 cooldown. Clamped to a sane range in case the server ever suggests
-  // something absurd — Groq's own hourly window is at most an hour, but a
-  // malformed response shouldn't be able to hang the pipeline that long.
+  // Counts down `rateLimitRetrySeconds` in the UI while the backend waits
+  // out a Groq 429 cooldown server-side (see backend/audio_pipeline.py's
+  // on_rate_limited) — purely cosmetic on this side: the actual wait and
+  // retry already happen on the backend, this just mirrors it visually.
   const waitForRateLimitCooldown = useCallback(async (seconds: number): Promise<void> => {
     const clampedSeconds = Math.max(1, Math.min(Math.ceil(seconds), 120));
     const endAt = Date.now() + clampedSeconds * 1000;
@@ -451,7 +419,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
             transcript: combinedTranscript,
             timestampedTranscript: timestampedTranscriptPartsRef.current.join('\n'),
             segments: audioSegmentsRef.current,
-            skippedSegmentCount: skippedSegmentCountRef.current,
+            skippedSegmentCount: 0,
           });
           resetToIdle();
           return;
@@ -488,162 +456,80 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     }
   }, [handlePipelineError, resetToIdle, waitForGenerationRetryCooldown]);
 
-  // Wraps a single transcription call so a Groq rate-limit (429) response
-  // waits out the server's own suggested cooldown and retries the exact
-  // same blob, instead of failing the whole pipeline outright. Used by both
-  // the segment queue and a direct small-file upload, since neither should
-  // force the user to re-upload or re-transcribe already-completed work
-  // just because the account's hourly quota happened to run dry mid-way.
-  const transcribeWithRateLimitRetry = useCallback(async (
-    blob: Blob,
-    filename: string,
-    onUploadProgress?: (fraction: number) => void,
-  ): Promise<TranscriptionResult> => {
-    let attempt = 0;
-    for (;;) {
-      if (cancelledRef.current) throw new DOMException('Aborted', 'AbortError');
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      try {
-        return await transcribeAudio(blob, filename, groqApiKeyRef.current, {
-          signal: controller.signal,
-          onUploadProgress,
-        });
-      } catch (error) {
-        if (cancelledRef.current) throw error;
-        if (error instanceof RateLimitError && attempt < MAX_RATE_LIMIT_RETRIES) {
-          attempt += 1;
-          await waitForRateLimitCooldown(error.retryAfterSeconds);
-          if (cancelledRef.current) throw error;
-          continue;
-        }
-        throw error;
-      }
-    }
-  }, [waitForRateLimitCooldown]);
+  // Uploads one whole recording/file to the backend and waits for its
+  // combined transcription result — replaces the old client-side segment
+  // queue: the backend itself splits an oversized file into Groq-sized
+  // chunks and retries rate-limited ones (see backend/audio_pipeline.py),
+  // so there's only ever one request to make here regardless of length.
+  const uploadAndTranscribe = useCallback(async (blobOrFile: Blob, filename: string) => {
+    if (cancelledRef.current) return;
+    setState(s => ({
+      ...s, processingPhase: 'uploading', totalSegments: 0, completedSegments: 0,
+      backendWakingUp: false,
+    }));
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
-  const drainQueue = useCallback(async () => {
-    if (queueRunningRef.current) return;
-    queueRunningRef.current = true;
     try {
-      while (segmentQueueRef.current.length > 0) {
-        if (cancelledRef.current) return;
-        const next = segmentQueueRef.current.shift()!;
-        try {
-          const result = await transcribeWithRateLimitRetry(next.blob, next.filename, (fraction) => {
-            if (cancelledRef.current) return;
-            setState(s => ({ ...s, currentUploadFraction: fraction }));
-          });
+      const result = await transcribeViaBackend(blobOrFile, filename, groqApiKeyRef.current, {
+        signal: controller.signal,
+        onWakeupRetry: () => {
           if (cancelledRef.current) return;
-          transcriptPartsRef.current.push(result.text);
-          timestampedTranscriptPartsRef.current.push(...buildTimestampedLines(result, cumulativeAudioSecondsRef.current));
-          cumulativeAudioSecondsRef.current += result.duration;
-          audioSegmentsRef.current.push(next.blob);
-          setState(s => ({
-            ...s,
-            completedSegments: s.completedSegments + 1,
-            currentUploadFraction: 0,
-            transcriptSoFar: transcriptPartsRef.current.join('\n\n'),
-          }));
-        } catch (error) {
+          setState(s => ({ ...s, backendWakingUp: true }));
+        },
+        onProgress: (progress: BackendTranscribeProgress) => {
           if (cancelledRef.current) return;
-          // A missing/revoked API key or an exhausted rate limit affects
-          // every remaining segment identically, so there's no point
-          // continuing — abort the whole session as before. Anything else
-          // (most commonly Groq rejecting one clip as undecodable/corrupt —
-          // "could not process file") is specific to that one segment: skip
-          // it and keep going, so a single bad clip doesn't cut off a
-          // recording that's still in progress or throw away every other
-          // segment that transcribed fine. The user's told how many were
-          // dropped once the note is generated — see skippedSegmentCountRef.
-          if (error instanceof MissingGroqApiKeyError || error instanceof InvalidGroqApiKeyError || error instanceof RateLimitError) {
-            handlePipelineError(error);
-            return;
+          if (progress.phase === 'normalizing' || progress.phase === 'splitting') {
+            setState(s => ({ ...s, processingPhase: 'normalizing', backendWakingUp: false }));
+          } else if (progress.phase === 'transcribing') {
+            setState(s => ({
+              ...s, processingPhase: 'transcribing', backendWakingUp: false,
+              totalSegments: progress.total ?? s.totalSegments,
+              completedSegments: progress.completed ?? s.completedSegments,
+            }));
+          } else if (progress.phase === 'rate_limited') {
+            setState(s => ({
+              ...s,
+              totalSegments: progress.total ?? s.totalSegments,
+              completedSegments: progress.completed ?? s.completedSegments,
+            }));
+            void waitForRateLimitCooldown(progress.waitSeconds ?? 15);
           }
-          console.error('Skipping a segment that failed to transcribe:', error);
-          skippedSegmentCountRef.current += 1;
-          setState(s => ({ ...s, completedSegments: s.completedSegments + 1, currentUploadFraction: 0 }));
-        }
-      }
-    } finally {
-      queueRunningRef.current = false;
-    }
+        },
+      });
+      if (cancelledRef.current) return;
 
-    if (!isStillRecordingRef.current && !cancelledRef.current && !finalizedRef.current) {
-      if (videoReviewPendingRef.current) {
-        // Transcription is done, but the user hasn't confirmed they've had
-        // a chance to download the video yet — hold off on generating the
-        // note (which ends in resetToIdle(), wiping it) until they do.
-        // confirmVideoReviewed() re-invokes drainQueue() once cleared, which
-        // immediately falls through to this same check again.
+      transcriptPartsRef.current.push(result.text);
+      timestampedTranscriptPartsRef.current.push(...buildTimestampedLines(result));
+      audioSegmentsRef.current.push(blobOrFile);
+      setState(s => ({ ...s, transcriptSoFar: result.text, totalSegments: 1, completedSegments: 1 }));
+
+      if (videoReviewPendingRef.current || finalizedRef.current) {
+        // Either the user hasn't confirmed they've had a chance to download
+        // the video yet (confirmVideoReviewed() picks this up once they
+        // do), or something else already finalized this session — either
+        // way, nothing more to do here.
         return;
       }
       finalizedRef.current = true;
       await finalizeAndGenerate();
+    } catch (error) {
+      if (cancelledRef.current) return;
+      handlePipelineError(error);
     }
-  }, [finalizeAndGenerate, handlePipelineError, transcribeWithRateLimitRetry]);
-
-  const startSegment = useCallback(() => {
-    const stream = streamRef.current;
-    if (!stream) return;
-    const mimeType = pickSupportedMimeType();
-    const recorder = mimeType
-      ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND })
-      : new MediaRecorder(stream, { audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
-    const chunks: Blob[] = [];
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data);
-    };
-
-    recorder.onstop = () => {
-      const capturedMimeType = recorder.mimeType || 'audio/webm';
-      const blob = new Blob(chunks, { type: capturedMimeType });
-
-      if (discardRef.current || cancelledRef.current) {
-        return;
-      }
-
-      if (blob.size > 0) {
-        const filename = `segment-${Date.now()}.${extensionForMimeType(capturedMimeType)}`;
-        segmentQueueRef.current.push({ blob, filename });
-        setState(s => ({ ...s, totalSegments: s.totalSegments + 1 }));
-
-        // Only treat these audio-only segments as the downloadable source
-        // when there's no separate video recording running — when there
-        // is, startDownloadRecorder's own onstop is the canonical source
-        // instead, so as not to clobber it with audio-only chunks.
-        if (!hasVideoRef.current) {
-          rawRecordingBlobsRef.current.push(blob);
-          setState(s => ({ ...s, canDownload: true }));
-        }
-      }
-
-      if (isStillRecordingRef.current) {
-        startSegment();
-      } else {
-        releaseStream();
-      }
-
-      void drainQueue();
-    };
-
-    mediaRecorderRef.current = recorder;
-    recorder.start();
-  }, [drainQueue]);
+  }, [finalizeAndGenerate, handlePipelineError, waitForRateLimitCooldown]);
 
   const stopRecording = useCallback(() => {
     if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
     isStillRecordingRef.current = false;
     discardRef.current = false;
-    clearSegmentTimer();
     clearElapsedTimer();
     // A video recording pauses before generating the note — see
     // awaitingVideoReview — so stopping it isn't a race against losing the
     // video. Audio-only sessions are unaffected and proceed exactly as
     // before.
     videoReviewPendingRef.current = hasVideoRef.current;
-    setState(s => ({ ...s, stage: 'processing', processingPhase: 'transcribing', awaitingVideoReview: hasVideoRef.current }));
+    setState(s => ({ ...s, stage: 'processing', processingPhase: 'uploading', awaitingVideoReview: hasVideoRef.current }));
     mediaRecorderRef.current.stop();
     if (downloadRecorderRef.current && downloadRecorderRef.current.state !== 'inactive') {
       downloadRecorderRef.current.stop();
@@ -651,13 +537,19 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   }, []);
 
   // Lets a paused-for-video-review pipeline proceed to note generation —
-  // see awaitingVideoReview. A no-op if there's nothing pending.
+  // see awaitingVideoReview. A no-op if there's nothing pending, or if
+  // transcription hasn't produced a result yet (uploadAndTranscribe's own
+  // success handler picks this up once it does, since videoReviewPendingRef
+  // will already be false by then).
   const confirmVideoReviewed = useCallback(() => {
     if (!videoReviewPendingRef.current) return;
     videoReviewPendingRef.current = false;
     setState(s => ({ ...s, awaitingVideoReview: false }));
-    void drainQueue();
-  }, [drainQueue]);
+    if (!finalizedRef.current && transcriptPartsRef.current.length > 0) {
+      finalizedRef.current = true;
+      void finalizeAndGenerate();
+    }
+  }, [finalizeAndGenerate]);
 
   const startRecording = useCallback(async (options?: StartRecordingOptions) => {
     setState(s => ({ ...s, errorMessage: '' }));
@@ -776,11 +668,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       isStillRecordingRef.current = true;
       transcriptPartsRef.current = [];
       timestampedTranscriptPartsRef.current = [];
-      cumulativeAudioSecondsRef.current = 0;
-      skippedSegmentCountRef.current = 0;
-      segmentQueueRef.current = [];
       audioSegmentsRef.current = [];
-      rawRecordingBlobsRef.current = [];
+      chunksRef.current = [];
+      rawRecordingBlobRef.current = null;
       uploadedFileRef.current = null;
       hasVideoRef.current = !!videoTrack;
       revokePreviewUrl();
@@ -792,29 +682,56 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         processingPhase: null,
         totalSegments: 0,
         completedSegments: 0,
-        currentUploadFraction: 0,
         transcriptSoFar: '',
         rateLimitRetrySeconds: null,
         generationRetrySeconds: null,
+        backendWakingUp: false,
         hasVideo: !!videoTrack,
         canDownload: false,
         previewUrl: null,
       }));
 
-      startSegment();
+      const mimeType = pickSupportedMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(mixedAudioStream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND })
+        : new MediaRecorder(mixedAudioStream, { audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        isStillRecordingRef.current = false;
+        releaseStream();
+        if (discardRef.current || cancelledRef.current) return;
+
+        const capturedMimeType = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: capturedMimeType });
+        if (blob.size === 0) {
+          handlePipelineError(new Error(translate('pipeline.noSpeechDetected')));
+          return;
+        }
+
+        // Only treat this audio-only blob as the downloadable source when
+        // there's no separate video recording running — when there is,
+        // startDownloadRecorder's own onstop is the canonical source
+        // instead, so as not to clobber it with the audio-only blob.
+        if (!hasVideoRef.current) {
+          rawRecordingBlobRef.current = blob;
+          setState(s => ({ ...s, canDownload: true }));
+        }
+
+        const filename = `recording-${Date.now()}.${extensionForMimeType(capturedMimeType)}`;
+        void uploadAndTranscribe(blob, filename);
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
       if (videoTrack) {
         startDownloadRecorder(mixedAudioStream, videoTrack);
       }
       elapsedTimerRef.current = window.setInterval(() => {
         setState(s => ({ ...s, elapsedSeconds: s.elapsedSeconds + 1 }));
       }, 1000);
-      segmentTimerRef.current = window.setInterval(() => {
-        // Rotating to a new MediaRecorder finalizes a complete, independently
-        // transcribable file for the segment that just ended (a raw
-        // MediaRecorder `timeslice` chunk isn't independently decodable —
-        // only the very first one carries the container header).
-        mediaRecorderRef.current?.stop();
-      }, SEGMENT_DURATION_MS);
     } catch (error) {
       releaseStream();
       if (error instanceof DOMException && error.name === 'NotAllowedError') {
@@ -825,23 +742,20 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         handlePipelineError(new Error(translate('pipeline.recordingStartFailed')));
       }
     }
-  }, [handlePipelineError, startSegment, stopRecording]);
+  }, [handlePipelineError, stopRecording, uploadAndTranscribe]);
 
-  // A file under Groq's cap uploads directly; a larger one — or a video
-  // file of any size, since its audio track needs extracting first — is
-  // decoded and re-encoded into a series of smaller WAV segments
-  // client-side (see utils/audioSplitter.ts), then fed through the exact
-  // same segment queue used for chunked live recording — drainQueue's own
-  // "nothing left and not still recording" check picks up from there and
-  // finalizes once they've all been transcribed.
+  // Every file (audio or video, any size up to MAX_BACKEND_UPLOAD_BYTES)
+  // goes through the same backend call — the backend's normalize step
+  // extracts the audio track from a video file exactly like it does for a
+  // recorded one (see backend/audio_pipeline.py's normalize_audio).
   const selectFile = useCallback(async (file: File) => {
     setState(s => ({ ...s, errorMessage: '' }));
     if (!isSupportedMediaFile(file)) {
       handlePipelineError(new Error(translate('pipeline.unsupportedFileFormat')));
       return;
     }
-    if (file.size > MAX_SPLITTABLE_FILE_BYTES) {
-      handlePipelineError(new Error(translate('pipeline.fileTooLargeToSplit', { maxMb: Math.round(MAX_SPLITTABLE_FILE_BYTES / (1024 * 1024)) })));
+    if (file.size > MAX_BACKEND_UPLOAD_BYTES) {
+      handlePipelineError(new Error(translate('pipeline.fileTooLargeToSplit', { maxMb: Math.round(MAX_BACKEND_UPLOAD_BYTES / (1024 * 1024)) })));
       return;
     }
 
@@ -851,133 +765,45 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     finalizedRef.current = false;
     transcriptPartsRef.current = [];
     timestampedTranscriptPartsRef.current = [];
-    cumulativeAudioSecondsRef.current = 0;
-    skippedSegmentCountRef.current = 0;
-    segmentQueueRef.current = [];
     audioSegmentsRef.current = [];
-    rawRecordingBlobsRef.current = [];
+    rawRecordingBlobRef.current = null;
     uploadedFileRef.current = file;
     hasVideoRef.current = fileIsVideo;
     revokePreviewUrl();
     if (fileIsVideo) previewUrlRef.current = URL.createObjectURL(file);
 
-    if (!fileIsVideo && file.size <= MAX_UPLOAD_BYTES) {
-      setState(s => ({
-        ...s,
-        stage: 'processing',
-        processingPhase: 'uploading',
-        totalSegments: 1,
-        completedSegments: 0,
-        currentUploadFraction: 0,
-        transcriptSoFar: '',
-        rateLimitRetrySeconds: null,
-        generationRetrySeconds: null,
-        hasVideo: false,
-        canDownload: true,
-        previewUrl: null,
-      }));
-
-      try {
-        const result = await transcribeWithRateLimitRetry(file, file.name, (fraction) => {
-          if (cancelledRef.current) return;
-          setState(s => ({
-            ...s,
-            currentUploadFraction: fraction,
-            processingPhase: fraction >= 1 ? 'transcribing' : 'uploading',
-          }));
-        });
-        if (cancelledRef.current) return;
-        transcriptPartsRef.current.push(result.text);
-        timestampedTranscriptPartsRef.current.push(...buildTimestampedLines(result, cumulativeAudioSecondsRef.current));
-        cumulativeAudioSecondsRef.current += result.duration;
-        audioSegmentsRef.current.push(file);
-        setState(s => ({ ...s, completedSegments: 1, transcriptSoFar: result.text }));
-        finalizedRef.current = true;
-        await finalizeAndGenerate();
-      } catch (error) {
-        if (cancelledRef.current) return;
-        handlePipelineError(error);
-      }
-      return;
-    }
-
-    // Too large to upload as-is, or a video file whose audio track needs
-    // extracting first — either way, split it client-side. For a video
-    // file under the size cap this typically produces a single segment;
-    // splitAudioFileIntoSegments handles that exactly like any other
-    // single-segment case.
     setState(s => ({
       ...s,
       stage: 'processing',
-      processingPhase: 'splitting',
+      processingPhase: 'uploading',
       totalSegments: 0,
       completedSegments: 0,
-      currentUploadFraction: 0,
       transcriptSoFar: '',
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
+      backendWakingUp: false,
       hasVideo: fileIsVideo,
       canDownload: true,
       previewUrl: previewUrlRef.current,
     }));
-    try {
-      const segments = await splitAudioFileIntoSegments(file, MAX_UPLOAD_BYTES);
-      if (cancelledRef.current) return;
-      if (segments.length === 0) {
-        handlePipelineError(new Error(translate('pipeline.cannotParseFile')));
-        return;
-      }
-      segmentQueueRef.current = segments;
-      setState(s => ({ ...s, processingPhase: 'transcribing', totalSegments: segments.length }));
-      void drainQueue();
-    } catch (error) {
-      if (cancelledRef.current) return;
-      // splitAudioFileIntoSegments always rejects with an already
-      // user-presentable message (it wraps the browser's own terse decode
-      // errors itself), so it's safe to surface directly here.
-      handlePipelineError(error);
-    }
-  }, [drainQueue, finalizeAndGenerate, handlePipelineError, transcribeWithRateLimitRetry]);
+
+    await uploadAndTranscribe(file, file.name);
+  }, [handlePipelineError, uploadAndTranscribe]);
 
   // Downloads whatever raw source material is currently available —
   // the originally uploaded file at full quality, or the raw recorded
-  // blob(s) — regardless of whether transcription has finished or even
+  // blob — regardless of whether transcription has finished or even
   // succeeded. A no-op if nothing is available yet.
   const downloadRecording = useCallback(() => {
     if (uploadedFileRef.current) {
       downloadBlob(uploadedFileRef.current, uploadedFileRef.current.name);
       return;
     }
-    if (rawRecordingBlobsRef.current.length === 0) return;
+    if (!rawRecordingBlobRef.current) return;
 
-    const mimeType = rawRecordingBlobsRef.current[0].type || 'audio/webm';
+    const mimeType = rawRecordingBlobRef.current.type || 'audio/webm';
     const extension = extensionForDownload(mimeType);
-    const baseName = `recording-${Date.now()}`;
-
-    if (rawRecordingBlobsRef.current.length === 1) {
-      downloadBlob(rawRecordingBlobsRef.current[0], `${baseName}.${extension}`);
-      return;
-    }
-
-    // A recording long enough to rotate past SEGMENT_DURATION_MS (15
-    // minutes by default) has multiple independent MediaRecorder blobs,
-    // each with its own container header — concatenating them into one
-    // Blob (as this used to do) produces a file most players only read the
-    // first segment of, silently truncating the rest with no error. Rather
-    // than re-encode everything into one file (expensive, and would bloat
-    // an hour-long recording from a few MB of compressed audio into
-    // hundreds of MB of raw PCM), each segment downloads as its own
-    // genuinely valid, individually playable file, numbered in order.
-    const total = rawRecordingBlobsRef.current.length;
-    rawRecordingBlobsRef.current.forEach((segmentBlob, index) => {
-      // Browsers can silently drop or block closely-spaced programmatic
-      // downloads (some treat a burst of `<a download>` clicks as a
-      // pop-up-like pattern), so these are staggered a little rather than
-      // fired all at once.
-      window.setTimeout(() => {
-        downloadBlob(segmentBlob, `${baseName}-part${index + 1}-of-${total}.${extension}`);
-      }, index * 300);
-    });
+    downloadBlob(rawRecordingBlobRef.current, `recording-${Date.now()}.${extension}`);
   }, []);
 
   // Aborts everything in flight and returns to a clean idle state — used
@@ -987,7 +813,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     cancelledRef.current = true;
     isStillRecordingRef.current = false;
     discardRef.current = true;
-    clearSegmentTimer();
     clearElapsedTimer();
     abortControllerRef.current?.abort();
     releaseStream();
@@ -1001,13 +826,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       downloadRecorder.onstop = null;
       downloadRecorder.stop();
     }
-    segmentQueueRef.current = [];
     transcriptPartsRef.current = [];
     timestampedTranscriptPartsRef.current = [];
-    cumulativeAudioSecondsRef.current = 0;
-    skippedSegmentCountRef.current = 0;
     audioSegmentsRef.current = [];
-    rawRecordingBlobsRef.current = [];
+    chunksRef.current = [];
+    rawRecordingBlobRef.current = null;
     uploadedFileRef.current = null;
     hasVideoRef.current = false;
     videoReviewPendingRef.current = false;
@@ -1029,11 +852,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       processingPhase: null,
       totalSegments: 0,
       completedSegments: 0,
-      currentUploadFraction: 0,
       transcriptSoFar: '',
       errorMessage: '',
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
+      backendWakingUp: false,
       hasVideo: false,
       canDownload: false,
       previewUrl: null,
@@ -1076,7 +899,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
-      clearSegmentTimer();
       clearElapsedTimer();
       abortControllerRef.current?.abort();
       releaseStream();

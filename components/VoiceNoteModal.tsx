@@ -52,8 +52,9 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
   if (!isOpen) return null;
 
   const {
-    inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments, currentUploadFraction,
-    errorMessage, rateLimitRetrySeconds, generationRetrySeconds, hasVideo, canDownload, previewUrl, awaitingVideoReview,
+    inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments,
+    errorMessage, rateLimitRetrySeconds, generationRetrySeconds, backendWakingUp,
+    hasVideo, canDownload, previewUrl, awaitingVideoReview,
   } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
   const kind = hasVideo ? t('voiceNote.kindVideo') : t('voiceNote.kindAudio');
@@ -279,11 +280,10 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
         }
 
         const showSegmentProgress = processingPhase === 'transcribing' && totalSegments > 1;
-        const showUploadProgress = processingPhase === 'uploading';
-        const segmentFraction = totalSegments > 0 ? (completedSegments + currentUploadFraction) / totalSegments : 0;
+        const segmentFraction = totalSegments > 0 ? completedSegments / totalSegments : 0;
 
         let label = t('voiceNote.generatingLabel');
-        if (processingPhase === 'splitting') label = hasVideo ? t('voiceNote.extractingAudio') : t('voiceNote.splittingFile');
+        if (processingPhase === 'normalizing') label = hasVideo ? t('voiceNote.extractingAudio') : t('voiceNote.normalizingAudio');
         else if (processingPhase === 'uploading') label = t('voiceNote.uploadingAudio');
         else if (processingPhase === 'transcribing') {
           label = showSegmentProgress
@@ -301,14 +301,18 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
           label = t('voiceNote.generationRetry', { seconds: generationRetrySeconds });
         }
 
+        if (backendWakingUp) {
+          label = t('voiceNote.backendWakingUp');
+        }
+
         return (
           <div className="flex flex-col items-center text-center py-6">
             {hasVideo && previewUrl && (
               <video src={previewUrl} controls className="w-full max-h-40 rounded-lg mb-4 bg-black" />
             )}
-            {showUploadProgress || showSegmentProgress ? (
+            {showSegmentProgress ? (
               <div className="w-full mb-4">
-                <ProgressBar fraction={showUploadProgress ? currentUploadFraction : segmentFraction} />
+                <ProgressBar fraction={segmentFraction} />
               </div>
             ) : (
               <Spinner className="w-8 h-8 text-accent mb-4" />

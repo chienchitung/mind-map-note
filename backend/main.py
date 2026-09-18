@@ -1,0 +1,214 @@
+import asyncio
+import json
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+import uvicorn
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from starlette.requests import Request
+
+load_dotenv()
+
+from audio_pipeline import (
+    AudioProcessingError,
+    GroqRateLimitError,
+    InvalidGroqApiKeyError,
+    normalize_audio,
+    transcribe_audio,
+)
+
+app = FastAPI()
+
+# Restricted via ALLOWED_ORIGINS (comma-separated) rather than "*" so an
+# unrelated site's JS can't call this API in a visitor's browser and free-ride
+# on this backend's compute. allow_credentials is False because nothing here
+# uses cookies — the Groq API key is sent explicitly in the request body.
+_default_origins = "http://localhost:5173"
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", _default_origins).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mirrors MAX_BACKEND_UPLOAD_BYTES in services/backendAudioService.ts (the
+# frontend already rejects anything larger before ever sending it — this is
+# a server-side backstop, not the primary guard).
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+
+
+@app.middleware("http")
+async def reject_oversized_uploads(request: Request, call_next):
+    # Rejects a well-behaved client's oversized upload before the body is
+    # even parsed (browsers always send an accurate Content-Length for a
+    # FormData Blob/File upload) — cheaper than accepting the whole body
+    # first and only then discovering it's too large.
+    if request.url.path == "/audio/transcribe/stream":
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_UPLOAD_BYTES:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=413,
+                content={"message": f"Upload exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit."},
+            )
+    return await call_next(request)
+
+
+@app.get("/health")
+async def health_check():
+    # No DB/model calls — used both as an uptime probe and as the frontend's
+    # pre-flight "wake up the Render instance" ping, so it must respond as
+    # soon as the process is up.
+    return {"status": "ok"}
+
+
+def sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@app.post("/audio/transcribe/stream")
+async def transcribe_stream(
+    audio: UploadFile = File(...),
+    groq_api_key: str = Form(""),
+    language: str = Form("auto"),
+):
+    """
+    Accepts one audio/video file (a live recording or an uploaded file, any
+    size up to MAX_UPLOAD_BYTES), normalizes it, splits it into Groq-sized
+    chunks if needed, transcribes each chunk, and streams progress via SSE.
+    The final event carries a combined {text, segments, duration} result on
+    one continuous timeline — the same shape the frontend's
+    TranscriptionResult already has.
+
+    Stateless: everything lives in a per-request temp dir that's removed
+    once the stream ends, regardless of success or failure.
+    """
+    groq_api_key = (groq_api_key or "").strip()
+
+    async def event_generator():
+        if not groq_api_key:
+            yield sse_event("error", {
+                "error_type": "missing_groq_key",
+                "message": "No Groq API key was provided.",
+            })
+            return
+
+        with tempfile.TemporaryDirectory(prefix="voice_note_") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            ext = os.path.splitext(audio.filename or "")[1] or ".bin"
+            src_path = tmp_path / f"audio{ext}"
+
+            queue: asyncio.Queue = asyncio.Queue()
+
+            async def run_pipeline():
+                loop = asyncio.get_running_loop()
+                try:
+                    with src_path.open("wb") as buffer:
+                        await asyncio.to_thread(shutil.copyfileobj, audio.file, buffer)
+
+                    if src_path.stat().st_size > MAX_UPLOAD_BYTES:
+                        await queue.put(("error", {
+                            "error_type": "too_large",
+                            "message": f"This recording exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit.",
+                        }))
+                        return
+
+                    def emit_normalize_progress(percent: int) -> None:
+                        # normalize_audio() runs in a worker thread
+                        # (asyncio.to_thread below); asyncio.Queue isn't
+                        # thread-safe, so progress ticks from that thread
+                        # are handed back via call_soon_threadsafe.
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            ("progress", {"phase": "normalizing", "percent": percent}),
+                        )
+
+                    normalized_path = await asyncio.to_thread(normalize_audio, str(src_path), emit_normalize_progress)
+
+                    def emit_split_progress(percent: int) -> None:
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            ("progress", {"phase": "splitting", "percent": percent}),
+                        )
+
+                    async def on_chunk_done(completed: int, total: int) -> None:
+                        await queue.put(("progress", {"phase": "transcribing", "completed": completed, "total": total}))
+
+                    async def on_rate_limited(wait_seconds: float, attempt: int, chunk_index: int, total_chunks: int) -> None:
+                        await queue.put(("progress", {
+                            "phase": "rate_limited",
+                            "waitSeconds": wait_seconds,
+                            "completed": max(0, chunk_index - 1),
+                            "total": total_chunks,
+                        }))
+
+                    result = await transcribe_audio(
+                        normalized_path, groq_api_key, language,
+                        on_split_progress=emit_split_progress,
+                        on_chunk_done=on_chunk_done,
+                        on_rate_limited=on_rate_limited,
+                    )
+
+                    if not result["text"].strip():
+                        await queue.put(("error", {
+                            "error_type": "no_speech",
+                            "message": "No speech was detected in this recording.",
+                        }))
+                        return
+
+                    await queue.put(("final", result))
+                except asyncio.CancelledError:
+                    raise
+                except InvalidGroqApiKeyError as e:
+                    await queue.put(("error", {"error_type": "invalid_groq_key", "message": str(e)}))
+                except GroqRateLimitError as e:
+                    await queue.put(("error", {
+                        "error_type": "rate_limited",
+                        "message": str(e),
+                        "retry_after_seconds": e.retry_after_seconds,
+                    }))
+                except AudioProcessingError as e:
+                    await queue.put(("error", {"error_type": "processing_error", "message": str(e)}))
+                except Exception as e:
+                    print(f"Transcription pipeline error: {e}")
+                    await queue.put(("error", {
+                        "error_type": "processing_error",
+                        "message": "An unexpected error occurred while processing this recording.",
+                    }))
+
+            task = asyncio.create_task(run_pipeline())
+            try:
+                yield sse_event("progress", {"phase": "normalizing"})
+                while True:
+                    event, payload = await queue.get()
+                    yield sse_event(event, payload)
+                    if event in {"final", "error"}:
+                        break
+            finally:
+                # Cancel the background task if still running (e.g. client
+                # disconnected mid-stream) so an abandoned transcription
+                # doesn't keep running against the Groq API forever.
+                if not task.done():
+                    task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

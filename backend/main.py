@@ -29,7 +29,9 @@ app = FastAPI()
 # unrelated site's JS can't call this API in a visitor's browser and free-ride
 # on this backend's compute. allow_credentials is False because nothing here
 # uses cookies — the Groq API key is sent explicitly in the request body.
-_default_origins = "http://localhost:5173"
+# Vite is pinned to port 3000 in vite.config.ts. Keep 5173 as well for
+# developers running Vite without that config (or with an older checkout).
+_default_origins = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("ALLOWED_ORIGINS", _default_origins).split(",")
@@ -48,6 +50,9 @@ app.add_middleware(
 # frontend already rejects anything larger before ever sending it — this is
 # a server-side backstop, not the primary guard).
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+# Multipart requests contain a few form fields and boundaries in addition to
+# the file. The actual file size is checked after saving it below.
+MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 @app.middleware("http")
@@ -58,7 +63,7 @@ async def reject_oversized_uploads(request: Request, call_next):
     # first and only then discovering it's too large.
     if request.url.path == "/audio/transcribe/stream":
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_UPLOAD_BYTES:
+        if content_length and int(content_length) > MAX_UPLOAD_BYTES + MAX_MULTIPART_OVERHEAD_BYTES:
             from fastapi.responses import JSONResponse
             return JSONResponse(
                 status_code=413,
@@ -221,7 +226,14 @@ async def transcribe_stream(
             try:
                 yield sse_event("progress", {"phase": "normalizing"})
                 while True:
-                    event, payload = await queue.get()
+                    try:
+                        event, payload = await asyncio.wait_for(queue.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        # A long Groq retry-after can outlast idle timeouts
+                        # on reverse proxies. Comments keep the SSE response
+                        # alive without presenting a new UI event.
+                        yield ": keepalive\n\n"
+                        continue
                     yield sse_event(event, payload)
                     if event in {"final", "error"}:
                         break

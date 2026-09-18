@@ -122,6 +122,7 @@ def _run_ffmpeg_with_progress(cmd: list, total_seconds: float, on_progress: Opti
                     last_percent = 100
                     on_progress(100)
         finally:
+            process.stdout.close()
             process.wait()
 
         if process.returncode != 0:
@@ -332,7 +333,14 @@ async def transcribe_audio(
                 "text": text,
             })
 
-        chunk_text = _to_traditional(str(raw.get("text") or "").strip())
+        # Groq's top-level text still includes segments Whisper marked as
+        # silence. Build the note text from the same accepted segments used
+        # for timestamps, otherwise a silent upload can generate a bogus note.
+        # Older responses without segments can still supply plain text.
+        chunk_text = _to_traditional(
+            (" ".join(str(seg.get("text") or "").strip() for seg in raw_segments)
+             if raw.get("segments") is not None else str(raw.get("text") or "")).strip()
+        )
         if chunk_text:
             combined_text_parts.append(chunk_text)
 

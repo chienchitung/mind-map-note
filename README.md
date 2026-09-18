@@ -57,7 +57,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
-前端預設會連到 `http://localhost:8000`；若後端跑在別的位置，複製一份 `.env.example` 成 `.env` 並修改 `VITE_BACKEND_URL`。正式部署時，後端可部署到 [Render](https://render.com/)（見專案根目錄的 `render.yaml`），前端則設定 `VITE_BACKEND_URL` 指向部署後的後端網址。
+前端開發網址是 `http://localhost:3000`，預設會連到 `http://localhost:8000`；若後端跑在別的位置，複製一份 `.env.example` 成 `.env` 並修改 `VITE_BACKEND_URL`。正式部署時，後端可部署到 [Render](https://render.com/)（見專案根目錄的 `render.yaml`），前端則設定 `VITE_BACKEND_URL` 指向部署後的後端網址，並在後端的 `ALLOWED_ORIGINS` 設定前端的完整網址（例如 `https://mindmapnote.vercel.app`）。
 
 ### 其他指令
 

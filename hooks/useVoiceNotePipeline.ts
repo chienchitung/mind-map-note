@@ -54,9 +54,8 @@ export interface VoiceNoteState {
   // session is retrying automatically — see backendAudioService's
   // pingBackendAwake.
   backendWakingUp: boolean;
-  // Set when the physical microphone disappears or stays unavailable long
-  // enough that continuing would only append silence to the recording.
-  microphoneDisconnected: boolean;
+  // Tracks automatic input recovery when an external microphone disappears.
+  microphoneStatus: 'connected' | 'reconnecting' | 'recovered' | 'failed';
   // Whether the current session's source material includes a video track
   // (an uploaded video file, or a screen recording that kept its video) —
   // drives the "extracting audio" label, the <video> preview, and download
@@ -207,7 +206,7 @@ const initialState: VoiceNoteState = {
   rateLimitRetrySeconds: null,
   generationRetrySeconds: null,
   backendWakingUp: false,
-  microphoneDisconnected: false,
+  microphoneStatus: 'connected',
   hasVideo: false,
   canDownload: false,
   previewUrl: null,
@@ -231,9 +230,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  // The stream actually fed to the transcription recorder above — either
-  // the raw mic stream, or (when tab-audio capture is on) the mixed
-  // mic+display audio destination stream. Always audio-only.
+  // The stable audio-only stream fed to the transcription recorder. Web
+  // Audio normally provides this destination so microphone sources can be
+  // replaced without changing MediaRecorder's track set.
   const streamRef = useRef<MediaStream | null>(null);
   // The *original* captured streams, kept separately from streamRef because
   // stopping tracks on a Web Audio destination stream doesn't release the
@@ -242,10 +241,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const micStreamRef = useRef<MediaStream | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
   const mixAudioContextRef = useRef<AudioContext | null>(null);
-  // Keep every node in the tab-audio mixing graph strongly referenced for
-  // the full recording. More importantly, the graph is also connected to a
-  // silent AudioContext output below so Chrome continues rendering it while
-  // this page is in a background tab.
+  const mixerNodeRef = useRef<GainNode | null>(null);
+  const microphoneSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  // Keep every node in the audio graph strongly referenced for the full
+  // recording. The graph is also connected to a silent AudioContext output
+  // below so Chrome continues rendering it while this page is backgrounded.
   const mixAudioNodesRef = useRef<AudioNode[]>([]);
   const isStillRecordingRef = useRef(false);
   const discardRef = useRef(false);
@@ -253,6 +253,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const finalizedRef = useRef(false);
   const elapsedTimerRef = useRef<number | null>(null);
   const microphoneMuteTimerRef = useRef<number | null>(null);
+  const microphoneRecoveryInFlightRef = useRef(false);
+  const recoverMicrophoneRef = useRef<() => void>(() => undefined);
   // Background tabs throttle setInterval. Keep the actual start time so the
   // displayed duration reflects wall-clock time instead of the number of
   // timer callbacks the browser happened to run.
@@ -327,6 +329,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       void mixAudioContextRef.current.close();
       mixAudioContextRef.current = null;
     }
+    mixerNodeRef.current = null;
+    microphoneSourceNodeRef.current = null;
+    microphoneRecoveryInFlightRef.current = false;
   };
   const revokePreviewUrl = () => {
     if (previewUrlRef.current) {
@@ -386,7 +391,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
       backendWakingUp: false,
-      microphoneDisconnected: false,
+      microphoneStatus: 'connected',
       hasVideo: false,
       canDownload: false,
       previewUrl: null,
@@ -596,9 +601,102 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const stopForMicrophoneDisconnect = useCallback(() => {
     if (!isStillRecordingRef.current) return;
     clearMicrophoneMuteTimer();
-    setState(s => ({ ...s, microphoneDisconnected: true }));
+    setState(s => ({ ...s, microphoneStatus: 'failed' }));
     stopRecording();
   }, [stopRecording]);
+
+  const monitorMicrophoneStream = useCallback((stream: MediaStream) => {
+    stream.getAudioTracks().forEach(track => {
+      track.onmute = () => {
+        clearMicrophoneMuteTimer();
+        microphoneMuteTimerRef.current = window.setTimeout(() => {
+          microphoneMuteTimerRef.current = null;
+          if (track.muted) recoverMicrophoneRef.current();
+        }, 3000);
+      };
+      track.onunmute = clearMicrophoneMuteTimer;
+      track.onended = () => recoverMicrophoneRef.current();
+    });
+  }, []);
+
+  const recoverMicrophone = useCallback(async () => {
+    if (!isStillRecordingRef.current || microphoneRecoveryInFlightRef.current) return;
+    microphoneRecoveryInFlightRef.current = true;
+    clearMicrophoneMuteTimer();
+    setState(s => ({ ...s, microphoneStatus: 'reconnecting' }));
+
+    try {
+      for (let attempt = 0; attempt < 3 && isStillRecordingRef.current; attempt += 1) {
+        let replacementStream: MediaStream | null = null;
+        try {
+          const previousTrack = micStreamRef.current?.getAudioTracks()[0];
+          const previousDeviceId = previousTrack?.getSettings().deviceId;
+          const inputs = await navigator.mediaDevices.enumerateDevices();
+          const availableInputs = inputs.filter(device =>
+            device.kind === 'audioinput'
+            && device.deviceId !== 'default'
+            && device.deviceId !== previousDeviceId
+          );
+          const builtInInput = availableInputs.find(device =>
+            /macbook|built-in|內建|imac|studio display|mac studio/i.test(device.label)
+          );
+          replacementStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              ...(builtInInput ? { deviceId: { exact: builtInInput.deviceId } } : {}),
+            },
+          });
+          if (!isStillRecordingRef.current) {
+            replacementStream.getTracks().forEach(track => track.stop());
+            return;
+          }
+
+          const audioContext = mixAudioContextRef.current;
+          const mixer = mixerNodeRef.current;
+          if (!audioContext || !mixer) {
+            replacementStream.getTracks().forEach(track => track.stop());
+            break;
+          }
+
+          const replacementTrack = replacementStream.getAudioTracks()[0];
+          if (!replacementTrack || replacementTrack.readyState !== 'live' || replacementTrack.muted) {
+            replacementStream.getTracks().forEach(track => track.stop());
+            replacementStream = null;
+            throw new Error('Replacement microphone is not live');
+          }
+
+          const replacementSource = audioContext.createMediaStreamSource(replacementStream);
+          replacementSource.connect(mixer);
+
+          const previousStream = micStreamRef.current;
+          previousStream?.getTracks().forEach(track => {
+            track.onmute = null;
+            track.onunmute = null;
+            track.onended = null;
+            track.stop();
+          });
+          microphoneSourceNodeRef.current?.disconnect();
+          microphoneSourceNodeRef.current = replacementSource;
+          mixAudioNodesRef.current.push(replacementSource);
+          micStreamRef.current = replacementStream;
+          monitorMicrophoneStream(replacementStream);
+          replacementStream = null;
+          setState(s => ({ ...s, microphoneStatus: 'recovered' }));
+          return;
+        } catch (error) {
+          replacementStream?.getTracks().forEach(track => track.stop());
+          console.warn(`Could not reconnect the microphone (attempt ${attempt + 1}):`, error);
+          if (attempt < 2) await new Promise(resolve => window.setTimeout(resolve, 1000));
+        }
+      }
+      stopForMicrophoneDisconnect();
+    } finally {
+      microphoneRecoveryInFlightRef.current = false;
+    }
+  }, [monitorMicrophoneStream, stopForMicrophoneDisconnect]);
+  recoverMicrophoneRef.current = () => { void recoverMicrophone(); };
 
   // Lets a paused-for-video-review pipeline proceed to note generation —
   // see awaitingVideoReview. A no-op if there's nothing pending, or if
@@ -650,6 +748,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
 
       let mixedAudioStream = micStream;
       let videoTrack: MediaStreamTrack | undefined;
+      let displayAudioTrack: MediaStreamTrack | undefined;
 
       if (wantsTabAudio) {
         let displayStream: MediaStream;
@@ -693,53 +792,53 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         const trackedTracks = videoTrack ? [...displayStream.getAudioTracks(), videoTrack] : displayStream.getAudioTracks();
         trackedTracks.forEach(track => { track.onended = () => stopRecording(); });
 
-        const displayAudioTrack = displayStream.getAudioTracks()[0];
-        if (displayAudioTrack) {
-          // Mixes mic + shared-tab audio into one track via Web Audio —
-          // both are spoken voice, so no special channel handling needed.
-          const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-          if (AudioContextClass) {
-            const audioContext = new AudioContextClass();
-            mixAudioContextRef.current = audioContext;
-            const destination = audioContext.createMediaStreamDestination();
-            const mixer = audioContext.createGain();
-            const micSource = audioContext.createMediaStreamSource(micStream);
-            const tabSource = audioContext.createMediaStreamSource(new MediaStream([displayAudioTrack]));
-            micSource.connect(mixer);
-            tabSource.connect(mixer);
-            mixer.connect(destination);
-            mixAudioNodesRef.current = [micSource, tabSource, mixer, destination];
+        displayAudioTrack = displayStream.getAudioTracks()[0];
+      }
 
-            // A graph connected only to MediaStreamDestination can be
-            // suspended when its page becomes hidden, leaving MediaRecorder
-            // alive but writing digital silence. Chrome/Edge's silent sink
-            // renders the graph without playing the mixed microphone/tab
-            // audio through the speakers, so background capture can keep
-            // running without echo or duplicate playback.
-            const contextWithSink = audioContext as AudioContextWithSilentSink;
-            if (contextWithSink.setSinkId) {
-              try {
-                await contextWithSink.setSinkId({ type: 'none' });
-                mixer.connect(audioContext.destination);
-              } catch (sinkError) {
-                console.warn('Could not enable the silent audio-mixing sink:', sinkError);
-              }
-            }
-            if (audioContext.state === 'suspended') await audioContext.resume();
-            audioContext.onstatechange = () => {
-              if (isStillRecordingRef.current && audioContext.state === 'suspended') {
-                void audioContext.resume().catch(error => {
-                  console.warn('Could not resume background audio mixing:', error);
-                });
-              }
-            };
-            mixedAudioStream = destination.stream;
+      // Always record a stable Web Audio destination track. Keeping the
+      // MediaRecorder attached to this destination lets us replace a lost
+      // iPhone/USB microphone source without changing the recorder's track
+      // set or splitting the WebM file into incompatible recorder sessions.
+      const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AudioContextClass) {
+        const audioContext = new AudioContextClass();
+        mixAudioContextRef.current = audioContext;
+        const destination = audioContext.createMediaStreamDestination();
+        const mixer = audioContext.createGain();
+        const micSource = audioContext.createMediaStreamSource(micStream);
+        micSource.connect(mixer);
+        const nodes: AudioNode[] = [micSource, mixer, destination];
+        if (displayAudioTrack) {
+          const tabSource = audioContext.createMediaStreamSource(new MediaStream([displayAudioTrack]));
+          tabSource.connect(mixer);
+          nodes.push(tabSource);
+        }
+        mixer.connect(destination);
+        mixerNodeRef.current = mixer;
+        microphoneSourceNodeRef.current = micSource;
+        mixAudioNodesRef.current = nodes;
+
+        // A graph connected only to MediaStreamDestination can be suspended
+        // in a hidden tab. Chrome/Edge's silent sink keeps it rendering
+        // without playing the captured sound through the speakers.
+        const contextWithSink = audioContext as AudioContextWithSilentSink;
+        if (contextWithSink.setSinkId) {
+          try {
+            await contextWithSink.setSinkId({ type: 'none' });
+            mixer.connect(audioContext.destination);
+          } catch (sinkError) {
+            console.warn('Could not enable the silent audio-mixing sink:', sinkError);
           }
         }
-        // If the shared source has no audio track at all (e.g. a window or
-        // whole screen was shared instead of a tab, which don't offer
-        // "share tab audio"), mixedAudioStream just stays mic-only — video,
-        // if kept, still gets recorded for download.
+        if (audioContext.state === 'suspended') await audioContext.resume();
+        audioContext.onstatechange = () => {
+          if (isStillRecordingRef.current && audioContext.state === 'suspended') {
+            void audioContext.resume().catch(error => {
+              console.warn('Could not resume background audio mixing:', error);
+            });
+          }
+        };
+        mixedAudioStream = destination.stream;
       }
 
       // Give the browser's audio-processing pipeline (echo cancellation /
@@ -779,7 +878,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         rateLimitRetrySeconds: null,
         generationRetrySeconds: null,
         backendWakingUp: false,
-        microphoneDisconnected: false,
+        microphoneStatus: 'connected',
         hasVideo: !!videoTrack,
         canDownload: false,
         previewUrl: null,
@@ -821,23 +920,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       mediaRecorderRef.current = recorder;
       recordingStartedAtRef.current = Date.now();
       recorder.start();
-      // A Continuity Camera microphone can disappear when its iPhone is
-      // disconnected. MediaRecorder (especially through a Web Audio mixer)
-      // may keep running with a valid timeline while receiving only silence,
-      // so watch the original microphone track rather than the mixed output.
-      // Allow brief source interruptions to recover, but stop and preserve
-      // the captured portion after five seconds of continuous mute.
-      micStream.getAudioTracks().forEach(track => {
-        track.onmute = () => {
-          clearMicrophoneMuteTimer();
-          microphoneMuteTimerRef.current = window.setTimeout(() => {
-            microphoneMuteTimerRef.current = null;
-            if (track.muted) stopForMicrophoneDisconnect();
-          }, 5000);
-        };
-        track.onunmute = clearMicrophoneMuteTimer;
-        track.onended = stopForMicrophoneDisconnect;
-      });
+      monitorMicrophoneStream(micStream);
+      const initialMicrophoneTrack = micStream.getAudioTracks()[0];
+      if (!initialMicrophoneTrack || initialMicrophoneTrack.readyState !== 'live' || initialMicrophoneTrack.muted) {
+        recoverMicrophoneRef.current();
+      }
       if (videoTrack) {
         startDownloadRecorder(mixedAudioStream, videoTrack);
       }
@@ -854,7 +941,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         handlePipelineError(new Error(translate('pipeline.recordingStartFailed')));
       }
     }
-  }, [handlePipelineError, stopForMicrophoneDisconnect, stopRecording, updateElapsedFromClock, uploadAndTranscribe]);
+  }, [handlePipelineError, monitorMicrophoneStream, stopRecording, updateElapsedFromClock, uploadAndTranscribe]);
 
   // Synchronize immediately when a background tab becomes visible again;
   // otherwise the UI can briefly show the last throttled timer value.
@@ -915,7 +1002,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
       backendWakingUp: false,
-      microphoneDisconnected: false,
+      microphoneStatus: 'connected',
       hasVideo: fileIsVideo,
       canDownload: true,
       previewUrl: previewUrlRef.current,
@@ -992,7 +1079,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
       backendWakingUp: false,
-      microphoneDisconnected: false,
+      microphoneStatus: 'connected',
       hasVideo: false,
       canDownload: false,
       previewUrl: null,

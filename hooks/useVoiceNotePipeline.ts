@@ -239,6 +239,10 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const cancelledRef = useRef(false);
   const finalizedRef = useRef(false);
   const elapsedTimerRef = useRef<number | null>(null);
+  // Background tabs throttle setInterval. Keep the actual start time so the
+  // displayed duration reflects wall-clock time instead of the number of
+  // timer callbacks the browser happened to run.
+  const recordingStartedAtRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   // Chunks from the single continuous MediaRecorder capturing this
   // recording — concatenating chunks from the same recorder session is
@@ -277,6 +281,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       elapsedTimerRef.current = null;
     }
   };
+  const updateElapsedFromClock = useCallback(() => {
+    if (recordingStartedAtRef.current === null) return;
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - recordingStartedAtRef.current) / 1000));
+    setState(s => s.elapsedSeconds === elapsedSeconds ? s : { ...s, elapsedSeconds });
+  }, []);
   const releaseStream = () => {
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
@@ -329,6 +338,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
 
   const resetToIdle = useCallback(() => {
     cancelledRef.current = false;
+    recordingStartedAtRef.current = null;
     uploadedFileRef.current = null;
     rawRecordingBlobRef.current = null;
     hasVideoRef.current = false;
@@ -361,6 +371,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     // revoked), so it must stop cleanly rather than continuing to capture.
     isStillRecordingRef.current = false;
     discardRef.current = true;
+    recordingStartedAtRef.current = null;
     clearElapsedTimer();
     releaseStream();
     const recorder = mediaRecorderRef.current;
@@ -536,6 +547,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
     isStillRecordingRef.current = false;
     discardRef.current = false;
+    updateElapsedFromClock();
+    recordingStartedAtRef.current = null;
     clearElapsedTimer();
     // A video recording pauses before generating the note — see
     // awaitingVideoReview — so stopping it isn't a race against losing the
@@ -547,7 +560,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     if (downloadRecorderRef.current && downloadRecorderRef.current.state !== 'inactive') {
       downloadRecorderRef.current.stop();
     }
-  }, []);
+  }, [updateElapsedFromClock]);
 
   // Lets a paused-for-video-review pipeline proceed to note generation —
   // see awaitingVideoReview. A no-op if there's nothing pending, or if
@@ -738,12 +751,13 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       };
 
       mediaRecorderRef.current = recorder;
+      recordingStartedAtRef.current = Date.now();
       recorder.start();
       if (videoTrack) {
         startDownloadRecorder(mixedAudioStream, videoTrack);
       }
       elapsedTimerRef.current = window.setInterval(() => {
-        setState(s => ({ ...s, elapsedSeconds: s.elapsedSeconds + 1 }));
+        updateElapsedFromClock();
       }, 1000);
     } catch (error) {
       releaseStream();
@@ -755,7 +769,22 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         handlePipelineError(new Error(translate('pipeline.recordingStartFailed')));
       }
     }
-  }, [handlePipelineError, stopRecording, uploadAndTranscribe]);
+  }, [handlePipelineError, stopRecording, updateElapsedFromClock, uploadAndTranscribe]);
+
+  // Synchronize immediately when a background tab becomes visible again;
+  // otherwise the UI can briefly show the last throttled timer value.
+  useEffect(() => {
+    if (state.stage !== 'recording') return;
+    const syncWhenVisible = () => {
+      if (document.visibilityState === 'visible') updateElapsedFromClock();
+    };
+    document.addEventListener('visibilitychange', syncWhenVisible);
+    window.addEventListener('focus', updateElapsedFromClock);
+    return () => {
+      document.removeEventListener('visibilitychange', syncWhenVisible);
+      window.removeEventListener('focus', updateElapsedFromClock);
+    };
+  }, [state.stage, updateElapsedFromClock]);
 
   // Every file (audio or video, any size up to MAX_BACKEND_UPLOAD_BYTES)
   // goes through the same backend call — the backend's normalize step
@@ -826,6 +855,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     cancelledRef.current = true;
     isStillRecordingRef.current = false;
     discardRef.current = true;
+    recordingStartedAtRef.current = null;
     clearElapsedTimer();
     abortControllerRef.current?.abort();
     releaseStream();
@@ -912,6 +942,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
+      recordingStartedAtRef.current = null;
       clearElapsedTimer();
       abortControllerRef.current?.abort();
       releaseStream();

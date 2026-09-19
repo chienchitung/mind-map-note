@@ -54,7 +54,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
   const {
     inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments,
     errorMessage, rateLimitRetrySeconds, generationRetrySeconds, backendWakingUp,
-    microphoneDisconnected, hasVideo, canDownload, previewUrl, awaitingVideoReview,
+    microphoneStatus, hasVideo, canDownload, previewUrl, awaitingVideoReview,
   } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
   const kind = hasVideo ? t('voiceNote.kindVideo') : t('voiceNote.kindAudio');
@@ -211,6 +211,16 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
               <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
               <span className="text-2xl font-semibold tabular-nums text-text-main">{formatDuration(elapsedSeconds)}</span>
             </div>
+            {microphoneStatus === 'reconnecting' && (
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-1">
+                {t('voiceNote.microphoneReconnecting')}
+              </p>
+            )}
+            {microphoneStatus === 'recovered' && (
+              <p className="text-xs font-medium text-green-600 dark:text-green-400 mb-1">
+                {t('voiceNote.microphoneRecovered')}
+              </p>
+            )}
             {hasVideo && <p className="text-xs text-text-secondary mb-1">{t('voiceNote.recordingVideoHint')}</p>}
             <button
               onClick={() => actions.stopRecording()}
@@ -315,7 +325,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
               <Spinner className="w-8 h-8 text-accent mb-4" />
             )}
             <p className="text-sm font-medium text-text-main mb-1">{label}</p>
-            {microphoneDisconnected && (
+            {microphoneStatus === 'failed' && (
               <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-2">
                 {t('voiceNote.microphoneDisconnected')}
               </p>

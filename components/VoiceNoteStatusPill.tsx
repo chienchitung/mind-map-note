@@ -22,7 +22,7 @@ const formatDuration = (totalSeconds: number): string => {
 // click back in at any time. Only rendered by App.tsx while stage !== 'idle'.
 const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClick }) => {
   const { t } = useTranslation();
-  const { stage, elapsedSeconds, processingPhase, totalSegments, completedSegments, rateLimitRetrySeconds, backendWakingUp, hasVideo, awaitingVideoReview } = state;
+  const { stage, elapsedSeconds, processingElapsedSeconds, processingPhase, totalSegments, completedSegments, rateLimitRetrySeconds, backendWakingUp, hasVideo, awaitingVideoReview } = state;
 
   let label = t('voicePill.processing');
   if (stage === 'recording') {
@@ -44,6 +44,9 @@ const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClic
     }
     if (!awaitingVideoReview && backendWakingUp) {
       label = t('voicePill.backendWakingUp');
+    }
+    if (!awaitingVideoReview) {
+      label = `${label} · ${formatDuration(processingElapsedSeconds)}`;
     }
   } else if (stage === 'error') {
     label = t('voicePill.error');

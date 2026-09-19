@@ -30,6 +30,8 @@ export interface VoiceNoteState {
   stage: VoiceNoteStage;
   inputMode: VoiceNoteInputMode;
   elapsedSeconds: number;
+  // Wall-clock time spent uploading, transcribing, and generating the note.
+  processingElapsedSeconds: number;
   processingPhase: VoiceNoteProcessingPhase | null;
   // While transcribing, reflects the backend's own chunk progress (a long
   // recording is split into several chunks server-side — see
@@ -198,6 +200,7 @@ const initialState: VoiceNoteState = {
   stage: 'idle',
   inputMode: 'record',
   elapsedSeconds: 0,
+  processingElapsedSeconds: 0,
   processingPhase: null,
   totalSegments: 0,
   completedSegments: 0,
@@ -252,6 +255,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const cancelledRef = useRef(false);
   const finalizedRef = useRef(false);
   const elapsedTimerRef = useRef<number | null>(null);
+  const processingStartedAtRef = useRef<number | null>(null);
   const microphoneMuteTimerRef = useRef<number | null>(null);
   const microphoneRecoveryInFlightRef = useRef(false);
   const recoverMicrophoneRef = useRef<() => void>(() => undefined);
@@ -290,6 +294,28 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   // Gates finalizeAndGenerate() behind an explicit user confirmation after a
   // video recording stops — see awaitingVideoReview on VoiceNoteState.
   const videoReviewPendingRef = useRef(false);
+
+  useEffect(() => {
+    if (state.stage !== 'processing' || state.awaitingVideoReview) {
+      processingStartedAtRef.current = null;
+      setState(s => s.processingElapsedSeconds === 0 ? s : { ...s, processingElapsedSeconds: 0 });
+      return;
+    }
+
+    const startedAt = Date.now();
+    processingStartedAtRef.current = startedAt;
+    const updateProcessingElapsed = () => {
+      if (processingStartedAtRef.current !== startedAt) return;
+      const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+      setState(s => s.processingElapsedSeconds === seconds ? s : { ...s, processingElapsedSeconds: seconds });
+    };
+    updateProcessingElapsed();
+    const timer = window.setInterval(updateProcessingElapsed, 1000);
+    return () => {
+      window.clearInterval(timer);
+      if (processingStartedAtRef.current === startedAt) processingStartedAtRef.current = null;
+    };
+  }, [state.stage, state.awaitingVideoReview]);
 
   const clearElapsedTimer = () => {
     if (elapsedTimerRef.current !== null) {

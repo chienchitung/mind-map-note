@@ -52,7 +52,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
   if (!isOpen) return null;
 
   const {
-    inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments,
+    inputMode, elapsedSeconds, processingElapsedSeconds, processingPhase, totalSegments, completedSegments,
     errorMessage, rateLimitRetrySeconds, generationRetrySeconds, backendWakingUp,
     microphoneStatus, hasVideo, canDownload, previewUrl, awaitingVideoReview,
   } = state;
@@ -332,6 +332,9 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
             )}
             <p className="text-xs text-text-secondary">
               {elapsedSeconds > 0 ? t('voiceNote.recordingLengthPrefix', { duration: formatDuration(elapsedSeconds) }) : ''}{t('voiceNote.pleaseWait')}
+            </p>
+            <p className="text-xs text-text-secondary tabular-nums mt-1">
+              {t('voiceNote.processingElapsed', { duration: formatDuration(processingElapsedSeconds) })}
             </p>
             {canDownload && <DownloadButton onClick={() => actions.downloadRecording()} />}
             {showDiscardConfirm ? (

@@ -54,6 +54,9 @@ export interface VoiceNoteState {
   // session is retrying automatically — see backendAudioService's
   // pingBackendAwake.
   backendWakingUp: boolean;
+  // Set when the physical microphone disappears or stays unavailable long
+  // enough that continuing would only append silence to the recording.
+  microphoneDisconnected: boolean;
   // Whether the current session's source material includes a video track
   // (an uploaded video file, or a screen recording that kept its video) —
   // drives the "extracting audio" label, the <video> preview, and download
@@ -204,6 +207,7 @@ const initialState: VoiceNoteState = {
   rateLimitRetrySeconds: null,
   generationRetrySeconds: null,
   backendWakingUp: false,
+  microphoneDisconnected: false,
   hasVideo: false,
   canDownload: false,
   previewUrl: null,
@@ -248,6 +252,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const cancelledRef = useRef(false);
   const finalizedRef = useRef(false);
   const elapsedTimerRef = useRef<number | null>(null);
+  const microphoneMuteTimerRef = useRef<number | null>(null);
   // Background tabs throttle setInterval. Keep the actual start time so the
   // displayed duration reflects wall-clock time instead of the number of
   // timer callbacks the browser happened to run.
@@ -290,15 +295,28 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       elapsedTimerRef.current = null;
     }
   };
+  const clearMicrophoneMuteTimer = () => {
+    if (microphoneMuteTimerRef.current !== null) {
+      window.clearTimeout(microphoneMuteTimerRef.current);
+      microphoneMuteTimerRef.current = null;
+    }
+  };
   const updateElapsedFromClock = useCallback(() => {
     if (recordingStartedAtRef.current === null) return;
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - recordingStartedAtRef.current) / 1000));
     setState(s => s.elapsedSeconds === elapsedSeconds ? s : { ...s, elapsedSeconds });
   }, []);
   const releaseStream = () => {
+    clearMicrophoneMuteTimer();
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
-    micStreamRef.current?.getTracks().forEach(track => track.stop());
+    micStreamRef.current?.getTracks().forEach(track => {
+      // Do not interpret our own cleanup as an unexpected input loss.
+      track.onmute = null;
+      track.onunmute = null;
+      track.onended = null;
+      track.stop();
+    });
     micStreamRef.current = null;
     displayStreamRef.current?.getTracks().forEach(track => track.stop());
     displayStreamRef.current = null;
@@ -368,6 +386,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
       backendWakingUp: false,
+      microphoneDisconnected: false,
       hasVideo: false,
       canDownload: false,
       previewUrl: null,
@@ -574,6 +593,13 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     }
   }, [updateElapsedFromClock]);
 
+  const stopForMicrophoneDisconnect = useCallback(() => {
+    if (!isStillRecordingRef.current) return;
+    clearMicrophoneMuteTimer();
+    setState(s => ({ ...s, microphoneDisconnected: true }));
+    stopRecording();
+  }, [stopRecording]);
+
   // Lets a paused-for-video-review pipeline proceed to note generation —
   // see awaitingVideoReview. A no-op if there's nothing pending, or if
   // transcription hasn't produced a result yet (uploadAndTranscribe's own
@@ -753,6 +779,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         rateLimitRetrySeconds: null,
         generationRetrySeconds: null,
         backendWakingUp: false,
+        microphoneDisconnected: false,
         hasVideo: !!videoTrack,
         canDownload: false,
         previewUrl: null,
@@ -794,6 +821,23 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       mediaRecorderRef.current = recorder;
       recordingStartedAtRef.current = Date.now();
       recorder.start();
+      // A Continuity Camera microphone can disappear when its iPhone is
+      // disconnected. MediaRecorder (especially through a Web Audio mixer)
+      // may keep running with a valid timeline while receiving only silence,
+      // so watch the original microphone track rather than the mixed output.
+      // Allow brief source interruptions to recover, but stop and preserve
+      // the captured portion after five seconds of continuous mute.
+      micStream.getAudioTracks().forEach(track => {
+        track.onmute = () => {
+          clearMicrophoneMuteTimer();
+          microphoneMuteTimerRef.current = window.setTimeout(() => {
+            microphoneMuteTimerRef.current = null;
+            if (track.muted) stopForMicrophoneDisconnect();
+          }, 5000);
+        };
+        track.onunmute = clearMicrophoneMuteTimer;
+        track.onended = stopForMicrophoneDisconnect;
+      });
       if (videoTrack) {
         startDownloadRecorder(mixedAudioStream, videoTrack);
       }
@@ -810,7 +854,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         handlePipelineError(new Error(translate('pipeline.recordingStartFailed')));
       }
     }
-  }, [handlePipelineError, stopRecording, updateElapsedFromClock, uploadAndTranscribe]);
+  }, [handlePipelineError, stopForMicrophoneDisconnect, stopRecording, updateElapsedFromClock, uploadAndTranscribe]);
 
   // Synchronize immediately when a background tab becomes visible again;
   // otherwise the UI can briefly show the last throttled timer value.
@@ -871,6 +915,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
       backendWakingUp: false,
+      microphoneDisconnected: false,
       hasVideo: fileIsVideo,
       canDownload: true,
       previewUrl: previewUrlRef.current,
@@ -947,6 +992,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       rateLimitRetrySeconds: null,
       generationRetrySeconds: null,
       backendWakingUp: false,
+      microphoneDisconnected: false,
       hasVideo: false,
       canDownload: false,
       previewUrl: null,

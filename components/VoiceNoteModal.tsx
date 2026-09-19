@@ -54,7 +54,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
   const {
     inputMode, elapsedSeconds, processingPhase, totalSegments, completedSegments,
     errorMessage, rateLimitRetrySeconds, generationRetrySeconds, backendWakingUp,
-    hasVideo, canDownload, previewUrl, awaitingVideoReview,
+    microphoneDisconnected, hasVideo, canDownload, previewUrl, awaitingVideoReview,
   } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
   const kind = hasVideo ? t('voiceNote.kindVideo') : t('voiceNote.kindAudio');
@@ -315,6 +315,11 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
               <Spinner className="w-8 h-8 text-accent mb-4" />
             )}
             <p className="text-sm font-medium text-text-main mb-1">{label}</p>
+            {microphoneDisconnected && (
+              <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-2">
+                {t('voiceNote.microphoneDisconnected')}
+              </p>
+            )}
             <p className="text-xs text-text-secondary">
               {elapsedSeconds > 0 ? t('voiceNote.recordingLengthPrefix', { duration: formatDuration(elapsedSeconds) }) : ''}{t('voiceNote.pleaseWait')}
             </p>

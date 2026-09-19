@@ -115,6 +115,10 @@ export interface StartRecordingOptions {
   captureVideo?: boolean;
 }
 
+type AudioContextWithSilentSink = AudioContext & {
+  setSinkId?: (sinkId: string | { type: 'none' }) => Promise<void>;
+};
+
 // 32kbps opus is plenty for intelligible speech and keeps upload size small
 // regardless of how long the recording runs.
 const AUDIO_BITS_PER_SECOND = 32000;
@@ -234,6 +238,11 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   const micStreamRef = useRef<MediaStream | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
   const mixAudioContextRef = useRef<AudioContext | null>(null);
+  // Keep every node in the tab-audio mixing graph strongly referenced for
+  // the full recording. More importantly, the graph is also connected to a
+  // silent AudioContext output below so Chrome continues rendering it while
+  // this page is in a background tab.
+  const mixAudioNodesRef = useRef<AudioNode[]>([]);
   const isStillRecordingRef = useRef(false);
   const discardRef = useRef(false);
   const cancelledRef = useRef(false);
@@ -294,6 +303,9 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     displayStreamRef.current?.getTracks().forEach(track => track.stop());
     displayStreamRef.current = null;
     if (mixAudioContextRef.current) {
+      mixAudioContextRef.current.onstatechange = null;
+      mixAudioNodesRef.current.forEach(node => node.disconnect());
+      mixAudioNodesRef.current = [];
       void mixAudioContextRef.current.close();
       mixAudioContextRef.current = null;
     }
@@ -664,8 +676,37 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
             const audioContext = new AudioContextClass();
             mixAudioContextRef.current = audioContext;
             const destination = audioContext.createMediaStreamDestination();
-            audioContext.createMediaStreamSource(micStream).connect(destination);
-            audioContext.createMediaStreamSource(new MediaStream([displayAudioTrack])).connect(destination);
+            const mixer = audioContext.createGain();
+            const micSource = audioContext.createMediaStreamSource(micStream);
+            const tabSource = audioContext.createMediaStreamSource(new MediaStream([displayAudioTrack]));
+            micSource.connect(mixer);
+            tabSource.connect(mixer);
+            mixer.connect(destination);
+            mixAudioNodesRef.current = [micSource, tabSource, mixer, destination];
+
+            // A graph connected only to MediaStreamDestination can be
+            // suspended when its page becomes hidden, leaving MediaRecorder
+            // alive but writing digital silence. Chrome/Edge's silent sink
+            // renders the graph without playing the mixed microphone/tab
+            // audio through the speakers, so background capture can keep
+            // running without echo or duplicate playback.
+            const contextWithSink = audioContext as AudioContextWithSilentSink;
+            if (contextWithSink.setSinkId) {
+              try {
+                await contextWithSink.setSinkId({ type: 'none' });
+                mixer.connect(audioContext.destination);
+              } catch (sinkError) {
+                console.warn('Could not enable the silent audio-mixing sink:', sinkError);
+              }
+            }
+            if (audioContext.state === 'suspended') await audioContext.resume();
+            audioContext.onstatechange = () => {
+              if (isStillRecordingRef.current && audioContext.state === 'suspended') {
+                void audioContext.resume().catch(error => {
+                  console.warn('Could not resume background audio mixing:', error);
+                });
+              }
+            };
             mixedAudioStream = destination.stream;
           }
         }
@@ -775,13 +816,19 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   // otherwise the UI can briefly show the last throttled timer value.
   useEffect(() => {
     if (state.stage !== 'recording') return;
-    const syncWhenVisible = () => {
+    const syncOnVisibilityChange = () => {
       if (document.visibilityState === 'visible') updateElapsedFromClock();
+      const audioContext = mixAudioContextRef.current;
+      if (audioContext?.state === 'suspended') {
+        void audioContext.resume().catch(error => {
+          console.warn('Could not resume audio mixing after a tab switch:', error);
+        });
+      }
     };
-    document.addEventListener('visibilitychange', syncWhenVisible);
+    document.addEventListener('visibilitychange', syncOnVisibilityChange);
     window.addEventListener('focus', updateElapsedFromClock);
     return () => {
-      document.removeEventListener('visibilitychange', syncWhenVisible);
+      document.removeEventListener('visibilitychange', syncOnVisibilityChange);
       window.removeEventListener('focus', updateElapsedFromClock);
     };
   }, [state.stage, updateElapsedFromClock]);

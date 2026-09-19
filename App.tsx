@@ -1046,6 +1046,7 @@ const App: React.FC = () => {
           onClose={() => setIsVoiceNoteModalOpen(false)}
           state={voiceNotePipeline.state}
           actions={voiceNotePipeline.actions}
+          microphoneDeviceId={voiceNotePipeline.microphoneDeviceId}
         />
       )}
       {!isVoiceNoteModalOpen && voiceNotePipeline.state.stage !== 'idle' && (

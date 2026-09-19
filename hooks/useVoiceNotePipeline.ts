@@ -21,6 +21,15 @@ import { generateNoteFromTranscript, MissingApiKeyError, isRetryableGeminiError,
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
 import { downloadBlob } from '../utils/downloadBlob';
 import { translate } from '../i18n/translations';
+import useLocalStorage from './useLocalStorage';
+
+// Persists the user's explicit microphone choice (a deviceId from
+// enumerateDevices(), or '' for "system default") across sessions — see
+// startRecording below. Without this, getUserMedia always follows
+// whatever the OS currently reports as its default input device, which on
+// macOS can silently change mid-session (e.g. an iPhone Continuity
+// microphone connecting) without the user ever choosing that.
+const MICROPHONE_DEVICE_ID_STORAGE_KEY = 'voice-note-microphone-device-id';
 
 export type VoiceNoteStage = 'idle' | 'recording' | 'processing' | 'error';
 export type VoiceNoteInputMode = 'record' | 'upload';
@@ -218,6 +227,9 @@ const initialState: VoiceNoteState = {
 
 export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated, onError }: UseVoiceNotePipelineOptions) => {
   const [state, setState] = useState<VoiceNoteState>(initialState);
+  const [microphoneDeviceId, setMicrophoneDeviceId] = useLocalStorage<string>(MICROPHONE_DEVICE_ID_STORAGE_KEY, '');
+  const microphoneDeviceIdRef = useRef(microphoneDeviceId);
+  useEffect(() => { microphoneDeviceIdRef.current = microphoneDeviceId; }, [microphoneDeviceId]);
 
   // Long-lived async work (recording, transcription upload, generation)
   // reads these instead of closing over the props directly, so it always
@@ -763,9 +775,36 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       // relies on each browser's own default, which isn't guaranteed to
       // enable noise suppression/echo cancellation consistently, and shows
       // up as noticeably noisier recordings on some platforms.
-      const micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      const baseAudioConstraints: MediaTrackConstraints = {
+        echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+      };
+      const pinnedDeviceId = microphoneDeviceIdRef.current;
+      let usedFallbackDevice = false;
+      let micStream: MediaStream;
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: pinnedDeviceId
+            ? { ...baseAudioConstraints, deviceId: { exact: pinnedDeviceId } }
+            : baseAudioConstraints,
+        });
+      } catch (micError) {
+        // The device the user explicitly pinned (see the microphone-source
+        // dropdown) has been unplugged since they picked it — fall back to
+        // the system default rather than blocking recording entirely; the
+        // stored pin is left as-is so it's used again once that device
+        // reappears.
+        if (
+          pinnedDeviceId
+          && micError instanceof DOMException
+          && (micError.name === 'OverconstrainedError' || micError.name === 'NotFoundError')
+        ) {
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: baseAudioConstraints });
+          usedFallbackDevice = true;
+          onErrorRef.current?.(translate('voiceNote.selectedMicrophoneUnavailable'));
+        } else {
+          throw micError;
+        }
+      }
       if (cancelledRef.current) {
         micStream.getTracks().forEach(track => track.stop());
         return;
@@ -904,7 +943,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         rateLimitRetrySeconds: null,
         generationRetrySeconds: null,
         backendWakingUp: false,
-        microphoneStatus: 'connected',
+        microphoneStatus: usedFallbackDevice ? 'recovered' : 'connected',
         hasVideo: !!videoTrack,
         canDownload: false,
         previewUrl: null,
@@ -1187,6 +1226,10 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
 
   return {
     state,
-    actions: { startRecording, stopRecording, selectFile, cancel, retry, setInputMode, downloadRecording, confirmVideoReviewed },
+    microphoneDeviceId,
+    actions: {
+      startRecording, stopRecording, selectFile, cancel, retry, setInputMode, downloadRecording, confirmVideoReviewed,
+      setMicrophoneDeviceId,
+    },
   };
 };

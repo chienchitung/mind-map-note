@@ -15,6 +15,10 @@ interface VoiceNoteModalProps {
   onClose: () => void;
   state: VoiceNoteState;
   actions: VoiceNoteActions;
+  // The persisted microphone pin (a deviceId, or '' for "system default") —
+  // see actions.setMicrophoneDeviceId and startRecording in
+  // useVoiceNotePipeline.ts.
+  microphoneDeviceId: string;
 }
 
 const formatDuration = (totalSeconds: number): string => {
@@ -38,16 +42,39 @@ const ProgressBar: React.FC<{ fraction: number }> = ({ fraction }) => (
   </div>
 );
 
-const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state, actions }) => {
+const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state, actions, microphoneDeviceId }) => {
   const { t } = useTranslation();
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [captureTabAudio, setCaptureTabAudio] = useState(false);
   const [captureVideo, setCaptureVideo] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [microphoneOptions, setMicrophoneOptions] = useState<MediaDeviceInfo[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { stage } = state;
   useEffect(() => { setShowDiscardConfirm(false); }, [stage]);
+
+  // Lists available microphones for the dropdown below. Labels are only
+  // populated once mic permission has been granted at least once (a browser
+  // privacy restriction) — before that, options fall back to a generic
+  // "Microphone N" label rather than blocking the picker entirely. Refreshes
+  // on devicechange so plugging/unplugging a mic while this panel is open is
+  // reflected without having to reopen the modal.
+  useEffect(() => {
+    if (!isOpen || typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) return;
+    let cancelled = false;
+    const refreshDevices = () => {
+      navigator.mediaDevices.enumerateDevices()
+        .then(devices => { if (!cancelled) setMicrophoneOptions(devices.filter(device => device.kind === 'audioinput')); })
+        .catch(error => console.warn('Could not list audio input devices:', error));
+    };
+    refreshDevices();
+    navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+    return () => {
+      cancelled = true;
+      navigator.mediaDevices.removeEventListener('devicechange', refreshDevices);
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -136,6 +163,22 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
                 <p className="text-sm text-text-secondary mb-4 leading-relaxed">
                   {t('voiceNote.recordDescription')}
                 </p>
+                <div className="w-full mb-4 text-left">
+                  <label className="block text-xs font-medium text-text-main mb-1">{t('voiceNote.microphoneSource')}</label>
+                  <select
+                    value={microphoneDeviceId}
+                    onChange={(e) => actions.setMicrophoneDeviceId(e.target.value)}
+                    className="w-full text-xs rounded-lg border border-border-color bg-secondary px-2.5 py-1.5 text-text-main focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="">{t('voiceNote.microphoneSystemDefault')}</option>
+                    {microphoneOptions.map((device, index) => (
+                      <option key={device.deviceId || index} value={device.deviceId}>
+                        {device.label || t('voiceNote.microphoneUnnamed', { index: index + 1 })}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-text-secondary/70 mt-1 leading-relaxed">{t('voiceNote.microphoneSourceHint')}</p>
+                </div>
                 <div className="w-full mb-4 text-left">
                   <label className="flex items-start gap-2 text-xs text-text-secondary leading-relaxed">
                     <input

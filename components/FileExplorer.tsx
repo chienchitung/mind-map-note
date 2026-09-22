@@ -124,6 +124,12 @@ interface FileExplorerProps {
   onExportFolderMarkdown: (folderId: string) => void;
   onExportFolderMarkdownZip: (folderId: string) => void;
   onExportFolderPDF: (folderId: string) => void;
+  // Folder ids the user has explicitly collapsed — a folder not in this set
+  // is expanded by default, including one just created. Owned by Sidebar
+  // (persisted to localStorage) so it survives a page refresh and so the
+  // "expand all"/"collapse all" toolbar buttons there can drive it too.
+  collapsedFolderIds: Set<string>;
+  onToggleFolder: (folderId: string) => void;
 }
 
 interface IFileExplorerContext {
@@ -134,6 +140,8 @@ interface IFileExplorerContext {
   onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
   draggingNodeId: string | null;
   setDraggingNodeId: (id: string | null) => void;
+  collapsedFolderIds: Set<string>;
+  onToggleFolder: (folderId: string) => void;
 }
 
 // Whether `targetId` is `draggedId` itself or one of its descendants — used
@@ -165,9 +173,13 @@ const Node: React.FC<{
   if (!context) throw new Error("Node must be used within a FileExplorerContext");
   const { t } = useTranslation();
 
-  const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu, draggingNodeId, setDraggingNodeId } = context;
+  const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu, draggingNodeId, setDraggingNodeId, collapsedFolderIds, onToggleFolder } = context;
 
-  const [isExpanded, setIsExpanded] = useState(true);
+  // Not in collapsedFolderIds means expanded — so a brand-new folder starts
+  // expanded without needing an explicit entry. See collapsedFolderIds'
+  // own comment on FileExplorerProps for why this lives in Sidebar instead
+  // of as local state here (persistence + the expand/collapse-all buttons).
+  const isExpanded = node.type === 'folder' && !collapsedFolderIds.has(node.id);
   const [name, setName] = useState(node.name);
   const [isHovering, setIsHovering] = useState(false);
   // Which reorder/reparent zone the drag is currently hovering over this
@@ -204,7 +216,7 @@ const Node: React.FC<{
 
   const handleClick = () => {
     if (node.type === 'folder') {
-      setIsExpanded(!isExpanded);
+      onToggleFolder(node.id);
     } else {
       onSelectNote(node.id);
     }
@@ -349,7 +361,7 @@ const Node: React.FC<{
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const { t } = useTranslation();
-  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode, onExportFolderMarkdown, onExportFolderMarkdownZip, onExportFolderPDF } = props;
+  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode, onExportFolderMarkdown, onExportFolderMarkdownZip, onExportFolderPDF, collapsedFolderIds, onToggleFolder } = props;
   const rootNode = tree['root'];
   
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
@@ -389,7 +401,7 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const closeContextMenu = () => setContextMenu(null);
 
   const contextNode = contextMenu ? tree[contextMenu.nodeId] : null;
-  const contextValue: IFileExplorerContext = { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu: handleContextMenu, draggingNodeId, setDraggingNodeId };
+  const contextValue: IFileExplorerContext = { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu: handleContextMenu, draggingNodeId, setDraggingNodeId, collapsedFolderIds, onToggleFolder };
 
   // Only nested items (not already at root) need a way back out — dropping
   // a folder's contents anywhere but onto another folder previously did

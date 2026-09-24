@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { FileSystemTree, MindMapNode } from '../types';
 import FileExplorer from './FileExplorer';
 import OutlineView from './OutlineView';
 import VoiceRecordingsPanel from './VoiceRecordingsPanel';
 import TrashPanel from './TrashPanel';
 import useLocalStorage from '../hooks/useLocalStorage';
-import { PlusIcon, FolderPlusIcon, XIcon } from './icons';
+import { PlusIcon, FolderPlusIcon, XIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon } from './icons';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
 import { useTranslation } from '../contexts/LanguageContext';
 
@@ -62,6 +62,24 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useLocalStorage<SidebarTab>('mind-map-sidebar-tab', 'files');
+  // Which folders are collapsed, persisted across refreshes — a folder not
+  // in this list is expanded by default. Owned here (rather than inside
+  // FileExplorer) so the "expand all"/"collapse all" toolbar buttons below
+  // can drive it directly using the tree this component already has.
+  const [collapsedFolderIds, setCollapsedFolderIds] = useLocalStorage<string[]>('mind-map-collapsed-folders', []);
+  const collapsedFolderIdSet = useMemo(() => new Set(collapsedFolderIds), [collapsedFolderIds]);
+  const handleToggleFolder = useCallback((folderId: string) => {
+    setCollapsedFolderIds(current => (
+      current.includes(folderId) ? current.filter(id => id !== folderId) : [...current, folderId]
+    ));
+  }, [setCollapsedFolderIds]);
+  const handleExpandAll = useCallback(() => setCollapsedFolderIds([]), [setCollapsedFolderIds]);
+  const handleCollapseAll = useCallback(() => {
+    // The root node is a folder in the data model but never rendered as its
+    // own collapsible row (FileExplorer renders its children directly), so
+    // it's excluded here rather than persisted as a meaningless entry.
+    setCollapsedFolderIds(Object.values(tree).filter(node => node.type === 'folder' && node.id !== 'root').map(node => node.id));
+  }, [setCollapsedFolderIds, tree]);
 
   const tabClass = (tab: SidebarTab) =>
     `flex-1 min-w-0 truncate px-2 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
@@ -86,6 +104,12 @@ const Sidebar: React.FC<SidebarProps> = ({
               <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newFolder')} aria-label={t('sidebar.newFolder')}>
                 <FolderPlusIcon className="w-4 h-4" />
               </button>
+              <button onClick={handleExpandAll} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.expandAll')} aria-label={t('sidebar.expandAll')}>
+                <ChevronDoubleDownIcon className="w-4 h-4" />
+              </button>
+              <button onClick={handleCollapseAll} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.collapseAll')} aria-label={t('sidebar.collapseAll')}>
+                <ChevronDoubleUpIcon className="w-4 h-4" />
+              </button>
             </>
           )}
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.collapseSidebar')} aria-label={t('sidebar.collapseSidebar')}>
@@ -105,6 +129,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             onExportFolderMarkdown={onExportFolderMarkdown}
             onExportFolderMarkdownZip={onExportFolderMarkdownZip}
             onExportFolderPDF={onExportFolderPDF}
+            collapsedFolderIds={collapsedFolderIdSet}
+            onToggleFolder={handleToggleFolder}
           />
         ) : activeTab === 'recordings' ? (
           <VoiceRecordingsPanel

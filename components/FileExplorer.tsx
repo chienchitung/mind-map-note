@@ -418,11 +418,23 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
       <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
         {hasAnyFolder && (
           <div className="flex items-center justify-end gap-1 px-2.5 pt-1.5 flex-shrink-0">
-            <button onClick={onExpandAll} className="p-1 rounded-full hover:bg-secondary transition-colors duration-150 ease-apple text-text-secondary/70 hover:text-text-main" title={t('sidebar.expandAll')} aria-label={t('sidebar.expandAll')}>
-              <ChevronDoubleDownIcon className="w-3.5 h-3.5" />
+            <button
+              onClick={onExpandAll}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full hover:bg-secondary transition-colors duration-150 ease-apple text-[11px] font-medium text-text-secondary/80 hover:text-text-main"
+              title={t('sidebar.expandAll')}
+              aria-label={t('sidebar.expandAll')}
+            >
+              <ChevronDoubleDownIcon className="w-3 h-3 flex-shrink-0" />
+              <span>{t('sidebar.expandAll')}</span>
             </button>
-            <button onClick={onCollapseAll} className="p-1 rounded-full hover:bg-secondary transition-colors duration-150 ease-apple text-text-secondary/70 hover:text-text-main" title={t('sidebar.collapseAll')} aria-label={t('sidebar.collapseAll')}>
-              <ChevronDoubleUpIcon className="w-3.5 h-3.5" />
+            <button
+              onClick={onCollapseAll}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full hover:bg-secondary transition-colors duration-150 ease-apple text-[11px] font-medium text-text-secondary/80 hover:text-text-main"
+              title={t('sidebar.collapseAll')}
+              aria-label={t('sidebar.collapseAll')}
+            >
+              <ChevronDoubleUpIcon className="w-3 h-3 flex-shrink-0" />
+              <span>{t('sidebar.collapseAll')}</span>
             </button>
           </div>
         )}

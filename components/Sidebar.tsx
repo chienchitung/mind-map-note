@@ -5,7 +5,7 @@ import OutlineView from './OutlineView';
 import VoiceRecordingsPanel from './VoiceRecordingsPanel';
 import TrashPanel from './TrashPanel';
 import useLocalStorage from '../hooks/useLocalStorage';
-import { PlusIcon, FolderPlusIcon, FilterIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon } from './icons';
+import { PlusIcon, FolderPlusIcon, MoreIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon } from './icons';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
 import { useTranslation } from '../contexts/LanguageContext';
 
@@ -123,7 +123,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 aria-label={t('sidebar.folderViewOptions')}
                 aria-expanded={isFolderMenuOpen}
               >
-                <FilterIcon className="w-4 h-4" />
+                <MoreIcon className="w-4 h-4" />
               </button>
               {isFolderMenuOpen && (
                 <div className="glass-surface-solid absolute right-0 top-full mt-1.5 z-30 w-44 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main">

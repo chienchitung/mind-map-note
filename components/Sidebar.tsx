@@ -5,7 +5,7 @@ import OutlineView from './OutlineView';
 import VoiceRecordingsPanel from './VoiceRecordingsPanel';
 import TrashPanel from './TrashPanel';
 import useLocalStorage from '../hooks/useLocalStorage';
-import { PlusIcon, FolderPlusIcon, XIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon } from './icons';
+import { PlusIcon, FolderPlusIcon, XIcon } from './icons';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
 import { useTranslation } from '../contexts/LanguageContext';
 
@@ -64,8 +64,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [activeTab, setActiveTab] = useLocalStorage<SidebarTab>('mind-map-sidebar-tab', 'files');
   // Which folders are collapsed, persisted across refreshes — a folder not
   // in this list is expanded by default. Owned here (rather than inside
-  // FileExplorer) so the "expand all"/"collapse all" toolbar buttons below
-  // can drive it directly using the tree this component already has.
+  // FileExplorer) so the "expand all"/"collapse all" buttons — rendered by
+  // FileExplorer itself, inside the tree pane rather than this top toolbar,
+  // so they don't compete with the tab switcher for width — can drive it
+  // using the tree this component already has.
   const [collapsedFolderIds, setCollapsedFolderIds] = useLocalStorage<string[]>('mind-map-collapsed-folders', []);
   const collapsedFolderIdSet = useMemo(() => new Set(collapsedFolderIds), [collapsedFolderIds]);
   const handleToggleFolder = useCallback((folderId: string) => {
@@ -104,12 +106,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newFolder')} aria-label={t('sidebar.newFolder')}>
                 <FolderPlusIcon className="w-4 h-4" />
               </button>
-              <button onClick={handleExpandAll} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.expandAll')} aria-label={t('sidebar.expandAll')}>
-                <ChevronDoubleDownIcon className="w-4 h-4" />
-              </button>
-              <button onClick={handleCollapseAll} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.collapseAll')} aria-label={t('sidebar.collapseAll')}>
-                <ChevronDoubleUpIcon className="w-4 h-4" />
-              </button>
             </>
           )}
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.collapseSidebar')} aria-label={t('sidebar.collapseSidebar')}>
@@ -131,6 +127,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             onExportFolderPDF={onExportFolderPDF}
             collapsedFolderIds={collapsedFolderIdSet}
             onToggleFolder={handleToggleFolder}
+            onExpandAll={handleExpandAll}
+            onCollapseAll={handleCollapseAll}
           />
         ) : activeTab === 'recordings' ? (
           <VoiceRecordingsPanel

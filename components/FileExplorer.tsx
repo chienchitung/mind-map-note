@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { FileSystemTree, FileSystemNode } from '../types';
-import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon, ExportIcon, DocumentIcon, ArchiveIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon } from './icons';
+import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon, ExportIcon, DocumentIcon, ArchiveIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon, FilterIcon } from './icons';
 import { useTranslation } from '../contexts/LanguageContext';
 
 // A modal component for moving a node to a new folder.
@@ -373,13 +373,18 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: string } | null>(null);
   const [moveToModalNodeId, setMoveToModalNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  
+  const folderMenuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
         setContextMenu(null);
+      }
+      if (folderMenuRef.current && !folderMenuRef.current.contains(event.target as Node)) {
+        setIsFolderMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -417,25 +422,34 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
     <FileExplorerContext.Provider value={contextValue}>
       <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
         {hasAnyFolder && (
-          <div className="flex items-center justify-end gap-1 px-2.5 pt-1.5 flex-shrink-0">
-            <button
-              onClick={onExpandAll}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-full hover:bg-secondary transition-colors duration-150 ease-apple text-[11px] font-medium text-text-secondary/80 hover:text-text-main"
-              title={t('sidebar.expandAll')}
-              aria-label={t('sidebar.expandAll')}
-            >
-              <ChevronDoubleDownIcon className="w-3 h-3 flex-shrink-0" />
-              <span>{t('sidebar.expandAll')}</span>
-            </button>
-            <button
-              onClick={onCollapseAll}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-full hover:bg-secondary transition-colors duration-150 ease-apple text-[11px] font-medium text-text-secondary/80 hover:text-text-main"
-              title={t('sidebar.collapseAll')}
-              aria-label={t('sidebar.collapseAll')}
-            >
-              <ChevronDoubleUpIcon className="w-3 h-3 flex-shrink-0" />
-              <span>{t('sidebar.collapseAll')}</span>
-            </button>
+          <div className="flex items-center justify-end px-2.5 pt-1.5 flex-shrink-0">
+            <div className="relative" ref={folderMenuRef}>
+              <button
+                onClick={() => setIsFolderMenuOpen(open => !open)}
+                className={`p-1.5 rounded-full hover:bg-secondary transition-colors duration-150 ease-apple ${isFolderMenuOpen ? 'bg-secondary text-text-main' : 'text-text-secondary/70 hover:text-text-main'}`}
+                title={t('sidebar.folderViewOptions')}
+                aria-label={t('sidebar.folderViewOptions')}
+                aria-expanded={isFolderMenuOpen}
+              >
+                <FilterIcon className="w-3.5 h-3.5" />
+              </button>
+              {isFolderMenuOpen && (
+                <div className="glass-surface-solid absolute right-0 top-full mt-1.5 z-30 w-44 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main">
+                  <button
+                    onClick={() => { onExpandAll(); setIsFolderMenuOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
+                  >
+                    <ChevronDoubleDownIcon className="w-4 h-4" /> <span>{t('sidebar.expandAll')}</span>
+                  </button>
+                  <button
+                    onClick={() => { onCollapseAll(); setIsFolderMenuOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
+                  >
+                    <ChevronDoubleUpIcon className="w-4 h-4" /> <span>{t('sidebar.collapseAll')}</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
         <div className="flex-grow overflow-y-auto px-2.5 pt-2 pb-2 space-y-0.5">

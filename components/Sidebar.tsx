@@ -1,11 +1,11 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileSystemTree, MindMapNode } from '../types';
 import FileExplorer from './FileExplorer';
 import OutlineView from './OutlineView';
 import VoiceRecordingsPanel from './VoiceRecordingsPanel';
 import TrashPanel from './TrashPanel';
 import useLocalStorage from '../hooks/useLocalStorage';
-import { PlusIcon, FolderPlusIcon, XIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon } from './icons';
+import { PlusIcon, FolderPlusIcon, MoreIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon } from './icons';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
 import { useTranslation } from '../contexts/LanguageContext';
 
@@ -25,7 +25,6 @@ interface SidebarProps {
   mindMapData: MindMapNode | null;
   activeLine: number;
   onOutlineNodeClick: (lineNumber: number) => void;
-  onClose: () => void;
   voiceRecordingsBytes: number | null;
   onListVoiceRecordings: () => Promise<StoredVoiceRecording[]>;
   onDeleteVoiceRecording: (noteId: string) => Promise<void>;
@@ -54,7 +53,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   mindMapData,
   activeLine,
   onOutlineNodeClick,
-  onClose,
   voiceRecordingsBytes,
   onListVoiceRecordings,
   onDeleteVoiceRecording,
@@ -63,9 +61,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useLocalStorage<SidebarTab>('mind-map-sidebar-tab', 'files');
   // Which folders are collapsed, persisted across refreshes — a folder not
-  // in this list is expanded by default. Owned here (rather than inside
-  // FileExplorer) so the "expand all"/"collapse all" toolbar buttons below
-  // can drive it directly using the tree this component already has.
+  // in this list is expanded by default.
   const [collapsedFolderIds, setCollapsedFolderIds] = useLocalStorage<string[]>('mind-map-collapsed-folders', []);
   const collapsedFolderIdSet = useMemo(() => new Set(collapsedFolderIds), [collapsedFolderIds]);
   const handleToggleFolder = useCallback((folderId: string) => {
@@ -81,6 +77,22 @@ const Sidebar: React.FC<SidebarProps> = ({
     setCollapsedFolderIds(Object.values(tree).filter(node => node.type === 'folder' && node.id !== 'root').map(node => node.id));
   }, [setCollapsedFolderIds, tree]);
 
+  // A single filter-menu icon (rather than dedicated expand/collapse-all
+  // buttons) keeps this whole toolbar to one row — see its own comment
+  // below for why it lives here instead of inside FileExplorer.
+  const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
+  const folderMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isFolderMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (folderMenuRef.current && !folderMenuRef.current.contains(event.target as Node)) {
+        setIsFolderMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isFolderMenuOpen]);
+
   const tabClass = (tab: SidebarTab) =>
     `flex-1 min-w-0 truncate px-2 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
       activeTab === tab ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
@@ -95,27 +107,43 @@ const Sidebar: React.FC<SidebarProps> = ({
           <button onClick={() => setActiveTab('recordings')} className={tabClass('recordings')}>{t('sidebar.tabRecordings')}</button>
           <button onClick={() => setActiveTab('trash')} className={tabClass('trash')}>{t('sidebar.tabTrash')}</button>
         </div>
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          {activeTab === 'files' && (
-            <>
-              <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newNote')} aria-label={t('sidebar.newNote')}>
-                <PlusIcon className="w-4 h-4" />
+        {activeTab === 'files' && (
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newNote')} aria-label={t('sidebar.newNote')}>
+              <PlusIcon className="w-4 h-4" />
+            </button>
+            <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newFolder')} aria-label={t('sidebar.newFolder')}>
+              <FolderPlusIcon className="w-4 h-4" />
+            </button>
+            <div className="relative" ref={folderMenuRef}>
+              <button
+                onClick={() => setIsFolderMenuOpen(open => !open)}
+                className={`p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 ${isFolderMenuOpen ? 'bg-secondary text-text-main' : 'text-text-secondary'}`}
+                title={t('sidebar.folderViewOptions')}
+                aria-label={t('sidebar.folderViewOptions')}
+                aria-expanded={isFolderMenuOpen}
+              >
+                <MoreIcon className="w-4 h-4" />
               </button>
-              <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newFolder')} aria-label={t('sidebar.newFolder')}>
-                <FolderPlusIcon className="w-4 h-4" />
-              </button>
-              <button onClick={handleExpandAll} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.expandAll')} aria-label={t('sidebar.expandAll')}>
-                <ChevronDoubleDownIcon className="w-4 h-4" />
-              </button>
-              <button onClick={handleCollapseAll} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.collapseAll')} aria-label={t('sidebar.collapseAll')}>
-                <ChevronDoubleUpIcon className="w-4 h-4" />
-              </button>
-            </>
-          )}
-          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.collapseSidebar')} aria-label={t('sidebar.collapseSidebar')}>
-            <XIcon className="w-4 h-4" />
-          </button>
-        </div>
+              {isFolderMenuOpen && (
+                <div className="glass-surface-solid absolute right-0 top-full mt-1.5 z-30 w-44 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main">
+                  <button
+                    onClick={() => { handleExpandAll(); setIsFolderMenuOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
+                  >
+                    <ChevronDoubleDownIcon className="w-4 h-4" /> <span>{t('sidebar.expandAll')}</span>
+                  </button>
+                  <button
+                    onClick={() => { handleCollapseAll(); setIsFolderMenuOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
+                  >
+                    <ChevronDoubleUpIcon className="w-4 h-4" /> <span>{t('sidebar.collapseAll')}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       <div className="flex-grow overflow-hidden">
         {activeTab === 'files' ? (

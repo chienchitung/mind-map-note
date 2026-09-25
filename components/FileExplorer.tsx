@@ -126,8 +126,8 @@ interface FileExplorerProps {
   onExportFolderPDF: (folderId: string) => void;
   // Folder ids the user has explicitly collapsed — a folder not in this set
   // is expanded by default, including one just created. Owned by Sidebar
-  // (persisted to localStorage) so it survives a page refresh and so the
-  // "expand all"/"collapse all" toolbar buttons there can drive it too.
+  // (persisted to localStorage) so it survives a page refresh and so its
+  // "expand all"/"collapse all" filter-menu can drive it too.
   collapsedFolderIds: Set<string>;
   onToggleFolder: (folderId: string) => void;
 }
@@ -363,14 +363,14 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const { t } = useTranslation();
   const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode, onExportFolderMarkdown, onExportFolderMarkdownZip, onExportFolderPDF, collapsedFolderIds, onToggleFolder } = props;
   const rootNode = tree['root'];
-  
+
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: string } | null>(null);
   const [moveToModalNodeId, setMoveToModalNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {

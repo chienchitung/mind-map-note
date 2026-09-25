@@ -854,7 +854,6 @@ const App: React.FC = () => {
       mindMapData={mindMapData}
       activeLine={activeLine}
       onOutlineNodeClick={handleOutlineNodeClick}
-      onClose={closeSidebar}
       voiceRecordingsBytes={voiceRecordingsStorage.totalBytes}
       onListVoiceRecordings={voiceRecordingsStorage.listRecordings}
       onDeleteVoiceRecording={async (noteId) => {

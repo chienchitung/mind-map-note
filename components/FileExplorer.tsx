@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { FileSystemTree, FileSystemNode } from '../types';
-import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon, ExportIcon, DocumentIcon, ArchiveIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon, FilterIcon } from './icons';
+import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon, ExportIcon, DocumentIcon, ArchiveIcon } from './icons';
 import { useTranslation } from '../contexts/LanguageContext';
 
 // A modal component for moving a node to a new folder.
@@ -126,12 +126,10 @@ interface FileExplorerProps {
   onExportFolderPDF: (folderId: string) => void;
   // Folder ids the user has explicitly collapsed — a folder not in this set
   // is expanded by default, including one just created. Owned by Sidebar
-  // (persisted to localStorage) so it survives a page refresh and so the
-  // "expand all"/"collapse all" toolbar buttons there can drive it too.
+  // (persisted to localStorage) so it survives a page refresh and so its
+  // "expand all"/"collapse all" filter-menu can drive it too.
   collapsedFolderIds: Set<string>;
   onToggleFolder: (folderId: string) => void;
-  onExpandAll: () => void;
-  onCollapseAll: () => void;
 }
 
 interface IFileExplorerContext {
@@ -363,28 +361,20 @@ const Node: React.FC<{
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const { t } = useTranslation();
-  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode, onExportFolderMarkdown, onExportFolderMarkdownZip, onExportFolderPDF, collapsedFolderIds, onToggleFolder, onExpandAll, onCollapseAll } = props;
+  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode, onExportFolderMarkdown, onExportFolderMarkdownZip, onExportFolderPDF, collapsedFolderIds, onToggleFolder } = props;
   const rootNode = tree['root'];
-  // Only worth showing the expand/collapse-all row once there's an actual
-  // folder to act on — an all-notes tree has nothing for it to do.
-  const hasAnyFolder = Object.values(tree).some(node => node.type === 'folder' && node.id !== 'root');
-  
+
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: string } | null>(null);
   const [moveToModalNodeId, setMoveToModalNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
-  const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const folderMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
         setContextMenu(null);
-      }
-      if (folderMenuRef.current && !folderMenuRef.current.contains(event.target as Node)) {
-        setIsFolderMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -421,37 +411,6 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   return (
     <FileExplorerContext.Provider value={contextValue}>
       <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
-        {hasAnyFolder && (
-          <div className="flex items-center justify-end px-2.5 pt-1.5 flex-shrink-0">
-            <div className="relative" ref={folderMenuRef}>
-              <button
-                onClick={() => setIsFolderMenuOpen(open => !open)}
-                className={`p-1.5 rounded-full hover:bg-secondary transition-colors duration-150 ease-apple ${isFolderMenuOpen ? 'bg-secondary text-text-main' : 'text-text-secondary/70 hover:text-text-main'}`}
-                title={t('sidebar.folderViewOptions')}
-                aria-label={t('sidebar.folderViewOptions')}
-                aria-expanded={isFolderMenuOpen}
-              >
-                <FilterIcon className="w-3.5 h-3.5" />
-              </button>
-              {isFolderMenuOpen && (
-                <div className="glass-surface-solid absolute right-0 top-full mt-1.5 z-30 w-44 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main">
-                  <button
-                    onClick={() => { onExpandAll(); setIsFolderMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
-                  >
-                    <ChevronDoubleDownIcon className="w-4 h-4" /> <span>{t('sidebar.expandAll')}</span>
-                  </button>
-                  <button
-                    onClick={() => { onCollapseAll(); setIsFolderMenuOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2"
-                  >
-                    <ChevronDoubleUpIcon className="w-4 h-4" /> <span>{t('sidebar.collapseAll')}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
         <div className="flex-grow overflow-y-auto px-2.5 pt-2 pb-2 space-y-0.5">
           {rootNode.childrenIds.map(childId => (
             tree[childId] ? (

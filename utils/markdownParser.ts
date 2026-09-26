@@ -215,6 +215,20 @@ export const flattenMindMapNodes = (node: MindMapNode): MindMapNode[] => {
 };
 
 /**
+ * Finds a node by id anywhere in a MindMapNode tree (depth-first) — shared
+ * by every mind-map edit action (rename, image add/remove) that needs to
+ * turn a clicked node back into the source line it came from.
+ */
+export const findMindMapNode = (root: MindMapNode, id: string): MindMapNode | null => {
+  if (root.id === id) return root;
+  for (const child of root.children ?? []) {
+    const found = findMindMapNode(child, id);
+    if (found) return found;
+  }
+  return null;
+};
+
+/**
  * Finds a node's position among all headings/list-items in the document
  * (depth-first, document order) — this ordinal is what lets a completely
  * different rendering of the same Markdown (TipTap's rich-text editor,

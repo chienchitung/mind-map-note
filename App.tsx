@@ -30,13 +30,14 @@ interface ChatSessionHandle {
   chat: Chat;
   systemInstruction: string;
 }
-import { parseMarkdownToMindMap, findBlockOrdinal } from './utils/markdownParser';
+import { parseMarkdownToMindMap, findBlockOrdinal, findMindMapNode, stripInlineMarkdown } from './utils/markdownParser';
 import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 import { useTranslation } from './contexts/LanguageContext';
 import { TRANSCRIPTION_LANGUAGE_STORAGE_KEY, type TranscriptionLanguage } from './utils/transcriptionLanguage';
 import { buildFolderExportDocument, buildFolderExportZip } from './utils/folderExport';
 import { downloadBlob } from './utils/downloadBlob';
+import { resolveMarkdownImages } from './utils/resolveMarkdownImages';
 // Statically imported for the same reason as in useVoiceNotePipeline.ts —
 // keeps this out of its own lazy chunk, which a deployment mid-session
 // (e.g. while a chat reply is in flight) could otherwise 404 on.
@@ -424,7 +425,10 @@ const App: React.FC = () => {
   };
 
   const handleExportMarkdown = () => {
-    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    // Resolve image://<id> references to real image data — that scheme only
+    // means anything inside this app; a plain .md file opened anywhere else
+    // would otherwise show every image as broken.
+    const blob = new Blob([resolveMarkdownImages(markdown, images)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -466,8 +470,23 @@ const App: React.FC = () => {
   const getNotesForExport = (): NotesContent =>
     activeNoteId ? { ...notes, [activeNoteId]: markdown } : notes;
 
+  // Same as getNotesForExport, but with every image://<id> reference
+  // resolved to real image data first — for exports that leave the app
+  // entirely as a plain .md/.zip file, where that internal-only scheme
+  // would otherwise show every image as broken. Not used for the PDF
+  // export path: that one already renders through MarkdownPreview, which
+  // resolves image:// on its own for the print view.
+  const getNotesForExternalExport = (): NotesContent => {
+    const source = getNotesForExport();
+    const resolved: NotesContent = {};
+    for (const id of Object.keys(source)) {
+      resolved[id] = resolveMarkdownImages(source[id], images);
+    }
+    return resolved;
+  };
+
   const handleExportFolderMarkdown = (folderId: string) => {
-    const doc = buildFolderExportDocument(tree, getNotesForExport(), folderId);
+    const doc = buildFolderExportDocument(tree, getNotesForExternalExport(), folderId);
     if (!doc) return;
     const blob = new Blob([doc.markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -484,7 +503,7 @@ const App: React.FC = () => {
   // (preserving the sidebar's folder structure) packaged as a .zip, instead
   // of concatenating everything into a single combined document.
   const handleExportFolderMarkdownZip = async (folderId: string) => {
-    const archive = await buildFolderExportZip(tree, getNotesForExport(), folderId);
+    const archive = await buildFolderExportZip(tree, getNotesForExternalExport(), folderId);
     if (!archive) return;
     downloadBlob(archive.blob, `${archive.title}.zip`);
   };
@@ -585,20 +604,8 @@ const App: React.FC = () => {
 
   const handleNodeUpdate = (nodeId: string, newName: string) => {
     if (!mindMapData) return;
+    const targetNode = findMindMapNode(mindMapData, nodeId);
 
-    const findNode = (node: MindMapNode, id: string): MindMapNode | null => {
-        if (node.id === id) return node;
-        if (node.children) {
-            for (const child of node.children) {
-                const found = findNode(child, id);
-                if (found) return found;
-            }
-        }
-        return null;
-    };
-
-    const targetNode = findNode(mindMapData, nodeId);
-    
     if (targetNode && targetNode.name !== newName && newName.trim() !== '') {
         const lines = markdown.split('\n');
         const originalLine = targetNode.originalLine;
@@ -606,6 +613,36 @@ const App: React.FC = () => {
         lines[targetNode.lineNumber] = updatedLine;
         commitMarkdownNow(lines.join('\n'));
     }
+  };
+
+  // Matches the same `![alt](url)` syntax the mind-map parser itself looks
+  // for (see markdownParser.ts) — used here to add, replace, or strip a
+  // node's image directly from the mind map, without the user needing to
+  // find that line in the text/rich editor.
+  const NODE_IMAGE_MARKDOWN_REGEX = /!\[.*?\]\(.*?\)/;
+
+  const handleNodeImageUpdate = (nodeId: string, dataUrl: string | null) => {
+    if (!mindMapData) return;
+    const targetNode = findMindMapNode(mindMapData, nodeId);
+    if (!targetNode) return;
+
+    const lines = markdown.split('\n');
+    const originalLine = targetNode.originalLine;
+    const hasExistingImage = NODE_IMAGE_MARKDOWN_REGEX.test(originalLine);
+
+    let updatedLine: string;
+    if (dataUrl === null) {
+        updatedLine = originalLine.replace(NODE_IMAGE_MARKDOWN_REGEX, '').replace(/\s+$/, '');
+    } else {
+        const imageId = addImage(dataUrl);
+        const alt = stripInlineMarkdown(targetNode.name) || 'image';
+        const imageMarkdown = `![${alt}](image://${imageId})`;
+        updatedLine = hasExistingImage
+            ? originalLine.replace(NODE_IMAGE_MARKDOWN_REGEX, imageMarkdown)
+            : `${originalLine.trimEnd()} ${imageMarkdown}`;
+    }
+    lines[targetNode.lineNumber] = updatedLine;
+    commitMarkdownNow(lines.join('\n'));
   };
 
   const handleOutlineNodeClick = (lineNumber: number) => {
@@ -999,6 +1036,7 @@ const App: React.FC = () => {
                       data={mindMapData}
                       layout={mindMapLayout}
                       onNodeUpdate={handleNodeUpdate}
+                      onNodeImageUpdate={handleNodeImageUpdate}
                       selectedNodeId={selectedNodeId}
                       setSelectedNodeId={setSelectedNodeId}
                       images={images}

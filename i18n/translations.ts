@@ -254,6 +254,9 @@ const zh = {
   'mindMap.zoomOut': '縮小',
   'mindMap.resetView': '重置視圖',
   'mindMap.emptyState': '請在編輯器中新增內容以生成思維導圖。',
+  'mindMap.selectNodeImage': '選擇節點圖片',
+  'mindMap.addNodeImage': '新增圖片',
+  'mindMap.removeNodeImage': '移除圖片',
 
   // --- search ---
   'search.placeholder': '搜尋所有筆記... (⌘F)',
@@ -595,6 +598,9 @@ const en: Record<TranslationKey, string> = {
   'mindMap.zoomOut': 'Zoom out',
   'mindMap.resetView': 'Reset view',
   'mindMap.emptyState': 'Add some content in the editor to generate a mind map.',
+  'mindMap.selectNodeImage': 'Select node image',
+  'mindMap.addNodeImage': 'Add image',
+  'mindMap.removeNodeImage': 'Remove image',
 
   // --- search ---
   'search.placeholder': 'Search all notes... (⌘F)',

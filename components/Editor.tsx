@@ -4,6 +4,7 @@ import Spinner from './Spinner';
 import { Images } from '../types';
 import { compressImageFile } from '../utils/imageCompression';
 import { computeTextStats } from '../utils/textStats';
+import { resolveMarkdownImages } from '../utils/resolveMarkdownImages';
 import { useTranslation } from '../contexts/LanguageContext';
 
 // TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
@@ -188,7 +189,10 @@ const Editor: React.FC<EditorProps> = ({
 
   const handleCopy = () => {
     if (value) {
-      navigator.clipboard.writeText(value).then(() => {
+      // Resolve image://<id> references to real image data before this
+      // leaves the app — that scheme means nothing to whatever the user
+      // pastes into, so every image would otherwise paste in broken.
+      navigator.clipboard.writeText(resolveMarkdownImages(value, images)).then(() => {
         setIsCopied(true);
         setTimeout(() => setIsCopied(false), 2000);
       }).catch(err => {

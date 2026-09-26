@@ -81,7 +81,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
   const {
     inputMode, elapsedSeconds, processingElapsedSeconds, processingPhase, totalSegments, completedSegments,
     errorMessage, rateLimitRetrySeconds, generationRetrySeconds, backendWakingUp,
-    microphoneStatus, hasVideo, canDownload, previewUrl, awaitingVideoReview,
+    microphoneStatus, hasVideo, canDownload, previewUrl, awaitingVideoReview, screenshotCount,
   } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
   const kind = hasVideo ? t('voiceNote.kindVideo') : t('voiceNote.kindAudio');
@@ -265,6 +265,9 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
               </p>
             )}
             {hasVideo && <p className="text-xs text-text-secondary mb-1">{t('voiceNote.recordingVideoHint')}</p>}
+            {screenshotCount > 0 && (
+              <p className="text-xs text-text-secondary mb-1">{t('voiceNote.screenshotsCaptured', { count: screenshotCount })}</p>
+            )}
             <button
               onClick={() => actions.stopRecording()}
               className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center shadow-apple-md hover:opacity-90 active:scale-95 transition-all duration-150 ease-apple mt-2"

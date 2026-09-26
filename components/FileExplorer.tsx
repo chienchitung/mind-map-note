@@ -326,7 +326,14 @@ const Node: React.FC<{
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={handleFinishRename}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleFinishRename(); else if (e.key === 'Escape') handleCancelRename(); }}
+            onKeyDown={(e) => {
+              // isComposing/keyCode 229 guards against an IME candidate-
+              // selection Enter (e.g. picking a Chinese character while
+              // typing) being misread as "finish renaming" — that Enter is
+              // meant for the IME, not this input's own submit action.
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) handleFinishRename();
+              else if (e.key === 'Escape') handleCancelRename();
+            }}
             onClick={(e) => e.stopPropagation()}
             className="bg-primary border border-accent rounded-md px-1.5 py-0.5 w-full text-text-main"
           />

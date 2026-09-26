@@ -1,8 +1,9 @@
 import React, { useRef, useMemo, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import * as d3 from 'd3';
 import { MindMapNode, MindMapLayout, Images } from '../types';
-import { PlusIcon, MinusIcon, ResetZoomIcon } from './icons';
+import { PlusIcon, MinusIcon, ResetZoomIcon, ImageIcon, XIcon } from './icons';
 import { stripInlineMarkdown } from '../utils/markdownParser';
+import { compressImageFile } from '../utils/imageCompression';
 import { useTranslation } from '../contexts/LanguageContext';
 
 const PADDING_X = 24;
@@ -38,6 +39,8 @@ interface MindMapProps {
   data: MindMapNode;
   layout: MindMapLayout;
   onNodeUpdate: (nodeId: string, newName: string) => void;
+  // `dataUrl` sets/replaces the node's image; `null` removes it entirely.
+  onNodeImageUpdate: (nodeId: string, dataUrl: string | null) => void;
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string | null) => void;
   images: Images;
@@ -105,7 +108,8 @@ const getNodeStyles = (depth: number, theme: 'light' | 'dark') => {
     }
 };
 
-const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, selectedNodeId, setSelectedNodeId, images, theme, noteId }, ref) => {
+const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeUpdate, onNodeImageUpdate, selectedNodeId, setSelectedNodeId, images, theme, noteId }, ref) => {
+  const { t } = useTranslation();
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -117,7 +121,22 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [nodeSizes, setNodeSizes] = useState<Map<string, { width: number; height: number }>>(new Map());
-  
+  // One shared hidden file input for every node's "insert image" button —
+  // this ref tracks which node the next selected file belongs to, set right
+  // before the input is opened.
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageTargetNodeIdRef = useRef<string | null>(null);
+
+  const handleNodeImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow choosing the same file again next time
+    const targetNodeId = imageTargetNodeIdRef.current;
+    imageTargetNodeIdRef.current = null;
+    if (!file || !targetNodeId) return;
+    const dataUrl = await compressImageFile(file);
+    onNodeImageUpdate(targetNodeId, dataUrl);
+  };
+
   useImperativeHandle(ref, () => ({
     exportAsJPG: () => {
         if (!svgRef.current || !gRef.current || !svgContainerRef.current) return;
@@ -581,7 +600,38 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     return () => container.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodeId, setSelectedNodeId, nodeMap, collapsedNodes, editingNodeId, data, layout]);
 
-  const handleTextClick = (event: React.MouseEvent, nodeId: string) => { 
+  // Pasting an image (Cmd/Ctrl+V) while a node is selected but not being
+  // text-edited attaches it directly to that node — mirrors the same
+  // paste-to-insert-image affordance the text/rich editors already have,
+  // just scoped to whichever node has focus here instead of a cursor
+  // position. Attached to the same focusable container as the keyboard
+  // navigation above, so it only fires while the mind map itself has focus.
+  useEffect(() => {
+    const container = svgContainerRef.current;
+    if (!container) return;
+
+    const handlePasteImage = (e: ClipboardEvent) => {
+        if (!selectedNodeId || editingNodeId) return;
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.kind === 'file' && item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) {
+                    e.preventDefault();
+                    void compressImageFile(file).then(dataUrl => onNodeImageUpdate(selectedNodeId, dataUrl));
+                }
+                return;
+            }
+        }
+    };
+
+    container.addEventListener('paste', handlePasteImage);
+    return () => container.removeEventListener('paste', handlePasteImage);
+  }, [selectedNodeId, editingNodeId, onNodeImageUpdate]);
+
+  const handleTextClick = (event: React.MouseEvent, nodeId: string) => {
       event.stopPropagation(); 
       setSelectedNodeId(nodeId);
       setEditingNodeId(nodeId); 
@@ -608,6 +658,15 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
         className="absolute -top-[9999px] -left-[9999px] text-center"
         style={{ maxWidth: `${MAX_NODE_WIDTH}px` }}
       ></div>
+
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleNodeImageFileChange}
+        aria-label={t('mindMap.selectNodeImage')}
+      />
 
       <svg ref={svgRef} width={dimensions.width} height={dimensions.height} className="cursor-move">
         <g ref={gRef}>
@@ -692,7 +751,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
 
                 {isEditing ? (
                   <foreignObject x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight}>
-                    <textarea ref={inputRef} defaultValue={node.data.name} onBlur={handleInputBlur}
+                    <textarea ref={inputRef} defaultValue={stripInlineMarkdown(node.data.name)} onBlur={handleInputBlur}
                            onKeyDown={handleInputKeyDown} onClick={e => e.stopPropagation()}
                            className="p-2 w-full h-full bg-white border border-accent rounded-md text-gray-800 text-sm font-sans text-center resize-none"
                            style={{padding: padding}}/>
@@ -718,7 +777,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                 )}
 
                 {canToggle && (
-                  <g 
+                  <g
                     transform={toggleTransform}
                     onClick={(e) => handleNodeToggle(e, node.data.id)}
                     className="cursor-pointer"
@@ -731,6 +790,32 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                             ) : (
                                 <MinusIcon className="w-4 h-4" />
                             )}
+                        </div>
+                    </foreignObject>
+                  </g>
+                )}
+
+                {!isRoot && !isEditing && (
+                  <g
+                    transform={`translate(${rectWidth / 2 - 4}, ${-rectHeight / 2 + 4})`}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (hasImage) {
+                            onNodeImageUpdate(node.data.id, null);
+                        } else {
+                            imageTargetNodeIdRef.current = node.data.id;
+                            imageInputRef.current?.click();
+                        }
+                    }}
+                    className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-apple"
+                  >
+                    <circle r="9" style={{ fill: 'var(--color-elevated)', stroke: 'var(--color-border-color)', filter: CARD_SHADOW }} className="stroke-1 transition-all duration-150 ease-apple hover:stroke-accent" />
+                    <foreignObject x="-7" y="-7" width="14" height="14">
+                        <div
+                            className="w-full h-full flex items-center justify-center text-text-secondary"
+                            title={hasImage ? t('mindMap.removeNodeImage') : t('mindMap.addNodeImage')}
+                        >
+                           {hasImage ? <XIcon className="w-3.5 h-3.5" /> : <ImageIcon className="w-3.5 h-3.5" />}
                         </div>
                     </foreignObject>
                   </g>

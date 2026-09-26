@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { Extension, Node, type NodeViewProps } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import StarterKit from '@tiptap/starter-kit';
 import TiptapImage from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -254,9 +255,33 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({ onClick, active, title, c
 const getMarkdownStorage = (editor: ReturnType<typeof useEditor>): { getMarkdown: () => string } | null =>
   (editor?.storage as any)?.markdown ?? null;
 
+// Recursively rewrites any `image://<id>` node src in a copied slice to the
+// image's real data URL — used by transformCopied below so a native OS
+// copy (Cmd/Ctrl+C) puts a real, portable image in the clipboard instead of
+// a reference that only means anything inside this app. Reconstructing the
+// slice's Fragment this way (rather than mutating in place) matches how
+// ProseMirror nodes are meant to be transformed: they're immutable.
+const resolveImageSrcsInNode = (node: ProseMirrorNode, images: Images): ProseMirrorNode => {
+  if (node.type.name === 'image' && typeof node.attrs.src === 'string' && node.attrs.src.startsWith('image://')) {
+    const resolved = images[node.attrs.src.slice('image://'.length)];
+    return resolved ? node.type.create({ ...node.attrs, src: resolved }, node.content, node.marks) : node;
+  }
+  if (node.content.childCount === 0) return node;
+  const mappedChildren: ProseMirrorNode[] = [];
+  node.content.forEach(child => mappedChildren.push(resolveImageSrcsInNode(child, images)));
+  return node.copy(Fragment.from(mappedChildren));
+};
+
 const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }) => {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // editorProps below is fixed at construction (useEditor's deps are `[]`,
+  // to avoid tearing down/rebuilding the whole editor whenever `images`
+  // changes) — this ref is what lets transformCopied still see the latest
+  // images on every copy, the same problem ImagesContext solves for the
+  // image node view above.
+  const imagesRef = useRef(images);
+  useEffect(() => { imagesRef.current = images; }, [images]);
 
   const editor = useEditor({
     extensions: [
@@ -304,6 +329,17 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
           return true;
         }
         return false;
+      },
+      // A native OS copy (Cmd/Ctrl+C) serializes straight from the doc
+      // model, where an image's src is still `image://<id>` (see
+      // ResolvingImage's own comment) — left alone, whatever gets pasted
+      // elsewhere would show a broken image. This resolves it to the real
+      // data URL first, in the copied slice only; the document itself is
+      // untouched.
+      transformCopied: (slice) => {
+        const mappedChildren: ProseMirrorNode[] = [];
+        slice.content.forEach(child => mappedChildren.push(resolveImageSrcsInNode(child, imagesRef.current)));
+        return new Slice(Fragment.from(mappedChildren), slice.openStart, slice.openEnd);
       },
     },
   }, []);

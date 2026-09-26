@@ -315,6 +315,20 @@ body {
   pointer-events: none;
 }
 
+/* Image nodes are ProseMirror atoms: clicking one sets a NodeSelection
+ * (ProseMirror adds this class itself) rather than a text cursor, which is
+ * how it's copied/dragged/deleted as a unit. Without this rule that
+ * selection is invisible, so clicking/dragging/deleting an image looks like
+ * it does nothing even though it's actually working under the hood. */
+.rich-editor-content .node-image {
+  cursor: pointer;
+  border-radius: 8px;
+}
+.rich-editor-content .node-image.ProseMirror-selectednode {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .editor-backdrop mark.active-match {
   background-color: rgba(255, 149, 0, 0.55);
 }

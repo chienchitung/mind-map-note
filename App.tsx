@@ -676,6 +676,7 @@ const App: React.FC = () => {
     geminiApiKey: apiKey,
     onNoteGenerated: handleVoiceNoteGenerated,
     onError: handleVoiceNoteError,
+    insertImage: addImage,
   });
 
   // Gated the same way as the AI panel: rather than opening the recorder and

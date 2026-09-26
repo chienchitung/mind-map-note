@@ -257,6 +257,7 @@ const zh = {
   'mindMap.selectNodeImage': '選擇節點圖片',
   'mindMap.addNodeImage': '新增圖片',
   'mindMap.removeNodeImage': '移除圖片',
+  'outline.imageOnlyNode': '圖片',
 
   // --- search ---
   'search.placeholder': '搜尋所有筆記... (⌘F)',
@@ -601,6 +602,7 @@ const en: Record<TranslationKey, string> = {
   'mindMap.selectNodeImage': 'Select node image',
   'mindMap.addNodeImage': 'Add image',
   'mindMap.removeNodeImage': 'Remove image',
+  'outline.imageOnlyNode': 'Image',
 
   // --- search ---
   'search.placeholder': 'Search all notes... (⌘F)',

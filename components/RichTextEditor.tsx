@@ -57,7 +57,16 @@ const ImageNodeView: React.FC<NodeViewProps> = ({ node }) => {
   return (
     <NodeViewWrapper as="span" className="inline-block max-w-full">
       {resolvedSrc ? (
-        <img src={resolvedSrc} alt={node.attrs.alt || ''} className="max-w-full rounded-lg my-1" />
+        // draggable={false}: <img> is natively draggable in every browser,
+        // which otherwise steals the drag gesture as a "drag this image out
+        // of the page" (populating dataTransfer with Files/uri-list) before
+        // ProseMirror's own dragstart handler gets a chance to treat it as
+        // "move this node within the document" — the outer wrapper div is
+        // already made draggable by ProseMirror itself (via the node's
+        // `draggable: true` spec), so dragging still works, just correctly
+        // scoped to the editor. Same fix Tiptap's own Image extension applies
+        // in its (unused here) built-in resizable node view.
+        <img src={resolvedSrc} alt={node.attrs.alt || ''} draggable={false} className="max-w-full rounded-lg my-1" />
       ) : (
         <span className="inline-block px-2 py-1 rounded bg-secondary text-text-secondary text-xs">{t('richEditor.imageLoading')}</span>
       )}
@@ -272,6 +281,24 @@ const resolveImageSrcsInNode = (node: ProseMirrorNode, images: Images): ProseMir
   return node.copy(Fragment.from(mappedChildren));
 };
 
+// The inverse of resolveImageSrcsInNode above — used by transformPasted so
+// that cutting/copying an image node and pasting it back (the normal way to
+// move or duplicate one within the editor) re-registers it as an
+// `image://<id>` reference instead of leaving the raw data URL inline: the
+// clipboard slice from transformCopied always carries a resolved data URL
+// (never an `image://` reference, since that scheme means nothing outside
+// this app), so this is what a paste of that same slice sees coming back in.
+const rewriteBase64ImagesInNode = (node: ProseMirrorNode, onImagePasted: (dataUrl: string) => string): ProseMirrorNode => {
+  if (node.type.name === 'image' && typeof node.attrs.src === 'string' && node.attrs.src.startsWith('data:')) {
+    const imageId = onImagePasted(node.attrs.src);
+    return node.type.create({ ...node.attrs, src: `image://${imageId}` }, node.content, node.marks);
+  }
+  if (node.content.childCount === 0) return node;
+  const mappedChildren: ProseMirrorNode[] = [];
+  node.content.forEach(child => mappedChildren.push(rewriteBase64ImagesInNode(child, onImagePasted)));
+  return node.copy(Fragment.from(mappedChildren));
+};
+
 const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }) => {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -282,13 +309,22 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
   // image node view above.
   const imagesRef = useRef(images);
   useEffect(() => { imagesRef.current = images; }, [images]);
+  // Same live-value problem as imagesRef above, for transformPasted below.
+  const onImagePastedRef = useRef(onImagePasted);
+  useEffect(() => { onImagePastedRef.current = onImagePasted; }, [onImagePasted]);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
       }),
-      ResolvingImage,
+      // allowBase64: true — without it, TiptapImage's parseHTML rejects any
+      // `<img src="data:...">`, so pasting back a slice this editor itself
+      // just copied/cut (transformCopied always resolves `image://` to a
+      // real data URL) silently drops the image instead of restoring it.
+      // transformPasted below immediately re-registers it as `image://<id>`,
+      // so raw base64 never actually lands in the document.
+      ResolvingImage.configure({ allowBase64: true }),
       Placeholder.configure({ placeholder: t('richEditor.placeholder') }),
       Markdown.configure({ html: false, transformPastedText: true, transformCopiedText: true }),
       JoinAdjacentLists,
@@ -339,6 +375,15 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
       transformCopied: (slice) => {
         const mappedChildren: ProseMirrorNode[] = [];
         slice.content.forEach(child => mappedChildren.push(resolveImageSrcsInNode(child, imagesRef.current)));
+        return new Slice(Fragment.from(mappedChildren), slice.openStart, slice.openEnd);
+      },
+      // The other half of transformCopied above: a paste of that same
+      // resolved-data-URL slice (e.g. cutting an image and pasting it
+      // elsewhere to move it) re-registers the image instead of leaving a
+      // raw data URL sitting in the document.
+      transformPasted: (slice) => {
+        const mappedChildren: ProseMirrorNode[] = [];
+        slice.content.forEach(child => mappedChildren.push(rewriteBase64ImagesInNode(child, onImagePastedRef.current)));
         return new Slice(Fragment.from(mappedChildren), slice.openStart, slice.openEnd);
       },
     },

@@ -1,6 +1,7 @@
 import React from 'react';
 import { MindMapNode } from '../types';
 import { stripInlineMarkdown } from '../utils/markdownParser';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface OutlineViewProps {
   data: MindMapNode;
@@ -17,15 +18,17 @@ const OutlineNode: React.FC<{
   // This is a simplification; a more complex check would parse the whole markdown again.
   // For now, we just check the node's own line. A more robust solution might pass down a range.
   const isActive = node.lineNumber === activeLine;
+  const { t } = useTranslation();
+  const label = stripInlineMarkdown(node.name) || (node.imageUrl ? t('outline.imageOnlyNode') : '');
 
   return (
     <li>
-      <div 
+      <div
         className={`outline-node-content ${isActive ? 'active' : ''}`}
         onClick={() => onNodeClick(node.lineNumber)}
       >
         <span className="node-bullet"></span>
-        <span className="truncate">{stripInlineMarkdown(node.name)}</span>
+        <span className="truncate">{label}</span>
       </div>
       {node.children && node.children.length > 0 && (
         <ul>

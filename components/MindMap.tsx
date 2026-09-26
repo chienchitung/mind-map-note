@@ -767,11 +767,13 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
                             <img
                                 src={imageUrl}
                                 alt={stripInlineMarkdown(node.data.name)}
-                                className="block rounded-md object-contain mb-2"
+                                className={`block rounded-md object-contain ${stripInlineMarkdown(node.data.name) ? 'mb-2' : ''}`}
                                 style={{ maxHeight: `${IMAGE_HEIGHT}px`, maxWidth: '100%' }}
                             />
                         )}
-                        <div className="flex-shrink-0">{stripInlineMarkdown(node.data.name)}</div>
+                        {!!stripInlineMarkdown(node.data.name) && (
+                            <div className="flex-shrink-0">{stripInlineMarkdown(node.data.name)}</div>
+                        )}
                     </div>
                   </foreignObject>
                 )}

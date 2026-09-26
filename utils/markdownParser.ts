@@ -145,10 +145,10 @@ export const parseMarkdownToMindMap = (markdown: string, noteName: string): Mind
 
     if (imageMatch) {
         imageUrl = imageMatch[2];
+        // Leave `name` empty when the line is nothing but an image — the alt
+        // text (often just the original filename, e.g. "image.png") isn't
+        // real node content and shouldn't be shown as the node's label.
         name = name.replace(imageRegex, '').trim();
-        if (!name) {
-            name = imageMatch[1] || 'Image'; // Use alt text if no other text
-        }
     }
 
     // Traverse up the path to find the correct parent. The parent's level

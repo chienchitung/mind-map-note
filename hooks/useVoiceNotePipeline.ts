@@ -654,12 +654,18 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   // wasn't on).
   const appendScreenshotsSection = (markdown: string): string => {
     if (screenshotsRef.current.length === 0) return markdown;
+    // Each screenshot is its own list item (not a plain paragraph) so it
+    // becomes a real child node in the mind map, not just inert trailing
+    // text on the "screenshots" heading — parseMarkdownToMindMap
+    // (utils/markdownParser.ts) only ever turns headings and list items
+    // into nodes, and only a list item's own `![]()` sets that node's
+    // imageUrl (and therefore its thumbnail).
     const entries = screenshotsRef.current.map(({ timeSeconds, dataUrl }) => {
       const imageId = insertImageRef.current(dataUrl);
       const label = formatTimestamp(timeSeconds);
-      return `**[${label}]**\n\n![${label}](image://${imageId})`;
+      return `- **[${label}]** ![${label}](image://${imageId})`;
     });
-    return `${markdown}\n\n## ${translate('voiceNote.screenshotsHeading')}\n\n${entries.join('\n\n')}`;
+    return `${markdown}\n\n## ${translate('voiceNote.screenshotsHeading')}\n\n${entries.join('\n')}`;
   };
 
   const finalizeAndGenerate = useCallback(async () => {

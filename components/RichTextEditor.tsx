@@ -4,6 +4,7 @@ import { Extension, Node, type NodeViewProps } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import StarterKit from '@tiptap/starter-kit';
+import Paragraph from '@tiptap/extension-paragraph';
 import TiptapImage from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import DOMPurify from 'dompurify';
@@ -74,9 +75,69 @@ const ImageNodeView: React.FC<NodeViewProps> = ({ node }) => {
   );
 };
 
+// @tiptap/extension-list-item's schema requires every list item to start
+// with a paragraph, even when the item's real content is a block-level
+// image right after it (ResolvingImage below is block, not inline) — so
+// inserting an image as a list item's only content always leaves an empty
+// paragraph in front of it; there's no way to avoid that paragraph existing
+// at the schema level. Left to prosemirror-markdown's default paragraph
+// serializer, that empty paragraph still closes its own block, which pushes
+// the list item's "- " marker onto its own orphaned line and indents the
+// image below it — technically valid Markdown, but not something this
+// app's own line-based markdown parser (markdownParser.ts) round-trips, so
+// the image silently stops being a mind-map node at all. Skipping a
+// genuinely empty paragraph's serialization entirely (no text is lost
+// either way) keeps the marker and the image on the same line instead.
+const MarkdownAwareParagraph = Paragraph.extend({
+  addStorage() {
+    return {
+      markdown: {
+        serialize(
+          state: { renderInline: (node: unknown) => void; closeBlock: (node: unknown) => void },
+          node: { content: { size: number } }
+        ) {
+          if (node.content.size === 0) return;
+          state.renderInline(node);
+          state.closeBlock(node);
+        },
+        parse: {},
+      },
+    };
+  },
+});
+
 const ResolvingImage = TiptapImage.extend({
   addNodeView() {
     return ReactNodeViewRenderer(ImageNodeView);
+  },
+
+  // prosemirror-markdown's own default image serializer (what this node
+  // falls back to otherwise) assumes images are always inline content
+  // inside a paragraph — matching its own basic schema, where image is
+  // `group: "inline"` — and never calls state.closeBlock(). Our image is
+  // `group: "block"` (TiptapImage's default, since it's `inline: false`
+  // here) so it can sit directly inside a list item alongside — not nested
+  // inside — a paragraph, e.g. one with no other text at all. Without
+  // closeBlock() here, whatever line follows the image gets written onto
+  // the exact same output line with no separator, and the list item's own
+  // leading "- " marker can end up orphaned or dropped entirely once the
+  // block boundary tracking that depends on it gets out of sync.
+  addStorage() {
+    return {
+      markdown: {
+        serialize(
+          state: { write: (text: string) => void; esc: (text: string) => string; closeBlock: (node: unknown) => void },
+          node: { attrs: { alt?: string | null; src: string; title?: string | null } }
+        ) {
+          state.write(
+            '![' + state.esc(node.attrs.alt || '') + '](' + node.attrs.src.replace(/[()]/g, '\\$&') +
+            (node.attrs.title ? ' "' + node.attrs.title.replace(/"/g, '\\"') + '"' : '') + ')'
+          );
+          state.closeBlock(node);
+        },
+        parse: {},
+      },
+    };
   },
 });
 
@@ -318,6 +379,9 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
       }),
+      // Overrides StarterKit's own Paragraph purely for markdown
+      // serialization — see MarkdownAwareParagraph's own comment above.
+      MarkdownAwareParagraph,
       // allowBase64: true — without it, TiptapImage's parseHTML rejects any
       // `<img src="data:...">`, so pasting back a slice this editor itself
       // just copied/cut (transformCopied always resolves `image://` to a

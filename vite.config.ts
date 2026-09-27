@@ -18,7 +18,16 @@ export default defineConfig(() => {
       plugins: [
         react(),
         VitePWA({
-          registerType: 'autoUpdate',
+          // 'prompt' (not 'autoUpdate'): a new service worker installs but
+          // waits rather than activating itself — usePwaUpdate.ts's
+          // onNeedRefresh only fires once it's ready, and the user has to
+          // actually click UpdateAvailablePill (App.tsx) before it takes
+          // over and the page reloads. Under 'autoUpdate' the worker would
+          // activate the instant it finishes installing, so the currently
+          // running (old) page code could end up making requests the new
+          // worker answers from an incompatible precache before the user
+          // ever agreed to update.
+          registerType: 'prompt',
           includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
           manifest: {
             id: '/',

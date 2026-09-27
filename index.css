@@ -615,6 +615,17 @@ body {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* UpdateAvailablePill's entrance — slides up from its own fixed corner
+ * rather than scaling in place, since (unlike a centered modal) it's
+ * anchored to an edge the whole time. */
+@keyframes pwa-update-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-pwa-update-in {
+  animation: pwa-update-in 0.3s var(--ease-apple);
+}
+
 .shortcut-key {
   background-color: var(--color-secondary);
   border: 1px solid var(--color-border-color);

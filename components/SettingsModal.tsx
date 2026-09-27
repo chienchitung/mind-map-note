@@ -73,10 +73,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title={t('common.closeEsc')} aria-label={t('common.close')}>
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple z-10" title={t('common.closeEsc')} aria-label={t('common.close')}>
           <XIcon className="w-5 h-5" />
         </button>
 
+        <div className="modal-content-scroll">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center flex-shrink-0">
             <SettingsIcon className="w-5 h-5" />
@@ -292,6 +293,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
         </section>
+        </div>
       </div>
     </div>
   );

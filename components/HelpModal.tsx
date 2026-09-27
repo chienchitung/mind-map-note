@@ -26,9 +26,10 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple" title={t('common.closeEsc')} aria-label={t('common.close')}>
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 rounded-full text-text-secondary hover:bg-secondary hover:text-text-main transition-colors duration-150 ease-apple z-10" title={t('common.closeEsc')} aria-label={t('common.close')}>
           <XIcon className="w-5 h-5" />
         </button>
+        <div className="modal-content-scroll">
         <h2 id="help-modal-title" className="text-xl font-semibold mb-6 text-text-main tracking-tight">{t('help.title')}</h2>
 
         <div className="space-y-6">
@@ -70,6 +71,7 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               if (part === '<cmd/>') return <kbd key={i} className="shortcut-key text-xs">⌘</kbd>;
               return part;
             })}
+        </div>
         </div>
       </div>
     </div>

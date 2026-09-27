@@ -200,8 +200,11 @@ const App: React.FC = () => {
   }, [commitMarkdown]);
 
 
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Editor);
-  const [mindMapLayout, setMindMapLayout] = useState<MindMapLayout>(MindMapLayout.MindMap);
+  // Persisted so a refresh reopens on whichever view/layout was last used
+  // instead of always resetting to the editor and the default mind-map
+  // layout — same reasoning as Editor.tsx's own rich/plain mode toggle.
+  const [viewMode, setViewMode] = useLocalStorage<ViewMode>('mind-map-view-mode', ViewMode.Editor);
+  const [mindMapLayout, setMindMapLayout] = useLocalStorage<MindMapLayout>('mind-map-layout', MindMapLayout.MindMap);
   const [theme, setTheme] = useLocalStorage<'light' | 'dark'>('theme', 'light');
   // Non-null while a folder-wide PDF export is in flight — see
   // handleExportFolderPDF. Swaps #print-only-content's source over to the

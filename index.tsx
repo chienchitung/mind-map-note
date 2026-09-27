@@ -2,7 +2,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Analytics } from '@vercel/analytics/react';
-import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -21,21 +20,6 @@ window.addEventListener('vite:preloadError', (event) => {
   window.location.reload();
 });
 
-// vite-plugin-pwa's `registerType: 'autoUpdate'` (vite.config.ts) only
-// controls what gets baked into the service worker itself — the worker
-// still just sits there installed-but-inactive until something on the
-// client side actually asks it to check for and take over from a new
-// version. Without this call, that "something" never happens: a plain
-// reload is served straight from whichever service worker is already
-// active, so it can look and feel like nothing happened, and a genuinely
-// new deployment only shows up once some *unrelated* later navigation
-// happens to be the one that wins the update race — hence needing several
-// manual refreshes before a new version actually appears. Calling
-// registerSW() (with no onNeedReload override) makes the registered worker
-// check for updates on load and, once a new one activates, reload the page
-// itself immediately, so a single refresh is enough.
-registerSW({ immediate: true });
-
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");
@@ -52,3 +36,23 @@ root.render(
     </ErrorBoundary>
   </React.StrictMode>
 );
+
+// #initial-loader (index.html) is static markup shown before any JS has
+// even parsed, so a reload always reads as "yes, this is actually
+// reloading" instead of the page just silently sitting there — this app
+// loads too fast off the service worker's precache for that to be visible
+// on its own. MIN_VISIBLE_MS enforces a floor so it can't flash by
+// unnoticed even when React mounts almost instantly; the double rAF waits
+// until after the real tree has actually painted before starting the fade,
+// rather than merely after render() returns.
+const MIN_VISIBLE_MS = 250;
+const loaderShownAt = performance.now();
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  const loader = document.getElementById('initial-loader');
+  if (!loader) return;
+  const remaining = MIN_VISIBLE_MS - (performance.now() - loaderShownAt);
+  setTimeout(() => {
+    loader.classList.add('is-hidden');
+    loader.addEventListener('transitionend', () => loader.remove(), { once: true });
+  }, Math.max(0, remaining));
+}));

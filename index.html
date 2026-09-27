@@ -11,8 +11,56 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="MindMapNote" />
     <title>MindMapNote</title>
+    <style>
+      /* Critical, self-contained CSS for #initial-loader below — it has to
+       * render correctly the instant the HTML parses, before index.css (a
+       * render-blocking <link> in production, but a JS-injected <style> in
+       * dev — see index.tsx) is guaranteed to have applied. Colors are
+       * duplicated from index.css's :root/.dark tokens rather than shared,
+       * since this can't depend on that stylesheet being ready yet.
+       */
+      #initial-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff;
+        transition: opacity 0.2s ease;
+      }
+      html.dark #initial-loader { background: #1c1c1e; }
+      #initial-loader.is-hidden { opacity: 0; pointer-events: none; }
+      #initial-loader-spinner {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 3px solid rgba(0, 113, 227, 0.2);
+        border-top-color: #0071e3;
+        animation: initial-loader-spin 0.7s linear infinite;
+      }
+      html.dark #initial-loader-spinner {
+        border-color: rgba(10, 132, 255, 0.25);
+        border-top-color: #0a84ff;
+      }
+      @keyframes initial-loader-spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+    <script>
+      // Applied to <html> (not <body>, which doesn't exist yet at this
+      // point) purely so #initial-loader picks the right background before
+      // first paint — App.tsx's own theme effect still owns the real
+      // `.light`/`.dark` class on <body> once React mounts.
+      try {
+        if (JSON.parse(localStorage.getItem('theme') || '"light"') === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body class="bg-primary text-text-main">
+    <div id="initial-loader" aria-hidden="true"><div id="initial-loader-spinner"></div></div>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

@@ -209,6 +209,11 @@ const zh = {
   'voicePill.backToVoiceNote': '回到語音筆記',
   'voicePill.backToVoiceNoteWithLabel': '回到語音筆記：{{label}}',
 
+  // --- pwa update pill ---
+  'pwaUpdate.available': '有新版本，點擊更新',
+  'pwaUpdate.updating': '更新中...',
+  'pwaUpdate.tooltip': '點擊套用新版本並重新整理頁面',
+
   // --- editor ---
   'editor.plainMode': '純文字模式（Markdown 原始語法）',
   'editor.plainModeLabel': '純文字模式',
@@ -553,6 +558,11 @@ const en: Record<TranslationKey, string> = {
   'voicePill.error': 'Voice note ran into an error',
   'voicePill.backToVoiceNote': 'Back to voice note',
   'voicePill.backToVoiceNoteWithLabel': 'Back to voice note: {{label}}',
+
+  // --- pwa update pill ---
+  'pwaUpdate.available': 'Update available, click to refresh',
+  'pwaUpdate.updating': 'Updating...',
+  'pwaUpdate.tooltip': 'Click to apply the new version and reload',
 
   // --- editor ---
   'editor.plainMode': 'Plain text mode (raw Markdown)',

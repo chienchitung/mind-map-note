@@ -6,6 +6,7 @@ import useLocalStorage from './hooks/useLocalStorage';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useVoiceNotePipeline, VoiceRecordingData } from './hooks/useVoiceNotePipeline';
 import { useVoiceRecordingsStorage } from './hooks/useVoiceRecordingsStorage';
+import { usePwaUpdate } from './hooks/usePwaUpdate';
 import Header from './components/Header';
 import Editor from './components/Editor';
 import MindMap, { MindMapHandle } from './components/MindMap';
@@ -17,6 +18,7 @@ import SettingsModal from './components/SettingsModal';
 import Toast from './components/Toast';
 import Spinner from './components/Spinner';
 import VoiceNoteStatusPill from './components/VoiceNoteStatusPill';
+import UpdateAvailablePill from './components/UpdateAvailablePill';
 // Keep this small modal in the entry bundle: an old tab should never need
 // to fetch a deleted hashed chunk just to open the recorder.
 import VoiceNoteModal from './components/VoiceNoteModal';
@@ -715,6 +717,7 @@ const App: React.FC = () => {
     onError: handleVoiceNoteError,
     insertImage: addImage,
   });
+  const pwaUpdate = usePwaUpdate();
 
   // Gated the same way as the AI panel: rather than opening the recorder and
   // only then discovering a key is missing, send the user straight to
@@ -1089,6 +1092,13 @@ const App: React.FC = () => {
       )}
       {!isVoiceNoteModalOpen && voiceNotePipeline.state.stage !== 'idle' && (
         <VoiceNoteStatusPill state={voiceNotePipeline.state} onClick={() => setIsVoiceNoteModalOpen(true)} />
+      )}
+      {pwaUpdate.updateAvailable && (
+        <UpdateAvailablePill
+          updating={pwaUpdate.updating}
+          onClick={pwaUpdate.applyUpdate}
+          stackedAboveVoicePill={!isVoiceNoteModalOpen && voiceNotePipeline.state.stage !== 'idle'}
+        />
       )}
       {(actionMessage || storageError) && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-md flex flex-col gap-2">

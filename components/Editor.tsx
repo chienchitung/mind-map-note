@@ -6,6 +6,7 @@ import { compressImageFile } from '../utils/imageCompression';
 import { computeTextStats } from '../utils/textStats';
 import { resolveMarkdownImages } from '../utils/resolveMarkdownImages';
 import { useTranslation } from '../contexts/LanguageContext';
+import useLocalStorage from '../hooks/useLocalStorage';
 
 // TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
 // a user opts into rich mode, so keep them out of the initial bundle that
@@ -50,8 +51,10 @@ const Editor: React.FC<EditorProps> = ({
   // Plain mode is the existing raw-Markdown textarea; rich mode is a
   // toolbar-driven WYSIWYG view (headings/bold/lists/quote buttons) backed
   // by the same underlying Markdown string — neither replaces the other,
-  // both edit the identical `value`/`onChange`.
-  const [mode, setMode] = useState<EditMode>('plain');
+  // both edit the identical `value`/`onChange`. Persisted (not a plain
+  // useState) so a page refresh reopens in whichever mode was last used
+  // instead of always resetting to plain/Markdown.
+  const [mode, setMode] = useLocalStorage<EditMode>('mind-map-editor-mode', 'plain');
 
 
   useEffect(() => {

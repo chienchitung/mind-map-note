@@ -2,6 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Analytics } from '@vercel/analytics/react';
+import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -19,6 +20,21 @@ window.addEventListener('vite:preloadError', (event) => {
   event.preventDefault();
   window.location.reload();
 });
+
+// vite-plugin-pwa's `registerType: 'autoUpdate'` (vite.config.ts) only
+// controls what gets baked into the service worker itself — the worker
+// still just sits there installed-but-inactive until something on the
+// client side actually asks it to check for and take over from a new
+// version. Without this call, that "something" never happens: a plain
+// reload is served straight from whichever service worker is already
+// active, so it can look and feel like nothing happened, and a genuinely
+// new deployment only shows up once some *unrelated* later navigation
+// happens to be the one that wins the update race — hence needing several
+// manual refreshes before a new version actually appears. Calling
+// registerSW() (with no onNeedReload override) makes the registered worker
+// check for updates on load and, once a new one activates, reload the page
+// itself immediately, so a single refresh is enough.
+registerSW({ immediate: true });
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

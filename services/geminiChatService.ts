@@ -115,17 +115,32 @@ export const createChatSession = async (
 // a note as-is. This turns it into the same kind of structured Markdown
 // (headings + bullet points) the rest of the app expects to turn into a mind
 // map, via a single one-shot generation call rather than a chat session.
-export const generateNoteFromTranscript = async (transcript: string, apiKey: string): Promise<string> => {
+export const generateNoteFromTranscript = async (
+    transcript: string,
+    apiKey: string,
+    options?: { withScreenshotAnchors?: boolean }
+): Promise<string> => {
     if (!apiKey) {
         throw new MissingApiKeyError();
     }
     if (!transcript.trim()) {
         throw new Error(translate('gemini.emptyTranscript'));
     }
+    const withScreenshotAnchors = options?.withScreenshotAnchors ?? false;
 
     try {
         const ai = new GoogleGenAI({ apiKey });
         const language = getCurrentLanguage();
+        // Only used when the recording also captured screen-share
+        // screenshots (see useVoiceNotePipeline's appendScreenshotsSection
+        // and utils/screenshotPlacement.ts) — the transcript passed in is
+        // then the `[MM:SS] text` per-segment form instead of plain text,
+        // and each heading/top-level bullet gets a hidden, HTML-comment
+        // time-range marker the caller uses to place the matching
+        // screenshot right after it, then strips before showing the note.
+        const screenshotAnchorInstruction = !withScreenshotAnchors ? '' : (language === 'en'
+            ? `\n9. The transcript below has a "[MM:SS]" timestamp at the start of each source line — these mark real moments in a screen-shared recording that also has screenshots attached to it, which will be placed into the note automatically after you finish. For EVERY "#"/"##"/"###" heading and EVERY top-level "-"/"1." list item (not nested sub-items) you write, append a hidden marker at the very end of that same line: \`<!--t:START-END-->\`, where START and END are the integer-second range of the source timestamps that heading or bullet's content was drawn from (e.g. \`<!--t:125-180-->\`). Never omit this marker, never mention timestamps anywhere in the visible note text, and never describe or reference the screenshots themselves — the marker is the only place time information belongs.`
+            : `\n9. 以下逐字稿每行開頭都有「[MM:SS]」時間戳——這些標記著這份錄音在畫面分享時實際發生的時間點，錄音同時也附有螢幕截圖，稍後會由程式自動安插進筆記。你寫的每一個「#」「##」「###」標題，以及每一個最上層的「-」或「1.」列表項目（不含巢狀子項目），都必須在該行最後面加上一個隱藏標記：\`<!--t:START-END-->\`，START、END 是整數秒，代表這個標題或項目內容取材自逐字稿的哪個時間範圍（例如 \`<!--t:125-180-->\`）。這個標記一定要加，絕對不要在筆記正文中提到任何時間戳，也不要描述或提及截圖本身——時間資訊只能出現在這個標記裡。`);
         const contents = language === 'en'
             ? `Create a comprehensive study note from the speech transcript below. This is a faithful reconstruction task, not a short summary.
 
@@ -142,7 +157,7 @@ Requirements:
    - No Markdown tables and no horizontal-rule dividers.
 6. Use LaTeX only for real mathematical or chemical formulas. Wrap inline formulas in a single $ and block formulas in $$. Use one backslash per LaTeX command.
 7. Write the entire note in English. Proper nouns, technical terms, and code may remain in their original form when translation would reduce accuracy.
-8. Before answering, silently verify that every meaningful section of the transcript is represented. The note should be as long as needed for completeness.
+8. Before answering, silently verify that every meaningful section of the transcript is represented. The note should be as long as needed for completeness.${screenshotAnchorInstruction}
 
 Output only the Markdown note, without commentary or code-fence markers.
 
@@ -164,7 +179,7 @@ END TRANSCRIPT`
    - 不使用 Markdown 表格，也不插入水平分隔線。
 6. LaTeX 只用於真正的數學或化學公式。行內公式用單一 $ 包住，獨立公式用 $$ 包住；LaTeX 指令只使用一個反斜線。
 7. 全文使用繁體中文。人名、專有名詞、程式碼或翻譯後會失真的詞彙可保留原文。
-8. 回答前先在內部檢查逐字稿的每個有意義段落是否都已納入。筆記長度應依內容完整度決定，不得為了簡短而省略資訊。
+8. 回答前先在內部檢查逐字稿的每個有意義段落是否都已納入。筆記長度應依內容完整度決定，不得為了簡短而省略資訊。${screenshotAnchorInstruction}
 
 只輸出 Markdown 筆記本身，不要加入說明文字或程式碼區塊符號。
 

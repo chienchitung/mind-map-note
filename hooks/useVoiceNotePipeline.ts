@@ -19,6 +19,7 @@ import { transcribeViaBackend, MAX_BACKEND_UPLOAD_BYTES, type BackendTranscribeP
 // here would also wipe the in-memory transcript this step depends on.
 import { generateNoteFromTranscript, MissingApiKeyError, isRetryableGeminiError, extractGeminiErrorMessage } from '../services/geminiChatService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
+import { extractTimeAnnotations, placeScreenshotsByTimestamp } from '../utils/screenshotPlacement';
 import { downloadBlob } from '../utils/downloadBlob';
 import { translate } from '../i18n/translations';
 import useLocalStorage from './useLocalStorage';
@@ -646,28 +647,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     setState(s => ({ ...s, generationRetrySeconds: null }));
   }, []);
 
-  // Embeds every screenshot captured this session into the note's own image
-  // store (insertImageRef — the same one the rich-text editor's paste-image
-  // flow uses) and appends a section referencing them, so they show up as
-  // ordinary images in the note rather than needing any special rendering.
-  // A no-op if nothing was captured (audio-only session, or captureVideo
-  // wasn't on).
-  const appendScreenshotsSection = (markdown: string): string => {
-    if (screenshotsRef.current.length === 0) return markdown;
-    // Each screenshot is its own list item (not a plain paragraph) so it
-    // becomes a real child node in the mind map, not just inert trailing
-    // text on the "screenshots" heading — parseMarkdownToMindMap
-    // (utils/markdownParser.ts) only ever turns headings and list items
-    // into nodes, and only a list item's own `![]()` sets that node's
-    // imageUrl (and therefore its thumbnail).
-    const entries = screenshotsRef.current.map(({ timeSeconds, dataUrl }) => {
-      const imageId = insertImageRef.current(dataUrl);
-      const label = formatTimestamp(timeSeconds);
-      return `- **[${label}]** ![${label}](image://${imageId})`;
-    });
-    return `${markdown}\n\n## ${translate('voiceNote.screenshotsHeading')}\n\n${entries.join('\n')}`;
-  };
-
   const finalizeAndGenerate = useCallback(async () => {
     if (cancelledRef.current) return;
     const combinedTranscript = transcriptPartsRef.current.join('\n\n');
@@ -675,14 +654,40 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       handlePipelineError(new Error(translate('pipeline.noSpeechDetected')));
       return;
     }
+    // A recording with screenshots gets the timestamped transcript instead
+    // of the plain one, and asks Gemini to tag each block with a hidden
+    // time-range marker (see generateNoteFromTranscript's
+    // withScreenshotAnchors) — extractTimeAnnotations/placeScreenshotsByTimestamp
+    // below then use those markers to insert each screenshot right after
+    // whichever block actually discusses that moment, deterministically,
+    // rather than leaving placement to the model. Sessions with no
+    // screenshots are unaffected: no markers get requested, so
+    // extractTimeAnnotations finds none and placeScreenshotsByTimestamp is
+    // a no-op (screenshots.length === 0).
+    const hasScreenshots = screenshotsRef.current.length > 0;
+    const transcriptForGeneration = hasScreenshots
+      ? timestampedTranscriptPartsRef.current.join('\n')
+      : combinedTranscript;
     setState(s => ({ ...s, processingPhase: 'generating' }));
     try {
       let attempt = 0;
       for (;;) {
         try {
-          const noteMarkdown = await generateNoteFromTranscript(combinedTranscript, geminiApiKeyRef.current);
+          const noteMarkdown = await generateNoteFromTranscript(
+            transcriptForGeneration,
+            geminiApiKeyRef.current,
+            hasScreenshots ? { withScreenshotAnchors: true } : undefined
+          );
           if (cancelledRef.current) return;
-          const finalMarkdown = appendScreenshotsSection(normalizeAiMarkdown(noteMarkdown));
+          const { markdown: cleanedMarkdown, annotations } = extractTimeAnnotations(normalizeAiMarkdown(noteMarkdown));
+          const finalMarkdown = placeScreenshotsByTimestamp(
+            cleanedMarkdown,
+            annotations,
+            screenshotsRef.current,
+            insertImageRef.current,
+            translate('voiceNote.screenshotsHeading'),
+            translate('voiceNote.screenshotAlt')
+          );
           onNoteGeneratedRef.current(finalMarkdown, {
             transcript: combinedTranscript,
             timestampedTranscript: timestampedTranscriptPartsRef.current.join('\n'),

@@ -1,5 +1,6 @@
 import { GoogleGenAI, Chat, ApiError, ThinkingLevel } from "@google/genai";
 import { getCurrentLanguage, translate } from '../i18n/translations';
+import { repairCodeFences } from '../utils/codeFences';
 
 /**
  * Thrown when no Gemini API key has been configured yet. The caller is
@@ -155,11 +156,12 @@ Requirements:
    - "-" bullet lists for facts and explanations; numbered lists for procedures or ranked items.
    - Plain-text arrows for simple relationships (A → B).
    - No Markdown tables and no horizontal-rule dividers.
+   - Whenever the transcript contains code (commands, function calls, snippets), put it in a complete fenced code block with a language tag (e.g. "\`\`\`python" … "\`\`\`"). Every opening fence must have exactly one matching closing fence on its own line, and never emit an extra or unpaired "\`\`\`". Short identifiers inside a sentence use single backticks instead (e.g. \`drop_duplicates()\`).
 6. Use LaTeX only for real mathematical or chemical formulas. Wrap inline formulas in a single $ and block formulas in $$. Use one backslash per LaTeX command.
 7. Write the entire note in English. Proper nouns, technical terms, and code may remain in their original form when translation would reduce accuracy.
 8. Before answering, silently verify that every meaningful section of the transcript is represented. The note should be as long as needed for completeness.${screenshotAnchorInstruction}
 
-Output only the Markdown note, without commentary or code-fence markers.
+Output only the Markdown note, without commentary, and do not wrap the whole note in a code fence.
 
 BEGIN TRANSCRIPT
 ${transcript}
@@ -177,11 +179,12 @@ END TRANSCRIPT`
    - 事實與說明使用「-」列表；流程、步驟或有順序的項目使用編號列表。
    - 單純關係直接使用文字箭頭（A → B）。
    - 不使用 Markdown 表格，也不插入水平分隔線。
+   - 逐字稿中出現程式碼（指令、函式呼叫、程式片段）時，必須放進完整的程式碼區塊並標註語言（例如「\`\`\`python」……「\`\`\`」）。每個開頭的 \`\`\` 都要有且只有一個獨立成行的結尾 \`\`\`，不得多出或遺漏任何 \`\`\`。句子中的簡短名稱則用單一反引號（例如 \`drop_duplicates()\`）。
 6. LaTeX 只用於真正的數學或化學公式。行內公式用單一 $ 包住，獨立公式用 $$ 包住；LaTeX 指令只使用一個反斜線。
 7. 全文使用繁體中文。人名、專有名詞、程式碼或翻譯後會失真的詞彙可保留原文。
 8. 回答前先在內部檢查逐字稿的每個有意義段落是否都已納入。筆記長度應依內容完整度決定，不得為了簡短而省略資訊。${screenshotAnchorInstruction}
 
-只輸出 Markdown 筆記本身，不要加入說明文字或程式碼區塊符號。
+只輸出 Markdown 筆記本身，不要加入說明文字，也不要用程式碼區塊包住整份筆記。
 
 逐字稿開始
 ${transcript}
@@ -212,7 +215,7 @@ ${transcript}
         for (const model of models) {
             try {
                 const response = await generate(model);
-                const noteMarkdown = response.text?.trim();
+                const noteMarkdown = repairCodeFences(response.text ?? '').trim();
                 if (!noteMarkdown) throw new Error(translate('gemini.noteGenerationFailed'));
                 return noteMarkdown;
             } catch (error) {

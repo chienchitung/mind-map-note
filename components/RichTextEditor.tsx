@@ -13,7 +13,7 @@ import { Markdown } from 'tiptap-markdown';
 import { JoinAdjacentLists } from '../extensions/joinAdjacentLists';
 import { ArrowInputRules } from '../extensions/arrowInputRules';
 import { Images } from '../types';
-import { BoldIcon, ItalicIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
+import { BoldIcon, ItalicIcon, InlineCodeIcon, CodeBlockIcon, QuoteIcon, BulletListIcon, OrderedListIcon, ImageIcon } from './icons';
 import { compressImageFile } from '../utils/imageCompression';
 import { renderMathToHtml } from '../utils/renderMathToHtml';
 import { useTranslation } from '../contexts/LanguageContext';
@@ -532,9 +532,15 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
         <ToolbarButton title={t('richEditor.italic')} active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}>
           <ItalicIcon className="w-4 h-4" />
         </ToolbarButton>
+        <ToolbarButton title={t('richEditor.inlineCode')} active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()}>
+          <InlineCodeIcon className="w-4 h-4" />
+        </ToolbarButton>
         <div className="w-px h-5 bg-border-color mx-1"></div>
         <ToolbarButton title={t('richEditor.blockquote')} active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
           <QuoteIcon className="w-4 h-4" />
+        </ToolbarButton>
+        <ToolbarButton title={t('richEditor.codeBlock')} active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>
+          <CodeBlockIcon className="w-4 h-4" />
         </ToolbarButton>
         <ToolbarButton title={t('richEditor.bulletList')} active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
           <BulletListIcon className="w-4 h-4" />

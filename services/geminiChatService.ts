@@ -98,7 +98,7 @@ export const createChatSession = async (
             : '以下是使用者的筆記，請將其作為這次對話的背景資訊：';
         const systemInstruction = `${roleInstruction}\n\n${noteContextLabel}\n\n---\n\n${noteContent}`;
         const chat: Chat = ai.chats.create({
-            model: 'gemini-3.8-flash',
+            model: 'gemini-3.6-flash',
             config: {
                 systemInstruction,
             },

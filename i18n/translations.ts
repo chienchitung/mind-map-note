@@ -327,9 +327,17 @@ const zh = {
 - **查看快捷鍵**
   - 按下 \`?\` 鍵可以打開快捷鍵說明，了解更多高效操作。
 
+## 啟用 AI 功能
+- **AI 學習夥伴**：針對筆記內容問答、總結、出練習題，需要 Gemini API 金鑰。
+- **語音筆記**：錄音或上傳音檔後自動整理成筆記，需要 Groq 與 Gemini API 金鑰。
+- 兩種金鑰都可以免費取得，到右上角「設定」填入即可；金鑰只會存在這台裝置的瀏覽器裡。
+
 > 現在，開始您的第一次思維導圖筆記之旅吧！
 `,
   'app.firstNoteName': '我的第一篇筆記',
+  'app.aiMissingKey': '請先在設定中填入 Gemini API 金鑰，才能使用 AI 學習夥伴（可免費取得）。',
+  'app.backupReminder': '已經超過 {{days}} 天沒有備份筆記了。筆記只存在這台裝置的瀏覽器裡，建議匯出一份備份。',
+  'app.backupReminderAction': '立即備份',
   'app.untitledNoteName': '無標題筆記',
   'app.newFolderName': '新資料夾',
   'app.storageFullError': '筆記文字的儲存空間已滿，最新的變更目前無法儲存。請先匯出備份，再刪除不需要的筆記或清空垃圾桶以釋出空間。',
@@ -690,9 +698,17 @@ const en: Record<TranslationKey, string> = {
 - **Check the shortcuts**
   - Press \`?\` to open the keyboard shortcuts guide and learn more.
 
+## Turn On AI Features
+- **AI study partner**: ask questions, get summaries or practice questions about your note. Needs a Gemini API key.
+- **Voice notes**: record or upload audio and get a structured note. Needs Groq and Gemini API keys.
+- Both keys are free to get. Add them in Settings (top right); they're stored only in this device's browser.
+
 > Now, start your first mind-map note!
 `,
   'app.firstNoteName': 'My First Note',
+  'app.aiMissingKey': 'Add a Gemini API key in Settings to use the AI study partner (it\'s free to get).',
+  'app.backupReminder': 'You haven\'t backed up your notes in over {{days}} days. They\'re stored only in this device\'s browser, so exporting a backup is a good idea.',
+  'app.backupReminderAction': 'Back up now',
   'app.untitledNoteName': 'Untitled Note',
   'app.newFolderName': 'New Folder',
   'app.storageFullError': 'Note storage is full — the latest changes could not be saved. Export a backup, then delete notes you no longer need or empty the trash to free up space.',

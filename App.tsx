@@ -75,6 +75,10 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 };
 
 
+const BACKUP_REMINDER_AFTER_DAYS = 14;
+const BACKUP_REMINDER_AFTER_MS = BACKUP_REMINDER_AFTER_DAYS * 24 * 60 * 60 * 1000;
+const BACKUP_REMINDER_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+
 const App: React.FC = () => {
   const { t, language } = useTranslation();
   const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError } = useFileSystem();
@@ -211,6 +215,12 @@ const App: React.FC = () => {
   const [activeLine, setActiveLine] = useState<number>(0);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Notes exist only in this browser, so nudge toward a backup once there's
+  // real content and none has been exported for a while.
+  const [lastBackupAt, setLastBackupAt] = useLocalStorage<number | null>('mind-map-last-backup-at', null);
+  const [firstUsedAt, setFirstUsedAt] = useLocalStorage<number | null>('mind-map-first-used-at', null);
+  const [backupReminderSnoozedUntil, setBackupReminderSnoozedUntil] = useLocalStorage<number>('mind-map-backup-reminder-snoozed-until', 0);
+  const [showBackupReminder, setShowBackupReminder] = useState(false);
   const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
   const [groqApiKey, setGroqApiKey] = useLocalStorage<string>('groq-api-key', '');
   const [transcriptionLanguage, setTranscriptionLanguage] = useLocalStorage<TranscriptionLanguage>(TRANSCRIPTION_LANGUAGE_STORAGE_KEY, 'auto');
@@ -535,7 +545,29 @@ const App: React.FC = () => {
     return () => window.removeEventListener('afterprint', cleanup);
   }, [folderPrintOverride]);
 
+  useEffect(() => {
+    if (firstUsedAt === null) {
+      setFirstUsedAt(Date.now());
+      return;
+    }
+    const now = Date.now();
+    const noteCount = Object.values(tree).filter(node => node.type === 'file' && !node.deletedAt).length;
+    if (noteCount < 2) return;
+    if (now - (lastBackupAt ?? firstUsedAt) < BACKUP_REMINDER_AFTER_MS) return;
+    if (now < backupReminderSnoozedUntil) return;
+    const timer = setTimeout(() => setShowBackupReminder(true), 3000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const snoozeBackupReminder = () => {
+    setShowBackupReminder(false);
+    setBackupReminderSnoozedUntil(Date.now() + BACKUP_REMINDER_SNOOZE_MS);
+  };
+
   const handleExportBackup = () => {
+    setLastBackupAt(Date.now());
+    setShowBackupReminder(false);
     // Include the active note's latest keystrokes even if the typing-pause
     // debounce hasn't flushed them into `notes` yet.
     const notesToExport: NotesContent = activeNoteId
@@ -812,6 +844,7 @@ const App: React.FC = () => {
 
     if (!apiKey) {
       setIsSettingsOpen(true);
+      setActionMessage({ text: t('app.aiMissingKey'), variant: 'warning' });
       return;
     }
 
@@ -1126,12 +1159,19 @@ const App: React.FC = () => {
           stackedAboveVoicePill={!isVoiceNoteModalOpen && voiceNotePipeline.state.stage !== 'idle'}
         />
       )}
-      {(actionMessage || storageError) && (
+      {(actionMessage || storageError || showBackupReminder) && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-md flex flex-col gap-2">
           {actionMessage && (
             <Toast message={actionMessage.text} variant={actionMessage.variant} onDismiss={() => setActionMessage(null)} />
           )}
           {storageError && <Toast message={storageError} onDismiss={dismissStorageError} />}
+          {showBackupReminder && (
+            <Toast
+              message={t('app.backupReminder', { days: BACKUP_REMINDER_AFTER_DAYS })}
+              action={{ label: t('app.backupReminderAction'), onClick: handleExportBackup }}
+              onDismiss={snoozeBackupReminder}
+            />
+          )}
         </div>
       )}
     </div>

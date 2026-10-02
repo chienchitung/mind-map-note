@@ -436,23 +436,31 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
   const handleZoomIn = useCallback(() => d3.select(svgRef.current).transition().duration(250).call(zoomRef.current!.scaleBy, 1.2), []);
   const handleZoomOut = useCallback(() => d3.select(svgRef.current).transition().duration(250).call(zoomRef.current!.scaleBy, 0.8), []);
   
-  const resetView = useCallback(() => {
-    if (!svgRef.current || !zoomRef.current || dimensions.height === 0) return;
-    let initialTransform;
-    switch (layout) {
-        case MindMapLayout.Organizational:
-            initialTransform = d3.zoomIdentity.translate(dimensions.width / 2, 80);
-            break;
-        case MindMapLayout.MindMap:
-            initialTransform = d3.zoomIdentity.translate(dimensions.width / 2, dimensions.height / 2);
-            break;
-        case MindMapLayout.Logic:
-        default:
-            initialTransform = d3.zoomIdentity.translate(80, dimensions.height / 2);
-            break;
+  // Fits the whole map into the viewport, between 50% (below that text is
+  // unreadable, so a huge map or a phone screen shows the centered core
+  // instead) and 100%.
+  const resetView = useCallback((animate = true) => {
+    if (!svgRef.current || !zoomRef.current || !gRef.current || dimensions.height === 0) return;
+    const FIT_PADDING = 40;
+    const bbox = gRef.current.getBBox();
+    let transform = d3.zoomIdentity.translate(dimensions.width / 2, dimensions.height / 2);
+    if (bbox.width > 0 && bbox.height > 0) {
+        const scale = Math.max(0.5, Math.min(
+            1,
+            (dimensions.width - FIT_PADDING * 2) / bbox.width,
+            (dimensions.height - FIT_PADDING * 2) / bbox.height,
+        ));
+        transform = d3.zoomIdentity
+            .translate(
+                dimensions.width / 2 - scale * (bbox.x + bbox.width / 2),
+                dimensions.height / 2 - scale * (bbox.y + bbox.height / 2),
+            )
+            .scale(scale);
     }
-    d3.select(svgRef.current).transition().duration(750).call(zoomRef.current.transform, initialTransform);
-  }, [dimensions.width, dimensions.height, layout]);
+    const svg = d3.select(svgRef.current);
+    if (animate) svg.transition().duration(750).call(zoomRef.current.transform, transform);
+    else svg.call(zoomRef.current.transform, transform);
+  }, [dimensions.width, dimensions.height]);
   
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -501,10 +509,21 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
     }
   }, []);
 
-  // Keyed off noteId (and dimensions/layout, via resetView's own deps) —
-  // not `data`, which is a fresh object on every single edit and would
-  // otherwise recenter/re-zoom the canvas out from under the user mid-edit.
-  useEffect(() => { if (dimensions.width > 0) resetView(); }, [resetView, noteId, dimensions.width]);
+  // Keyed off noteId/layout/width — not `data`, which is a fresh object on
+  // every single edit and would otherwise re-zoom the canvas mid-edit.
+  // Node sizes are measured in an effect and laid out a render later, so the
+  // fit has to wait until the new note's (or layout's) nodes are on screen.
+  const pendingFitRef = useRef(true);
+  useEffect(() => { pendingFitRef.current = true; }, [noteId, layout, dimensions.width]);
+  useEffect(() => {
+    if (!pendingFitRef.current || nodeSizes.size === 0 || dimensions.width === 0) return;
+    const frame = requestAnimationFrame(() => {
+        pendingFitRef.current = false;
+        resetView(false);
+    });
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeSizes, layout, dimensions.width]);
   useEffect(() => { if (editingNodeId && inputRef.current) {
         inputRef.current.focus();
         inputRef.current.select();
@@ -827,7 +846,7 @@ const MindMap = forwardRef<MindMapHandle, MindMapProps>(({ data, layout, onNodeU
           })}
         </g>
       </svg>
-      <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} onReset={resetView} />
+      <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} onReset={() => resetView()} />
     </div>
   );
 });

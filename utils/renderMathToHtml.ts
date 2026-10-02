@@ -13,11 +13,17 @@ import katex from 'katex';
 // back to a single backslash.
 const normalizeDoubledBackslashes = (expr: string): string => expr.replace(/\\\\(?=[a-zA-Z])/g, '\\');
 
+// `%` starts a comment in LaTeX, so a percentage written as in prose
+// (`\frac{100%}{n}`, common in AI-generated notes) comments out the rest of
+// the formula and it fails to render. A comment has no use inside a single
+// inline/display formula, so a bare `%` is read as a literal percent sign.
+const escapeBarePercents = (expr: string): string => expr.replace(/(?<!\\)%/g, '\\%');
+
 // Shared by MarkdownPreview.tsx (Preview mode / AI chat panel) and
 // RichTextEditor's math node (Aa mode) — both need the exact same
 // LaTeX-quirk handling so a note renders identically in either view.
 export const renderMathToHtml = (rawExpr: string, displayMode: boolean): string => {
-    const expr = normalizeDoubledBackslashes(rawExpr);
+    const expr = escapeBarePercents(normalizeDoubledBackslashes(rawExpr));
     try {
         // 'html' only, not the default 'htmlAndMathml' — the MathML branch is
         // meant to be visually hidden (screen-reader-only) via KaTeX's own

@@ -132,6 +132,7 @@ interface FileExplorerProps {
   // "expand all"/"collapse all" filter-menu can drive it too.
   collapsedFolderIds: Set<string>;
   onToggleFolder: (folderId: string) => void;
+  autoRenameNodeId?: string | null;
 }
 
 interface IFileExplorerContext {
@@ -374,6 +375,10 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const rootNode = tree['root'];
 
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
+  const { autoRenameNodeId } = props;
+  useEffect(() => {
+    if (autoRenameNodeId) setRenamingNodeId(autoRenameNodeId);
+  }, [autoRenameNodeId]);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: string } | null>(null);
   const [moveToModalNodeId, setMoveToModalNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);

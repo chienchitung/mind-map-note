@@ -744,6 +744,14 @@ const App: React.FC = () => {
 
   // On mobile the sidebar is a full-screen drawer, so picking a note should
   // also dismiss it — staying open would just cover the note you just opened.
+  // Unlike handleSelectNote, keeps the mobile sidebar open so the new
+  // item's inline rename field (started by Sidebar) stays visible.
+  const handleCreateNode = useCallback((type: 'file' | 'folder', parentId: string | null) => {
+    const id = createNode(type, parentId);
+    if (type === 'file') setActiveNoteId(id);
+    return id;
+  }, [createNode, setActiveNoteId]);
+
   const handleSelectNote = useCallback((noteId: string) => {
     setActiveNoteId(noteId);
     if (isMobile) setIsMobileSidebarOpen(false);
@@ -886,7 +894,7 @@ const App: React.FC = () => {
       tree={tree}
       activeNoteId={activeNoteId}
       onSelectNote={handleSelectNote}
-      onCreateNode={createNode}
+      onCreateNode={handleCreateNode}
       onRenameNode={renameNode}
       onDeleteNode={deleteNode}
       onRestoreNode={restoreNode}

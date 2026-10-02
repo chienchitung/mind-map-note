@@ -13,7 +13,7 @@ interface SidebarProps {
   tree: FileSystemTree;
   activeNoteId: string | null;
   onSelectNote: (noteId: string) => void;
-  onCreateNode: (type: 'file' | 'folder', parentId: string | null) => void;
+  onCreateNode: (type: 'file' | 'folder', parentId: string | null) => string;
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onRestoreNode: (nodeId: string) => void;
@@ -81,6 +81,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   // buttons) keeps this whole toolbar to one row — see its own comment
   // below for why it lives here instead of inside FileExplorer.
   const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
+  const [justCreatedNodeId, setJustCreatedNodeId] = useState<string | null>(null);
   const folderMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!isFolderMenuOpen) return;
@@ -109,10 +110,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
         {activeTab === 'files' && (
           <div className="flex items-center gap-0.5 flex-shrink-0">
-            <button onClick={() => onCreateNode('file', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newNote')} aria-label={t('sidebar.newNote')}>
+            <button onClick={() => setJustCreatedNodeId(onCreateNode('file', 'root'))} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newNote')} aria-label={t('sidebar.newNote')}>
               <PlusIcon className="w-4 h-4" />
             </button>
-            <button onClick={() => onCreateNode('folder', 'root')} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newFolder')} aria-label={t('sidebar.newFolder')}>
+            <button onClick={() => setJustCreatedNodeId(onCreateNode('folder', 'root'))} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newFolder')} aria-label={t('sidebar.newFolder')}>
               <FolderPlusIcon className="w-4 h-4" />
             </button>
             <div className="relative" ref={folderMenuRef}>
@@ -159,6 +160,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             onExportFolderPDF={onExportFolderPDF}
             collapsedFolderIds={collapsedFolderIdSet}
             onToggleFolder={handleToggleFolder}
+            autoRenameNodeId={justCreatedNodeId}
           />
         ) : activeTab === 'recordings' ? (
           <VoiceRecordingsPanel

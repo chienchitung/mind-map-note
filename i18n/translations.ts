@@ -97,6 +97,11 @@ const zh = {
   'settings.backupDescription': '所有筆記都只保存在「這台裝置的瀏覽器」裡。建議定期匯出備份，換裝置或清除瀏覽器資料前也別忘了先備份。',
   'settings.exportBackup': '匯出備份',
   'settings.importBackup': '匯入備份',
+  'settings.storageTitle': '儲存空間使用量',
+  'settings.storageNotes': '筆記文字',
+  'settings.storageMedia': '圖片與錄音',
+  'settings.storageMediaDetail': '{{used}}（可用約 {{quota}}）',
+  'settings.storageNearlyFull': '筆記文字快滿了，滿了之後新的編輯將無法儲存。建議先匯出備份，再刪除不需要的筆記或清空垃圾桶。',
 
   // --- help modal ---
   'help.title': '鍵盤快捷鍵',
@@ -327,7 +332,7 @@ const zh = {
   'app.firstNoteName': '我的第一篇筆記',
   'app.untitledNoteName': '無標題筆記',
   'app.newFolderName': '新資料夾',
-  'app.storageFullError': '儲存空間已滿，最新的變更目前無法儲存。請刪除較大的圖片或筆記以釋出空間。',
+  'app.storageFullError': '筆記文字的儲存空間已滿，最新的變更目前無法儲存。請先匯出備份，再刪除不需要的筆記或清空垃圾桶以釋出空間。',
   'app.storageSaveError': '筆記儲存失敗，變更可能會在重新整理後遺失。',
 
   // --- voice note pipeline errors (hooks/useVoiceNotePipeline.ts) ---
@@ -455,6 +460,11 @@ const en: Record<TranslationKey, string> = {
   'settings.backupDescription': "All notes are only stored in this device's browser. We recommend exporting a backup regularly, and especially before switching devices or clearing browser data.",
   'settings.exportBackup': 'Export backup',
   'settings.importBackup': 'Import backup',
+  'settings.storageTitle': 'Storage usage',
+  'settings.storageNotes': 'Note text',
+  'settings.storageMedia': 'Images & recordings',
+  'settings.storageMediaDetail': '{{used}} (about {{quota}} available)',
+  'settings.storageNearlyFull': 'Note text storage is almost full; once it is, new edits can no longer be saved. Export a backup, then delete notes you no longer need or empty the trash.',
 
   // --- help modal ---
   'help.title': 'Keyboard Shortcuts',
@@ -685,7 +695,7 @@ const en: Record<TranslationKey, string> = {
   'app.firstNoteName': 'My First Note',
   'app.untitledNoteName': 'Untitled Note',
   'app.newFolderName': 'New Folder',
-  'app.storageFullError': 'Storage is full — the latest changes could not be saved. Delete some larger images or notes to free up space.',
+  'app.storageFullError': 'Note storage is full — the latest changes could not be saved. Export a backup, then delete notes you no longer need or empty the trash to free up space.',
   'app.storageSaveError': 'Failed to save the note — changes may be lost after refreshing.',
 
   // --- voice note pipeline errors ---

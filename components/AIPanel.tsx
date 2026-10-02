@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { ChevronDoubleRightIcon, ChatbotIcon, RestartIcon } from './icons';
+import { ChevronDoubleRightIcon, ChatbotIcon, RestartIcon, CopyIcon, CheckIcon, InsertIcon } from './icons';
 import MarkdownPreview from './MarkdownPreview';
 import { Images } from '../types';
 import Spinner from './Spinner';
@@ -8,6 +8,8 @@ import { useTranslation } from '../contexts/LanguageContext';
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
+  // Greetings and error notices aren't content worth copying or inserting.
+  noActions?: boolean;
 }
 
 interface AIPanelProps {
@@ -17,52 +19,46 @@ interface AIPanelProps {
   onSendMessage: (message: string) => void;
   onStopGenerating: () => void;
   isLoading: boolean;
+  isStreaming: boolean;
+  onInsertReply: (text: string) => void;
   images: Images;
 }
 
-// A new component to render the AI's response with a typewriter effect.
-const TypewriterMessage: React.FC<{ text: string; images: Images, scrollRef: React.RefObject<HTMLDivElement> }> = ({ text, images, scrollRef }) => {
-  const [displayedText, setDisplayedText] = useState('');
-
+const ReplyActions: React.FC<{ text: string; onInsert: (text: string) => void }> = ({ text, onInsert }) => {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
-    setDisplayedText(''); // Reset when a new message comes in
-    if (text) {
-      let i = 0;
-      const intervalId = setInterval(() => {
-        if (i < text.length) {
-          // Captured *now*, as a plain string value, rather than reading
-          // text.charAt(i) from inside the updater below — React doesn't
-          // guarantee it invokes a functional setState updater synchronously
-          // at the call site; if it's deferred even slightly (batching,
-          // this component's own render cost, etc.), later ticks of this
-          // same interval keep mutating `i` in the meantime, so an updater
-          // reading `i` live from the closure can end up applying a
-          // since-advanced index — silently skipping or duplicating
-          // characters. Capturing the character by value sidesteps that
-          // entirely, since the updater no longer depends on `i`'s value at
-          // whatever later moment it actually runs.
-          const charToAppend = text.charAt(i);
-          setDisplayedText(prev => prev + charToAppend);
-          i++;
-        } else {
-          clearInterval(intervalId);
-        }
-      }, 15); // Typing speed in milliseconds
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
 
-      return () => clearInterval(intervalId);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch (error) {
+      console.error('Failed to copy AI reply:', error);
     }
-  }, [text]);
+  };
 
-  // Scroll to the bottom as new text is being typed to keep it in view
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [displayedText, scrollRef]);
-
-  return <MarkdownPreview markdown={displayedText} images={images} />;
+  const buttonClass = 'flex items-center gap-1 px-2 py-1 rounded-full text-xs text-text-secondary hover:bg-border-color/50 hover:text-text-main transition-colors duration-150 ease-apple';
+  return (
+    <div className="flex items-center gap-1 mt-1 ml-[2.375rem]">
+      <button type="button" onClick={handleCopy} className={buttonClass}>
+        {copied ? <CheckIcon className="w-3.5 h-3.5" /> : <CopyIcon className="w-3.5 h-3.5" />}
+        <span>{copied ? t('aiPanel.copied') : t('aiPanel.copyReply')}</span>
+      </button>
+      <button type="button" onClick={() => onInsert(text)} className={buttonClass} title={t('aiPanel.insertIntoNoteHint')}>
+        <InsertIcon className="w-3.5 h-3.5" />
+        <span>{t('aiPanel.insertIntoNote')}</span>
+      </button>
+    </div>
+  );
 };
 
 
-const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, messages, onSendMessage, onStopGenerating, isLoading, images }) => {
+const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, messages, onSendMessage, onStopGenerating, isLoading, isStreaming, onInsertReply, images }) => {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -137,25 +133,26 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
 
       <div className="flex-grow overflow-y-auto p-6 space-y-6">
         {messages.map((msg, index) => {
-          const isLastMessage = index === messages.length - 1;
+          const isStreamingThis = isStreaming && index === messages.length - 1;
           return (
-            <div key={index} className={`flex items-end gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {msg.role === 'model' && (
-                <div className="w-7 h-7 rounded-full bg-elevated shadow-apple-xs flex items-center justify-center flex-shrink-0">
-                    <ChatbotIcon className="w-4 h-4 text-accent" />
-                </div>
-              )}
-              <div className={`px-4 py-2.5 rounded-2xl max-w-[75%] ${msg.role === 'user' ? 'bg-accent text-white rounded-br-md' : 'bg-elevated text-text-main rounded-bl-md shadow-apple-xs'}`}>
-                {msg.role === 'model' && isLastMessage && !isLoading && messages.length > 1 ? (
-                  <TypewriterMessage text={msg.text} images={images} scrollRef={messagesEndRef} />
-                ) : (
-                  <MarkdownPreview markdown={msg.text} images={images} />
+            <div key={index}>
+              <div className={`flex items-end gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {msg.role === 'model' && (
+                  <div className="w-7 h-7 rounded-full bg-elevated shadow-apple-xs flex items-center justify-center flex-shrink-0">
+                      <ChatbotIcon className="w-4 h-4 text-accent" />
+                  </div>
                 )}
+                <div className={`px-4 py-2.5 rounded-2xl max-w-[75%] ${msg.role === 'user' ? 'bg-accent text-white rounded-br-md' : 'bg-elevated text-text-main rounded-bl-md shadow-apple-xs'}`}>
+                  <MarkdownPreview markdown={msg.text} images={images} />
+                </div>
               </div>
+              {msg.role === 'model' && !msg.noActions && !isStreamingThis && (
+                <ReplyActions text={msg.text} onInsert={onInsertReply} />
+              )}
             </div>
           )
         })}
-        {isLoading && (
+        {isLoading && !isStreaming && (
             <div className="flex items-end gap-2.5 justify-start">
                 <div className="w-7 h-7 rounded-full bg-elevated shadow-apple-xs flex items-center justify-center flex-shrink-0">
                     <ChatbotIcon className="w-4 h-4 text-accent" />

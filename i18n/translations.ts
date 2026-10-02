@@ -254,6 +254,11 @@ const zh = {
   'aiPanel.sendShortcut': '傳送 (Enter)',
   'aiPanel.send': '傳送訊息',
   'aiPanel.stopGenerating': '停止生成',
+  'aiPanel.copyReply': '複製',
+  'aiPanel.copied': '已複製',
+  'aiPanel.insertIntoNote': '插入筆記',
+  'aiPanel.insertIntoNoteHint': '把這則回覆加到目前筆記的最後面（可復原）',
+  'aiPanel.insertedIntoNote': '已插入到筆記最後面',
   'aiPanel.greeting': '你好！我已經閱讀完 **{{noteName}}** 的內容了。我可以協助你做什麼呢？試試看問我：\n\n- 幫我總結這份筆記\n- 根據筆記內容出幾道練習題\n- 用更簡單的方式解釋第二段',
   'aiPanel.errorPrefix': '抱歉，發生錯誤：{{error}}',
 
@@ -607,6 +612,11 @@ const en: Record<TranslationKey, string> = {
   'aiPanel.sendShortcut': 'Send (Enter)',
   'aiPanel.send': 'Send message',
   'aiPanel.stopGenerating': 'Stop generating',
+  'aiPanel.copyReply': 'Copy',
+  'aiPanel.copied': 'Copied',
+  'aiPanel.insertIntoNote': 'Insert into note',
+  'aiPanel.insertIntoNoteHint': 'Append this reply to the end of the current note (undoable)',
+  'aiPanel.insertedIntoNote': 'Inserted at the end of the note',
   'aiPanel.greeting': "Hi! I've read through **{{noteName}}**. What can I help you with? Try asking me to:\n\n- Summarize this note\n- Come up with a few practice questions from it\n- Explain the second section more simply",
   'aiPanel.errorPrefix': 'Sorry, something went wrong: {{error}}',
 

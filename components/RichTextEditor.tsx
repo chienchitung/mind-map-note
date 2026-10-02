@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { Extension, Node, type NodeViewProps } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -147,28 +147,114 @@ const ResolvingImage = TiptapImage.extend({
 // viewed in Preview or edited here in Aa mode. Unlike MarkdownPreview,
 // nothing downstream sanitizes this node's output afterward, so it's
 // sanitized right here before injection.
-const MathNodeView: React.FC<NodeViewProps> = ({ node }) => {
+//
+// Clicking a formula opens an in-place editor for its LaTeX source with a
+// live preview: Enter (or clicking away) applies, Esc cancels, and clearing
+// the source removes the formula.
+const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAttributes, deleteNode }) => {
+  const { t } = useTranslation();
   const latex: string = node.attrs.latex || '';
   const displayMode: boolean = !!node.attrs.displayMode;
+  const [draft, setDraft] = useState<string | null>(null);
+  const editingRef = useRef(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const html = useMemo(
     () => DOMPurify.sanitize(renderMathToHtml(latex, displayMode)),
     [latex, displayMode]
   );
+  const previewHtml = useMemo(
+    () => (draft?.trim() ? DOMPurify.sanitize(renderMathToHtml(draft, displayMode)) : ''),
+    [draft, displayMode]
+  );
+  const isEditing = draft !== null;
+
+  useEffect(() => {
+    if (!isEditing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [isEditing]);
+
+  const startEditing = () => {
+    if (!editor.isEditable) return;
+    editingRef.current = true;
+    setDraft(latex);
+  };
+
+  const finishEditing = (apply: boolean) => {
+    if (!editingRef.current) return;
+    editingRef.current = false;
+    const value = (draft ?? '').trim();
+    setDraft(null);
+    const pos = typeof getPos === 'function' ? getPos() : undefined;
+    const removed = apply && value === '';
+    if (apply && value !== latex) {
+      if (removed) deleteNode();
+      else updateAttributes({ latex: value });
+    }
+    // Hand the caret back to the text right after the formula.
+    if (pos !== undefined) {
+      editor.chain().focus().setTextSelection(removed ? pos : pos + node.nodeSize).run();
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <NodeViewWrapper as="span" className={`math-editor ${displayMode ? 'flex my-1' : 'inline-flex align-middle'}`}>
+        <textarea
+          ref={inputRef}
+          value={draft}
+          rows={Math.max(1, draft.split('\n').length)}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              finishEditing(true);
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              finishEditing(false);
+            }
+          }}
+          onBlur={() => finishEditing(true)}
+          placeholder={t('richEditor.formulaPlaceholder')}
+          aria-label={t('richEditor.editFormula')}
+          spellCheck={false}
+          className="math-editor-input"
+        />
+        <span className="math-editor-preview">
+          {previewHtml
+            ? <span dangerouslySetInnerHTML={{ __html: previewHtml }} />
+            : <span className="math-editor-hint">{t('richEditor.formulaEmptyHint')}</span>}
+          <span className="math-editor-hint">{t('richEditor.formulaKeysHint')}</span>
+        </span>
+      </NodeViewWrapper>
+    );
+  }
 
   return (
     <NodeViewWrapper
       as="span"
       className={displayMode ? 'block my-1' : 'inline'}
+      title={t('richEditor.editFormula')}
+      // Not onClick: selecting the node on mousedown re-renders its DOM, so
+      // the browser never delivers a click to it. The editor opens once the
+      // button is released, after ProseMirror has finished handling the
+      // click and moving focus — opening any earlier, that focus move would
+      // immediately blur (and close) the new input.
+      onMouseDown={(event: React.MouseEvent) => {
+        if (event.button !== 0) return;
+        const { clientX, clientY } = event;
+        window.addEventListener('mouseup', (up) => {
+          // A drag that merely starts on a formula is a text selection.
+          if (Math.hypot(up.clientX - clientX, up.clientY - clientY) < 5) setTimeout(startEditing, 0);
+        }, { once: true });
+      }}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 };
 
-// An atomic (not directly text-editable) inline node — same trade-off as
-// images above: editing means deleting and retyping it, not clicking in to
-// tweak the source, but that keeps this consistent with how images already
-// work here rather than building a second, different in-place-edit
-// interaction just for math.
+// An atomic (not directly text-editable) inline node: its source is edited
+// through MathNodeView's own in-place editor rather than as document text.
 const MathNode = Node.create({
   name: 'math',
   group: 'inline',

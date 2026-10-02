@@ -82,7 +82,7 @@ const BACKUP_REMINDER_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const App: React.FC = () => {
   const { t, language } = useTranslation();
-  const { tree, notes, images, createNode, updateNote, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError } = useFileSystem();
+  const { tree, notes, images, externalChange, createNode, updateNote, saveNoteImmediately, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError } = useFileSystem();
   
   const findFirstFile = () => {
       const root = tree['root'];
@@ -134,6 +134,26 @@ const App: React.FC = () => {
   const markdownRef = useRef(markdown);
   useEffect(() => { markdownRef.current = markdown; }, [markdown]);
 
+  // Typing only reaches storage after the debounce below, so refreshing or
+  // closing the tab right after an edit used to lose it. Save the open
+  // note's latest text the moment the page is hidden or unloading.
+  const activeNoteIdRef = useRef(activeNoteId);
+  useEffect(() => { activeNoteIdRef.current = activeNoteId; }, [activeNoteId]);
+  useEffect(() => {
+    const saveNow = () => {
+      if (activeNoteIdRef.current) saveNoteImmediately(activeNoteIdRef.current, markdownRef.current);
+    };
+    const handleVisibilityChange = () => { if (document.visibilityState === 'hidden') saveNow(); };
+    window.addEventListener('pagehide', saveNow);
+    window.addEventListener('beforeunload', saveNow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', saveNow);
+      window.removeEventListener('beforeunload', saveNow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [saveNoteImmediately]);
+
   const {
     state: committedMarkdown,
     set: commitMarkdown,
@@ -145,6 +165,20 @@ const App: React.FC = () => {
   } = useHistory<string>(activeNoteContent);
 
   const debouncedMarkdown = useDebounce(markdown, 500);
+
+  // Another tab changed the note open here: show its version, unless this
+  // tab has its own unsaved edits to it (then the latest writer wins).
+  useEffect(() => {
+    const noteId = activeNoteIdRef.current;
+    if (!noteId || externalChange.version === 0) return;
+    const previousText = externalChange.previousNotes[noteId];
+    const nextText = notes[noteId];
+    if (nextText === undefined || nextText === previousText) return;
+    if (markdownRef.current !== previousText) return;
+    setMarkdown(nextText);
+    resetHistory(nextText);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalChange]);
 
   useEffect(() => {
     const noteId = activeNoteId;

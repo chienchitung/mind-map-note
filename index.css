@@ -336,6 +336,50 @@ body {
   background-color: color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 
+/* Math formulas in the Aa editor: clickable to edit (see MathNodeView). */
+.rich-editor-content .node-math {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.rich-editor-content .node-math:hover {
+  background-color: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.rich-editor-content .node-math.ProseMirror-selectednode {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.rich-editor-content .math-editor {
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  background-color: var(--color-secondary);
+}
+.rich-editor-content .math-editor-input {
+  min-width: 16rem;
+  max-width: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text-main);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.rich-editor-content .math-editor-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-x: auto;
+}
+.rich-editor-content .math-editor-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
 .editor-backdrop mark.active-match {
   background-color: rgba(255, 149, 0, 0.55);
 }

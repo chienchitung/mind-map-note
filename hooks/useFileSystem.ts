@@ -240,12 +240,72 @@ export const useFileSystem = () => {
         return () => window.removeEventListener('beforeunload', flushToStorage);
     }, [flushToStorage]);
 
+    // Another tab saved: adopt its tree/notes so this tab's next save doesn't
+    // write its own stale copy over them. (Writing back an identical value
+    // fires no further storage event, so tabs don't ping-pong.) Images it
+    // added are merged in from IndexedDB too.
+    const [externalChange, setExternalChange] = useState<{ version: number; previousNotes: NotesContent }>({ version: 0, previousNotes: {} });
+    useEffect(() => {
+        const handleStorage = (event: StorageEvent) => {
+            if (event.storageArea !== localStorage) return;
+            if (event.key !== TREE_STORAGE_KEY && event.key !== NOTES_STORAGE_KEY) return;
+            try {
+                const savedTree = localStorage.getItem(TREE_STORAGE_KEY);
+                const savedNotes = localStorage.getItem(NOTES_STORAGE_KEY);
+                if (!savedTree || !savedNotes) return;
+                const tree = JSON.parse(savedTree) as FileSystemTree;
+                const notes = JSON.parse(savedNotes) as NotesContent;
+                const previousNotes = latestStateRef.current.notes;
+                latestStateRef.current = { ...latestStateRef.current, tree, notes };
+                setState(prev => ({ ...prev, tree, notes }));
+                setExternalChange(prev => ({ version: prev.version + 1, previousNotes }));
+            } catch (error) {
+                console.error('Failed to read notes saved by another tab', error);
+            }
+            if (!imagesInLocalStorageRef.current && persistedImagesRef.current) {
+                loadAllImages().then(stored => {
+                    const newIds = Object.keys(stored).filter(id => !(id in latestStateRef.current.images));
+                    if (newIds.length === 0) return;
+                    const added: Images = {};
+                    newIds.forEach(id => { added[id] = stored[id]; });
+                    latestStateRef.current = { ...latestStateRef.current, images: { ...latestStateRef.current.images, ...added } };
+                    if (persistedImagesRef.current) persistedImagesRef.current = { ...persistedImagesRef.current, ...added };
+                    setState(prev => ({ ...prev, images: { ...prev.images, ...added } }));
+                }).catch(error => console.error('Failed to load images saved by another tab', error));
+            }
+        };
+        window.addEventListener('storage', handleStorage);
+        return () => window.removeEventListener('storage', handleStorage);
+    }, []);
+
+    // Synchronously writes one note's latest text — for a page that's about
+    // to unload, where a state update would never get to render and persist.
+    const saveNoteImmediately = useCallback((noteId: string, content: string) => {
+        const current = latestStateRef.current;
+        if (!current.tree[noteId] || current.notes[noteId] === content) return;
+        latestStateRef.current = { ...current, notes: { ...current.notes, [noteId]: content } };
+        flushToStorage();
+        setState(prev => (prev.tree[noteId] ? { ...prev, notes: { ...prev.notes, [noteId]: content } } : prev));
+    }, [flushToStorage]);
+
     const addImage = useCallback((dataUrl: string): string => {
         const id = generateId();
         setState(prevState => ({
             ...prevState,
             images: { ...prevState.images, [id]: dataUrl },
         }));
+        // Saved right away rather than on the debounced flush: an IndexedDB
+        // write started while the page unloads isn't guaranteed to finish.
+        if (!imagesInLocalStorageRef.current && persistedImagesRef.current) {
+            persistedImagesRef.current = { ...persistedImagesRef.current, [id]: dataUrl };
+            saveImageChanges({ [id]: dataUrl }, []).catch(error => {
+                console.error('Failed to save image to IndexedDB', error);
+                if (persistedImagesRef.current) {
+                    const { [id]: _unsaved, ...rest } = persistedImagesRef.current;
+                    persistedImagesRef.current = rest;
+                }
+            });
+        }
         return id;
     }, []);
 
@@ -439,5 +499,5 @@ export const useFileSystem = () => {
         setState(data);
     }, []);
 
-    return { tree, notes, images, createNode, updateNote, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError: () => setStorageError(null) };
+    return { tree, notes, images, externalChange, createNode, updateNote, saveNoteImmediately, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError: () => setStorageError(null) };
 };

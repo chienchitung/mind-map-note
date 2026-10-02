@@ -2,6 +2,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { FileSystemTree, NotesContent, FileSystemNode, Images } from '../types';
 import { deleteVoiceRecording } from '../services/voiceRecordingStorage';
+import { isImageStorageAvailable, loadAllImages, saveImageChanges } from '../services/imageStorage';
 // A plain (non-hook) translator is used throughout this file rather than
 // useTranslation() — getInitialFileSystem in particular runs inside a lazy
 // useState initializer, outside the normal component render where hooks are
@@ -149,12 +150,71 @@ export const useFileSystem = () => {
         latestStateRef.current = { tree, notes, images };
     });
 
+    // Images go to IndexedDB (see services/imageStorage.ts), falling back to
+    // localStorage only when IndexedDB is unavailable or fails to open.
+    // `persistedImagesRef` is what IndexedDB is known to hold; it stays null
+    // until the initial load finishes, and image saves wait until then so a
+    // save can never treat not-yet-loaded images as deleted.
+    const imagesInLocalStorageRef = useRef(!isImageStorageAvailable());
+    const persistedImagesRef = useRef<Images | null>(null);
+
+    const persistImageChanges = useCallback((images: Images) => {
+        const previous = persistedImagesRef.current;
+        if (!previous || previous === images) return;
+        const put: Images = {};
+        Object.keys(images).forEach(id => { if (previous[id] !== images[id]) put[id] = images[id]; });
+        const remove = Object.keys(previous).filter(id => !(id in images));
+        persistedImagesRef.current = images;
+        saveImageChanges(put, remove).catch(error => {
+            console.error('Failed to save images to IndexedDB', error);
+            persistedImagesRef.current = previous;
+            setStorageError(translate('app.storageSaveError'));
+        });
+    }, []);
+
+    useEffect(() => {
+        if (imagesInLocalStorageRef.current) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const stored = await loadAllImages();
+                // One-time move of images saved by earlier versions; the old
+                // key is only removed once the copy has been committed.
+                const legacyRaw = localStorage.getItem(IMAGES_STORAGE_KEY);
+                const legacy: Images = legacyRaw ? JSON.parse(legacyRaw) : {};
+                const missing: Images = {};
+                Object.keys(legacy).forEach(id => { if (!(id in stored)) missing[id] = legacy[id]; });
+                await saveImageChanges(missing, []);
+                localStorage.removeItem(IMAGES_STORAGE_KEY);
+                if (cancelled) return;
+                const persisted = { ...stored, ...missing };
+                // Updated together, synchronously: a save that runs before
+                // React renders the merge must see the loaded images too, or
+                // its diff would read every one of them as deleted.
+                latestStateRef.current = {
+                    ...latestStateRef.current,
+                    images: { ...persisted, ...latestStateRef.current.images },
+                };
+                persistedImagesRef.current = persisted;
+                setState(prev => ({ ...prev, images: { ...persisted, ...prev.images } }));
+            } catch (error) {
+                console.error('Failed to load images from IndexedDB; keeping them in localStorage', error);
+                imagesInLocalStorageRef.current = true;
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
     const flushToStorage = useCallback(() => {
         try {
             const { tree, notes, images } = latestStateRef.current;
             localStorage.setItem(TREE_STORAGE_KEY, JSON.stringify(tree));
             localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
-            localStorage.setItem(IMAGES_STORAGE_KEY, JSON.stringify(images));
+            if (imagesInLocalStorageRef.current) {
+                localStorage.setItem(IMAGES_STORAGE_KEY, JSON.stringify(images));
+            } else {
+                persistImageChanges(images);
+            }
             setStorageError(null);
         } catch (error) {
             console.error("Failed to save notes to local storage — it may be full. Try removing large images.", error);
@@ -166,7 +226,7 @@ export const useFileSystem = () => {
                     : translate('app.storageSaveError')
             );
         }
-    }, []);
+    }, [persistImageChanges]);
 
     // Debounce persistence so a burst of edits results in one write, not one per keystroke.
     useEffect(() => {

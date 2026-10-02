@@ -97,6 +97,11 @@ const zh = {
   'settings.backupDescription': '所有筆記都只保存在「這台裝置的瀏覽器」裡。建議定期匯出備份，換裝置或清除瀏覽器資料前也別忘了先備份。',
   'settings.exportBackup': '匯出備份',
   'settings.importBackup': '匯入備份',
+  'settings.storageTitle': '儲存空間使用量',
+  'settings.storageNotes': '筆記文字',
+  'settings.storageMedia': '圖片與錄音',
+  'settings.storageMediaDetail': '{{used}}（可用約 {{quota}}）',
+  'settings.storageNearlyFull': '筆記文字快滿了，滿了之後新的編輯將無法儲存。建議先匯出備份，再刪除不需要的筆記或清空垃圾桶。',
 
   // --- help modal ---
   'help.title': '鍵盤快捷鍵',
@@ -254,6 +259,11 @@ const zh = {
   'aiPanel.sendShortcut': '傳送 (Enter)',
   'aiPanel.send': '傳送訊息',
   'aiPanel.stopGenerating': '停止生成',
+  'aiPanel.copyReply': '複製',
+  'aiPanel.copied': '已複製',
+  'aiPanel.insertIntoNote': '插入筆記',
+  'aiPanel.insertIntoNoteHint': '把這則回覆加到目前筆記的最後面（可復原）',
+  'aiPanel.insertedIntoNote': '已插入到筆記最後面',
   'aiPanel.greeting': '你好！我已經閱讀完 **{{noteName}}** 的內容了。我可以協助你做什麼呢？試試看問我：\n\n- 幫我總結這份筆記\n- 根據筆記內容出幾道練習題\n- 用更簡單的方式解釋第二段',
   'aiPanel.errorPrefix': '抱歉，發生錯誤：{{error}}',
 
@@ -317,12 +327,20 @@ const zh = {
 - **查看快捷鍵**
   - 按下 \`?\` 鍵可以打開快捷鍵說明，了解更多高效操作。
 
+## 啟用 AI 功能
+- **AI 學習夥伴**：針對筆記內容問答、總結、出練習題，需要 Gemini API 金鑰。
+- **語音筆記**：錄音或上傳音檔後自動整理成筆記，需要 Groq 與 Gemini API 金鑰。
+- 兩種金鑰都可以免費取得，到右上角「設定」填入即可；金鑰只會存在這台裝置的瀏覽器裡。
+
 > 現在，開始您的第一次思維導圖筆記之旅吧！
 `,
   'app.firstNoteName': '我的第一篇筆記',
+  'app.aiMissingKey': '請先在設定中填入 Gemini API 金鑰，才能使用 AI 學習夥伴（可免費取得）。',
+  'app.backupReminder': '已經超過 {{days}} 天沒有備份筆記了。筆記只存在這台裝置的瀏覽器裡，建議匯出一份備份。',
+  'app.backupReminderAction': '立即備份',
   'app.untitledNoteName': '無標題筆記',
   'app.newFolderName': '新資料夾',
-  'app.storageFullError': '儲存空間已滿，最新的變更目前無法儲存。請刪除較大的圖片或筆記以釋出空間。',
+  'app.storageFullError': '筆記文字的儲存空間已滿，最新的變更目前無法儲存。請先匯出備份，再刪除不需要的筆記或清空垃圾桶以釋出空間。',
   'app.storageSaveError': '筆記儲存失敗，變更可能會在重新整理後遺失。',
 
   // --- voice note pipeline errors (hooks/useVoiceNotePipeline.ts) ---
@@ -450,6 +468,11 @@ const en: Record<TranslationKey, string> = {
   'settings.backupDescription': "All notes are only stored in this device's browser. We recommend exporting a backup regularly, and especially before switching devices or clearing browser data.",
   'settings.exportBackup': 'Export backup',
   'settings.importBackup': 'Import backup',
+  'settings.storageTitle': 'Storage usage',
+  'settings.storageNotes': 'Note text',
+  'settings.storageMedia': 'Images & recordings',
+  'settings.storageMediaDetail': '{{used}} (about {{quota}} available)',
+  'settings.storageNearlyFull': 'Note text storage is almost full; once it is, new edits can no longer be saved. Export a backup, then delete notes you no longer need or empty the trash.',
 
   // --- help modal ---
   'help.title': 'Keyboard Shortcuts',
@@ -607,6 +630,11 @@ const en: Record<TranslationKey, string> = {
   'aiPanel.sendShortcut': 'Send (Enter)',
   'aiPanel.send': 'Send message',
   'aiPanel.stopGenerating': 'Stop generating',
+  'aiPanel.copyReply': 'Copy',
+  'aiPanel.copied': 'Copied',
+  'aiPanel.insertIntoNote': 'Insert into note',
+  'aiPanel.insertIntoNoteHint': 'Append this reply to the end of the current note (undoable)',
+  'aiPanel.insertedIntoNote': 'Inserted at the end of the note',
   'aiPanel.greeting': "Hi! I've read through **{{noteName}}**. What can I help you with? Try asking me to:\n\n- Summarize this note\n- Come up with a few practice questions from it\n- Explain the second section more simply",
   'aiPanel.errorPrefix': 'Sorry, something went wrong: {{error}}',
 
@@ -670,12 +698,20 @@ const en: Record<TranslationKey, string> = {
 - **Check the shortcuts**
   - Press \`?\` to open the keyboard shortcuts guide and learn more.
 
+## Turn On AI Features
+- **AI study partner**: ask questions, get summaries or practice questions about your note. Needs a Gemini API key.
+- **Voice notes**: record or upload audio and get a structured note. Needs Groq and Gemini API keys.
+- Both keys are free to get. Add them in Settings (top right); they're stored only in this device's browser.
+
 > Now, start your first mind-map note!
 `,
   'app.firstNoteName': 'My First Note',
+  'app.aiMissingKey': 'Add a Gemini API key in Settings to use the AI study partner (it\'s free to get).',
+  'app.backupReminder': 'You haven\'t backed up your notes in over {{days}} days. They\'re stored only in this device\'s browser, so exporting a backup is a good idea.',
+  'app.backupReminderAction': 'Back up now',
   'app.untitledNoteName': 'Untitled Note',
   'app.newFolderName': 'New Folder',
-  'app.storageFullError': 'Storage is full — the latest changes could not be saved. Delete some larger images or notes to free up space.',
+  'app.storageFullError': 'Note storage is full — the latest changes could not be saved. Export a backup, then delete notes you no longer need or empty the trash to free up space.',
   'app.storageSaveError': 'Failed to save the note — changes may be lost after refreshing.',
 
   // --- voice note pipeline errors ---

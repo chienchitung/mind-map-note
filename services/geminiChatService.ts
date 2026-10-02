@@ -79,10 +79,19 @@ export const extractGeminiErrorMessage = (error: unknown): string => {
  *   this systemInstruction back on every call, not just rely on it being
  *   set once at creation time.
  */
+const CHAT_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'] as const;
+
+export interface ChatSession {
+    ai: GoogleGenAI;
+    chat: Chat;
+    systemInstruction: string;
+    modelIndex: number;
+}
+
 export const createChatSession = async (
     noteContent: string,
     apiKey: string,
-): Promise<{ chat: Chat; systemInstruction: string }> => {
+): Promise<ChatSession> => {
     if (!apiKey) {
         throw new MissingApiKeyError();
     }
@@ -98,18 +107,60 @@ export const createChatSession = async (
             : '以下是使用者的筆記，請將其作為這次對話的背景資訊：';
         const systemInstruction = `${roleInstruction}\n\n${noteContextLabel}\n\n---\n\n${noteContent}`;
         const chat: Chat = ai.chats.create({
-            model: 'gemini-3.8-flash',
+            model: CHAT_MODELS[0],
             config: {
                 systemInstruction,
             },
         });
 
-        return { chat, systemInstruction };
+        return { ai, chat, systemInstruction, modelIndex: 0 };
     } catch (error) {
         console.error("Error creating Gemini chat session:", error);
         throw new Error("Failed to create a chat session with the AI model.");
     }
 };
+
+/**
+ * Streams the model's reply to `message` as it is generated, yielding the
+ * accumulated text so far. If the current model is overloaded (503) before
+ * any text arrives, the conversation moves to the next backup model — the
+ * SDK only records a turn in history once its stream completes, so the
+ * failed attempt leaves nothing behind to carry over. The session is
+ * updated in place so later messages stay on the model that worked.
+ */
+export async function* streamChatReply(
+    session: ChatSession,
+    message: string,
+    abortSignal: AbortSignal,
+): AsyncGenerator<string> {
+    for (;;) {
+        let text = '';
+        try {
+            const stream = await session.chat.sendMessageStream({
+                message,
+                // Per-message config replaces the chat's own, so the note
+                // context has to be repeated alongside the abortSignal.
+                config: { abortSignal, systemInstruction: session.systemInstruction },
+            });
+            for await (const chunk of stream) {
+                text += chunk.text ?? '';
+                yield text;
+            }
+            return;
+        } catch (error) {
+            const nextModel = CHAT_MODELS[session.modelIndex + 1];
+            const overloaded = error instanceof ApiError && error.status === 503;
+            if (!overloaded || text || !nextModel || abortSignal.aborted) throw error;
+            console.warn(`Chat model ${CHAT_MODELS[session.modelIndex]} is overloaded; switching to ${nextModel}.`);
+            session.chat = session.ai.chats.create({
+                model: nextModel,
+                config: { systemInstruction: session.systemInstruction },
+                history: session.chat.getHistory(true),
+            });
+            session.modelIndex += 1;
+        }
+    }
+}
 
 // A raw speech transcript reads as an unstructured stream of words — filler
 // words, false starts, no clear headings — so it isn't dropped straight into

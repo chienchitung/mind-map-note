@@ -1,3 +1,6 @@
+const themeColor = (variable) =>
+  `color-mix(in srgb, var(${variable}) calc(<alpha-value> * 100%), transparent)`;
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -11,14 +14,16 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // color-mix keeps opacity modifiers (e.g. `bg-accent/10`) working with
+      // the CSS-variable theme colors; a plain var() silently drops them.
       colors: {
-        primary: 'var(--color-primary)',
-        secondary: 'var(--color-secondary)',
-        elevated: 'var(--color-elevated)',
-        accent: 'var(--color-accent)',
-        'text-main': 'var(--color-text-main)',
-        'text-secondary': 'var(--color-text-secondary)',
-        'border-color': 'var(--color-border-color)',
+        primary: themeColor('--color-primary'),
+        secondary: themeColor('--color-secondary'),
+        elevated: themeColor('--color-elevated'),
+        accent: themeColor('--color-accent'),
+        'text-main': themeColor('--color-text-main'),
+        'text-secondary': themeColor('--color-text-secondary'),
+        'border-color': themeColor('--color-border-color'),
       },
       fontFamily: {
         sans: [

@@ -292,9 +292,69 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               onChange={handleImportFileChange}
             />
           </div>
+
+          <StorageUsage />
         </section>
         </div>
       </div>
+    </div>
+  );
+};
+
+// Browsers cap localStorage (which holds the notes' text) at roughly 5M
+// characters per origin; images and recordings live in IndexedDB, whose
+// quota follows free disk space.
+const LOCAL_STORAGE_LIMIT_CHARS = 5 * 1024 * 1024;
+
+const formatBytes = (bytes: number): string => {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+};
+
+const StorageUsage: React.FC = () => {
+  const { t } = useTranslation();
+  const [textChars, setTextChars] = useState(0);
+  const [media, setMedia] = useState<{ usage: number; quota: number } | null>(null);
+
+  useEffect(() => {
+    let chars = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) chars += key.length + (localStorage.getItem(key)?.length ?? 0);
+    }
+    setTextChars(chars);
+    navigator.storage?.estimate?.()
+      .then(({ usage, quota }) => {
+        if (usage !== undefined && quota !== undefined) setMedia({ usage, quota });
+      })
+      .catch(() => {});
+  }, []);
+
+  const ratio = Math.min(1, textChars / LOCAL_STORAGE_LIMIT_CHARS);
+  const nearlyFull = ratio >= 0.8;
+  return (
+    <div className="mt-5 space-y-2 text-sm">
+      <p className="font-medium text-text-main">{t('settings.storageTitle')}</p>
+      <div>
+        <div className="flex justify-between text-text-secondary">
+          <span>{t('settings.storageNotes')}</span>
+          <span>{formatBytes(textChars)} / {formatBytes(LOCAL_STORAGE_LIMIT_CHARS)}</span>
+        </div>
+        <div className="mt-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+          <div
+            className={`h-full rounded-full ${nearlyFull ? 'bg-red-500' : 'bg-accent'}`}
+            style={{ width: `${Math.max(ratio * 100, 1)}%` }}
+          />
+        </div>
+        {nearlyFull && <p className="mt-1 text-xs text-red-500">{t('settings.storageNearlyFull')}</p>}
+      </div>
+      {media && (
+        <div className="flex justify-between text-text-secondary">
+          <span>{t('settings.storageMedia')}</span>
+          <span>{t('settings.storageMediaDetail', { used: formatBytes(media.usage), quota: formatBytes(media.quota) })}</span>
+        </div>
+      )}
     </div>
   );
 };

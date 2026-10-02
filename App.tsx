@@ -22,16 +22,6 @@ import UpdateAvailablePill from './components/UpdateAvailablePill';
 // Keep this small modal in the entry bundle: an old tab should never need
 // to fetch a deleted hashed chunk just to open the recorder.
 import VoiceNoteModal from './components/VoiceNoteModal';
-import type { Chat } from '@google/genai';
-// Bundles a Chat instance with the exact systemInstruction it was created
-// with — needed because the SDK's per-message config (used to attach an
-// abortSignal for the stop button) replaces the chat's own config rather
-// than merging with it, so a cancelable send has to pass this back
-// explicitly on every call or silently lose the note context.
-interface ChatSessionHandle {
-  chat: Chat;
-  systemInstruction: string;
-}
 import { parseMarkdownToMindMap, findBlockOrdinal, findMindMapNode, stripInlineMarkdown } from './utils/markdownParser';
 import { escapeRegExp } from './utils/escapeRegExp';
 import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
@@ -43,7 +33,7 @@ import { resolveMarkdownImages } from './utils/resolveMarkdownImages';
 // Statically imported for the same reason as in useVoiceNotePipeline.ts —
 // keeps this out of its own lazy chunk, which a deployment mid-session
 // (e.g. while a chat reply is in flight) could otherwise 404 on.
-import { createChatSession, MissingApiKeyError, extractGeminiErrorMessage } from './services/geminiChatService';
+import { createChatSession, streamChatReply, MissingApiKeyError, extractGeminiErrorMessage, type ChatSession } from './services/geminiChatService';
 
 // The AI chat panel (and the @google/genai SDK it pulls in) is only ever
 // needed once a user with an API key opens it, so it's loaded on demand
@@ -84,6 +74,10 @@ const useDebounce = <T,>(value: T, delay: number): T => {
     return debouncedValue;
 };
 
+
+const BACKUP_REMINDER_AFTER_DAYS = 14;
+const BACKUP_REMINDER_AFTER_MS = BACKUP_REMINDER_AFTER_DAYS * 24 * 60 * 60 * 1000;
+const BACKUP_REMINDER_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const App: React.FC = () => {
   const { t, language } = useTranslation();
@@ -221,6 +215,12 @@ const App: React.FC = () => {
   const [activeLine, setActiveLine] = useState<number>(0);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Notes exist only in this browser, so nudge toward a backup once there's
+  // real content and none has been exported for a while.
+  const [lastBackupAt, setLastBackupAt] = useLocalStorage<number | null>('mind-map-last-backup-at', null);
+  const [firstUsedAt, setFirstUsedAt] = useLocalStorage<number | null>('mind-map-first-used-at', null);
+  const [backupReminderSnoozedUntil, setBackupReminderSnoozedUntil] = useLocalStorage<number>('mind-map-backup-reminder-snoozed-until', 0);
+  const [showBackupReminder, setShowBackupReminder] = useState(false);
   const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
   const [groqApiKey, setGroqApiKey] = useLocalStorage<string>('groq-api-key', '');
   const [transcriptionLanguage, setTranscriptionLanguage] = useLocalStorage<TranscriptionLanguage>(TRANSCRIPTION_LANGUAGE_STORAGE_KEY, 'auto');
@@ -261,9 +261,10 @@ const App: React.FC = () => {
 
   // State for the new AI Panel
   const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
-  const [chatSession, setChatSession] = useState<ChatSessionHandle | null>(null);
+  const [chatSession, setChatSession] = useState<ChatSession | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isAILoading, setIsAILoading] = useState(false);
+  const [isAIStreaming, setIsAIStreaming] = useState(false);
   // On desktop the panel stays mounted (width just collapses to 0) so its
   // open/close slide animates — but mounting it unconditionally from the
   // start would trigger the lazy AIPanel chunk immediately for everyone.
@@ -287,11 +288,14 @@ const App: React.FC = () => {
   // one, it just stashes it here and swaps in whichever conversation (if
   // any) belongs to the note being switched to, so leaving and coming back
   // continues right where it left off instead of restarting every time.
-  const chatSessionsByNoteRef = useRef<Record<string, { session: ChatSessionHandle; messages: ChatMessage[] }>>({});
+  const chatSessionsByNoteRef = useRef<Record<string, { session: ChatSession; messages: ChatMessage[] }>>({});
   useEffect(() => {
     const previousNoteId = previousNoteIdForChatRef.current;
     if (previousNoteId === activeNoteId) return;
     previousNoteIdForChatRef.current = activeNoteId;
+    chatAbortControllerRef.current?.abort();
+    setIsAILoading(false);
+    setIsAIStreaming(false);
 
     // Invalidate any in-flight session-creation callback from the outgoing
     // note so it can't land after we've already moved on to another one.
@@ -330,7 +334,9 @@ const App: React.FC = () => {
     if (!debouncedSearchQuery.trim()) return [];
 
     const results: SearchResultItem[] = [];
-    const SNIPPET_RADIUS = 50; // Characters before and after the match
+    // Short lead-in so the match stays visible in the two-line result row.
+    const SNIPPET_BEFORE = 20;
+    const SNIPPET_AFTER = 80;
 
     try {
       const query = debouncedSearchQuery.trim();
@@ -346,10 +352,10 @@ const App: React.FC = () => {
         if (match) {
           if (tree[noteId] && !tree[noteId].deletedAt) {
             const matchIndex = match.index;
-            const start = Math.max(0, matchIndex - SNIPPET_RADIUS);
+            const start = Math.max(0, matchIndex - SNIPPET_BEFORE);
             const end = Math.min(
               content.length,
-              matchIndex + match[0].length + SNIPPET_RADIUS
+              matchIndex + match[0].length + SNIPPET_AFTER
             );
 
             let snippet = content.substring(start, end).replace(/\n/g, ' ');
@@ -539,7 +545,29 @@ const App: React.FC = () => {
     return () => window.removeEventListener('afterprint', cleanup);
   }, [folderPrintOverride]);
 
+  useEffect(() => {
+    if (firstUsedAt === null) {
+      setFirstUsedAt(Date.now());
+      return;
+    }
+    const now = Date.now();
+    const noteCount = Object.values(tree).filter(node => node.type === 'file' && !node.deletedAt).length;
+    if (noteCount < 2) return;
+    if (now - (lastBackupAt ?? firstUsedAt) < BACKUP_REMINDER_AFTER_MS) return;
+    if (now < backupReminderSnoozedUntil) return;
+    const timer = setTimeout(() => setShowBackupReminder(true), 3000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const snoozeBackupReminder = () => {
+    setShowBackupReminder(false);
+    setBackupReminderSnoozedUntil(Date.now() + BACKUP_REMINDER_SNOOZE_MS);
+  };
+
   const handleExportBackup = () => {
+    setLastBackupAt(Date.now());
+    setShowBackupReminder(false);
     // Include the active note's latest keystrokes even if the typing-pause
     // debounce hasn't flushed them into `notes` yet.
     const notesToExport: NotesContent = activeNoteId
@@ -744,6 +772,14 @@ const App: React.FC = () => {
 
   // On mobile the sidebar is a full-screen drawer, so picking a note should
   // also dismiss it — staying open would just cover the note you just opened.
+  // Unlike handleSelectNote, keeps the mobile sidebar open so the new
+  // item's inline rename field (started by Sidebar) stays visible.
+  const handleCreateNode = useCallback((type: 'file' | 'folder', parentId: string | null) => {
+    const id = createNode(type, parentId);
+    if (type === 'file') setActiveNoteId(id);
+    return id;
+  }, [createNode, setActiveNoteId]);
+
   const handleSelectNote = useCallback((noteId: string) => {
     setActiveNoteId(noteId);
     if (isMobile) setIsMobileSidebarOpen(false);
@@ -783,7 +819,7 @@ const App: React.FC = () => {
       const session = await createChatSession(content, apiKey);
       if (chatSessionTokenRef.current !== sessionToken) return;
       setChatSession(session);
-      setChatMessages([{ role: 'model', text: t('aiPanel.greeting', { noteName: activeNoteName }) }]);
+      setChatMessages([{ role: 'model', text: t('aiPanel.greeting', { noteName: activeNoteName }), noActions: true }]);
     } catch (error) {
       console.error("Failed to start chat session:", error);
       if (error instanceof MissingApiKeyError) {
@@ -792,7 +828,7 @@ const App: React.FC = () => {
         return;
       }
       const errorMessage = extractGeminiErrorMessage(error);
-      setChatMessages([{ role: 'model', text: t('aiPanel.errorPrefix', { error: errorMessage }) }]);
+      setChatMessages([{ role: 'model', text: t('aiPanel.errorPrefix', { error: errorMessage }), noActions: true }]);
     } finally {
       setIsAILoading(false);
     }
@@ -808,6 +844,7 @@ const App: React.FC = () => {
 
     if (!apiKey) {
       setIsSettingsOpen(true);
+      setActionMessage({ text: t('app.aiMissingKey'), variant: 'warning' });
       return;
     }
 
@@ -838,44 +875,61 @@ const App: React.FC = () => {
 
     const controller = new AbortController();
     chatAbortControllerRef.current = controller;
+    // A note switch bumps this token (and aborts the request), so a late
+    // chunk can never land in another note's conversation.
+    const sessionToken = chatSessionTokenRef.current;
+    const isCurrent = () => chatSessionTokenRef.current === sessionToken;
+    let replyStarted = false;
+    let replyText = '';
 
     try {
-      const response = await chatSession.chat.sendMessage({
-        message,
-        // Passing `config` here replaces the chat's own config (set at
-        // creation) rather than merging with it — systemInstruction has to
-        // be repeated explicitly or this message would lose the note
-        // context entirely, not just the abortSignal being added to it.
-        config: { abortSignal: controller.signal, systemInstruction: chatSession.systemInstruction },
-      });
-      const modelMessage: ChatMessage = { role: 'model', text: normalizeAiMarkdown(response.text ?? '') };
-      setChatMessages(prev => [...prev, modelMessage]);
-    } catch (error) {
-      // The SDK's abortSignal only cancels the client-side request (see its
-      // own doc comment) — the model reply that comes back is simply
-      // discarded rather than shown, with a short note explaining why
-      // instead of the user's message looking like it vanished with no
-      // response at all.
-      if (controller.signal.aborted) {
-        setChatMessages(prev => [...prev, { role: 'model', text: t('app.chatStopped') }]);
-      } else {
-        console.error("Chat error:", error);
-        const errorMessage = extractGeminiErrorMessage(error);
-        const modelErrorMessage: ChatMessage = { role: 'model', text: t('app.chatErrorPrefix', { error: errorMessage }) };
-        setChatMessages(prev => [...prev, modelErrorMessage]);
+      for await (const text of streamChatReply(chatSession, message, controller.signal)) {
+        if (!isCurrent()) return;
+        replyText = normalizeAiMarkdown(text);
+        const streamed: ChatMessage = { role: 'model', text: replyText };
+        if (!replyStarted) {
+          replyStarted = true;
+          setIsAIStreaming(true);
+          setChatMessages(prev => [...prev, streamed]);
+        } else {
+          setChatMessages(prev => [...prev.slice(0, -1), streamed]);
+        }
       }
+    } catch (error) {
+      if (!isCurrent()) return;
+      // A stopped or failed reply keeps whatever had already streamed in,
+      // followed by a short note, rather than looking like it vanished.
+      const aborted = controller.signal.aborted;
+      if (!aborted) console.error("Chat error:", error);
+      const notice = aborted
+        ? t('app.chatStopped')
+        : t('app.chatErrorPrefix', { error: extractGeminiErrorMessage(error) });
+      const hasText = replyText.trim() !== '';
+      const failed: ChatMessage = hasText
+        ? { role: 'model', text: `${replyText}\n\n*${notice}*` }
+        : { role: 'model', text: notice, noActions: true };
+      setChatMessages(prev => (replyStarted ? [...prev.slice(0, -1), failed] : [...prev, failed]));
     } finally {
       // Only clear the ref if it's still pointing at *this* request's
       // controller — a stale finally from an already-superseded send
-      // (shouldn't normally overlap, since the composer is disabled while
-      // isLoading, but is cheap to guard against) shouldn't null out a
-      // newer one still in flight.
+      // shouldn't null out a newer one still in flight.
       if (chatAbortControllerRef.current === controller) {
         chatAbortControllerRef.current = null;
       }
-      setIsAILoading(false);
+      if (isCurrent()) {
+        setIsAILoading(false);
+        setIsAIStreaming(false);
+      }
     }
   };
+
+  // Appends an AI reply to the end of the note this conversation is about,
+  // as a single undoable step.
+  const handleInsertChatReply = useCallback((text: string) => {
+    const base = markdownRef.current.replace(/\s+$/, '');
+    commitMarkdownNow(`${base}${base ? '\n\n' : ''}${text.trim()}\n`);
+    setActionMessage({ text: t('aiPanel.insertedIntoNote'), variant: 'success' });
+  }, [commitMarkdownNow, t]);
 
   const handleStopChatGeneration = () => {
     chatAbortControllerRef.current?.abort();
@@ -886,7 +940,7 @@ const App: React.FC = () => {
       tree={tree}
       activeNoteId={activeNoteId}
       onSelectNote={handleSelectNote}
-      onCreateNode={createNode}
+      onCreateNode={handleCreateNode}
       onRenameNode={renameNode}
       onDeleteNode={deleteNode}
       onRestoreNode={restoreNode}
@@ -929,6 +983,8 @@ const App: React.FC = () => {
         onSendMessage={handleSendChatMessage}
         onStopGenerating={handleStopChatGeneration}
         isLoading={isAILoading}
+        isStreaming={isAIStreaming}
+        onInsertReply={handleInsertChatReply}
         images={images}
       />
     </Suspense>
@@ -1103,12 +1159,19 @@ const App: React.FC = () => {
           stackedAboveVoicePill={!isVoiceNoteModalOpen && voiceNotePipeline.state.stage !== 'idle'}
         />
       )}
-      {(actionMessage || storageError) && (
+      {(actionMessage || storageError || showBackupReminder) && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-md flex flex-col gap-2">
           {actionMessage && (
             <Toast message={actionMessage.text} variant={actionMessage.variant} onDismiss={() => setActionMessage(null)} />
           )}
           {storageError && <Toast message={storageError} onDismiss={dismissStorageError} />}
+          {showBackupReminder && (
+            <Toast
+              message={t('app.backupReminder', { days: BACKUP_REMINDER_AFTER_DAYS })}
+              action={{ label: t('app.backupReminderAction'), onClick: handleExportBackup }}
+              onDismiss={snoozeBackupReminder}
+            />
+          )}
         </div>
       )}
     </div>

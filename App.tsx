@@ -330,7 +330,9 @@ const App: React.FC = () => {
     if (!debouncedSearchQuery.trim()) return [];
 
     const results: SearchResultItem[] = [];
-    const SNIPPET_RADIUS = 50; // Characters before and after the match
+    // Short lead-in so the match stays visible in the two-line result row.
+    const SNIPPET_BEFORE = 20;
+    const SNIPPET_AFTER = 80;
 
     try {
       const query = debouncedSearchQuery.trim();
@@ -346,10 +348,10 @@ const App: React.FC = () => {
         if (match) {
           if (tree[noteId] && !tree[noteId].deletedAt) {
             const matchIndex = match.index;
-            const start = Math.max(0, matchIndex - SNIPPET_RADIUS);
+            const start = Math.max(0, matchIndex - SNIPPET_BEFORE);
             const end = Math.min(
               content.length,
-              matchIndex + match[0].length + SNIPPET_RADIUS
+              matchIndex + match[0].length + SNIPPET_AFTER
             );
 
             let snippet = content.substring(start, end).replace(/\n/g, ' ');

@@ -54,7 +54,7 @@ const Editor: React.FC<EditorProps> = ({
   // both edit the identical `value`/`onChange`. Persisted (not a plain
   // useState) so a page refresh reopens in whichever mode was last used
   // instead of always resetting to plain/Markdown.
-  const [mode, setMode] = useLocalStorage<EditMode>('mind-map-editor-mode', 'plain');
+  const [mode, setMode] = useLocalStorage<EditMode>('mind-map-editor-mode', 'rich');
 
 
   useEffect(() => {

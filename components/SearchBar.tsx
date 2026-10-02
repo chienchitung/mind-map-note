@@ -108,7 +108,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>((
                                                 <p className="text-[11px] text-text-secondary/70 group-hover:text-white/60 truncate">{result.path}</p>
                                             )}
                                             <p className="font-medium truncate">{result.name}</p>
-                                            <p className="text-xs text-text-secondary group-hover:text-white/80 truncate">
+                                            <p className="text-xs text-text-secondary group-hover:text-white/80 line-clamp-2">
                                                 <HighlightMatch text={result.snippet} query={query} />
                                             </p>
                                         </div>

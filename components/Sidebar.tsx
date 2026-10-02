@@ -95,21 +95,21 @@ const Sidebar: React.FC<SidebarProps> = ({
   }, [isFolderMenuOpen]);
 
   const tabClass = (tab: SidebarTab) =>
-    `flex-1 min-w-0 truncate px-2 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
+    `flex-auto min-w-0 truncate px-2 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
       activeTab === tab ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
     }`;
 
   return (
     <div className="h-full bg-primary flex flex-col">
-      <div className="flex items-center gap-2 px-3 py-3 flex-shrink-0">
-        <div className="flex rounded-full bg-secondary p-1 flex-grow min-w-0">
+      <div className="flex flex-col gap-1 px-3 pt-3 pb-2 flex-shrink-0">
+        <div className="flex rounded-full bg-secondary p-1 min-w-0">
           <button onClick={() => setActiveTab('files')} className={tabClass('files')}>{t('sidebar.tabFiles')}</button>
           <button onClick={() => setActiveTab('outline')} className={tabClass('outline')}>{t('sidebar.tabOutline')}</button>
           <button onClick={() => setActiveTab('recordings')} className={tabClass('recordings')}>{t('sidebar.tabRecordings')}</button>
           <button onClick={() => setActiveTab('trash')} className={tabClass('trash')}>{t('sidebar.tabTrash')}</button>
         </div>
         {activeTab === 'files' && (
-          <div className="flex items-center gap-0.5 flex-shrink-0">
+          <div className="flex items-center justify-end gap-0.5">
             <button onClick={() => setJustCreatedNodeId(onCreateNode('file', 'root'))} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newNote')} aria-label={t('sidebar.newNote')}>
               <PlusIcon className="w-4 h-4" />
             </button>

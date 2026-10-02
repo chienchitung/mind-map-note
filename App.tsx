@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
+import { flushSync } from 'react-dom';
 import { ViewMode, MindMapNode, MindMapLayout, FileSystemTree, NotesContent, Images, SearchResultItem } from './types';
 import { useHistory } from './hooks/useHistory';
 import { useFileSystem } from './hooks/useFileSystem';
@@ -204,6 +205,20 @@ const App: React.FC = () => {
   // handleExportFolderPDF. Swaps #print-only-content's source over to the
   // combined document for the duration of the print, then clears itself.
   const [folderPrintOverride, setFolderPrintOverride] = useState<{ title: string; markdown: string } | null>(null);
+  // The hidden print copy follows the debounced text, since re-typesetting
+  // every formula on each keystroke made typing in math-heavy notes lag.
+  // Right before printing it's synced to the exact latest text.
+  const [printSnapshot, setPrintSnapshot] = useState<string | null>(null);
+  useEffect(() => {
+    const handleBeforePrint = () => flushSync(() => setPrintSnapshot(markdownRef.current));
+    const handleAfterPrint = () => setPrintSnapshot(null);
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, []);
 
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
   // Consumed by RichTextEditor (Aa mode) and MarkdownPreview — unlike
@@ -1193,7 +1208,7 @@ const App: React.FC = () => {
           </p>
         </div>
       )}
-      <MarkdownPreview markdown={folderPrintOverride ? folderPrintOverride.markdown : markdown} images={images} />
+      <MarkdownPreview markdown={folderPrintOverride ? folderPrintOverride.markdown : printSnapshot ?? debouncedMarkdown} images={images} />
     </div>
     </div>
   );

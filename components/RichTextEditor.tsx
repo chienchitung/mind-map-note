@@ -234,41 +234,53 @@ const MathConversion = Extension.create({
   addProseMirrorPlugins() {
     const extension = this;
 
-    // Finds the first remaining $...$/$$...$$ run and replaces it, as its
-    // own transaction dispatched directly against the view. Returns whether
-    // it found (and converted) one, so the caller can loop until none are
-    // left — a single edit (e.g. pasting a note with several formulas) can
-    // contain more than one.
-    const convertOnce = (): boolean => {
+    // Converts every remaining $...$/$$...$$ run in a single transaction.
+    // Doing it one formula per transaction made a math-heavy note freeze the
+    // page: each transaction re-serializes the note and re-renders the whole
+    // app (re-typesetting every formula), so the cost grew with the square of
+    // the formula count. Kept out of undo history: undoing a conversion would
+    // just be re-converted, and on load it isn't an edit the user made.
+    const convertAll = (): void => {
       const { view } = extension.editor;
       const mathType = view.state.schema.nodes.math;
-      if (!mathType) return false;
+      if (!mathType) return;
 
-      let match: { from: number; to: number; latex: string; displayMode: boolean } | null = null;
+      const matches: { from: number; to: number; latex: string; displayMode: boolean }[] = [];
       view.state.doc.descendants((node, pos, parent) => {
-        if (match) return false;
         if (!node.isText || !node.text) return true;
         if (node.marks.some((mark) => mark.type.name === 'code')) return true;
         if (parent?.type.name === 'codeBlock') return true;
 
-        const blockMatch = BLOCK_MATH_PATTERN.exec(node.text);
-        const inlineMatch = !blockMatch ? INLINE_MATH_PATTERN.exec(node.text) : null;
-        const found = blockMatch || inlineMatch;
-        if (!found || found.index === undefined) return true;
-
-        match = {
-          from: pos + found.index,
-          to: pos + found.index + found[0].length,
-          latex: found[1],
-          displayMode: !!blockMatch,
-        };
-        return false;
+        // Block math takes precedence, so `$$x$$` isn't read as `$x$`
+        // wrapped in stray dollars; inline math is matched only in the gaps.
+        const text = node.text;
+        const blockRanges: [number, number][] = [];
+        for (const found of text.matchAll(new RegExp(BLOCK_MATH_PATTERN, 'g'))) {
+          const start = found.index ?? 0;
+          blockRanges.push([start, start + found[0].length]);
+          matches.push({ from: pos + start, to: pos + start + found[0].length, latex: found[1], displayMode: true });
+        }
+        let gapStart = 0;
+        for (const [blockStart, blockEnd] of [...blockRanges, [text.length, text.length] as [number, number]]) {
+          const gap = text.slice(gapStart, blockStart);
+          for (const found of gap.matchAll(new RegExp(INLINE_MATH_PATTERN, 'g'))) {
+            const start = gapStart + (found.index ?? 0);
+            matches.push({ from: pos + start, to: pos + start + found[0].length, latex: found[1], displayMode: false });
+          }
+          gapStart = blockEnd;
+        }
+        return true;
       });
 
-      if (!match) return false;
-      const { from, to, latex, displayMode } = match;
-      view.dispatch(view.state.tr.replaceWith(from, to, mathType.create({ latex, displayMode })));
-      return true;
+      if (matches.length === 0) return;
+      const tr = view.state.tr;
+      matches
+        .sort((x, y) => y.from - x.from)
+        .forEach(({ from, to, latex, displayMode }) => {
+          tr.replaceWith(from, to, mathType.create({ latex, displayMode }));
+        });
+      tr.setMeta('addToHistory', false);
+      view.dispatch(tr);
     };
 
     return [
@@ -280,14 +292,11 @@ const MathConversion = Extension.create({
           // appendTransaction can fire while React is still mid-render for
           // the keystroke that triggered it ("flushSync was called from
           // inside a lifecycle method"). Deferring to a microtask lets that
-          // render finish first; each dispatch below becomes its own
+          // render finish first, so the conversion becomes its own
           // independent update cycle instead of nesting inside the original one.
           queueMicrotask(() => {
             if (extension.editor.isDestroyed) return;
-            let guard = 0;
-            while (convertOnce() && guard++ < 50) {
-              // keep converting until nothing's left to convert
-            }
+            convertAll();
           });
           return null;
         },

@@ -1124,6 +1124,8 @@ const App: React.FC = () => {
                             scrollToBlockOrdinal={scrollToBlockOrdinal}
                             onBlockScrollComplete={() => setScrollToBlockOrdinal(null)}
                             onCursorActivity={setActiveLine}
+                            createdAt={activeNoteId ? tree[activeNoteId]?.createdAt : undefined}
+                            updatedAt={activeNoteId ? tree[activeNoteId]?.updatedAt : undefined}
                         />
                     </div>
                 </div>

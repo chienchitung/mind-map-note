@@ -11,6 +11,8 @@ import useLocalStorage from '../hooks/useLocalStorage';
 // TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
 // a user opts into rich mode, so keep them out of the initial bundle that
 // every load — including plain-text-only users — would otherwise pay for.
+import NoteTimeInfo from './NoteTimeInfo';
+
 const RichTextEditor = lazy(() => import('./RichTextEditor'));
 
 interface EditorProps {
@@ -25,6 +27,8 @@ interface EditorProps {
   scrollToBlockOrdinal?: number | null;
   onBlockScrollComplete: () => void;
   onCursorActivity: (lineNumber: number) => void;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 const LINE_HEIGHT = 24; // Approximation of line height in pixels for scrolling
@@ -41,6 +45,8 @@ const Editor: React.FC<EditorProps> = ({
   scrollToBlockOrdinal,
   onBlockScrollComplete,
   onCursorActivity,
+  createdAt,
+  updatedAt,
 }) => {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -317,6 +323,8 @@ const Editor: React.FC<EditorProps> = ({
     </div>
   );
 
+  const timeInfo = <NoteTimeInfo createdAt={createdAt} updatedAt={updatedAt} />;
+
   const copyButton = (
     <button
       onClick={handleCopy}
@@ -376,10 +384,12 @@ const Editor: React.FC<EditorProps> = ({
             {modeToggle}
             {uploadButton}
             <div className="flex-grow" />
+            {timeInfo}
             {statsBadge}
             {copyButton}
           </div>
           <div className="hidden md:flex absolute top-3 right-3 z-10 items-center gap-1.5">
+            {timeInfo}
             {statsBadge}
             {modeToggle}
             {uploadButton}
@@ -425,7 +435,7 @@ const Editor: React.FC<EditorProps> = ({
               onChange={onChange}
               onImagePasted={onImagePasted}
               images={images}
-              toolbarExtras={<>{statsBadge}{modeToggle}{copyButton}</>}
+              toolbarExtras={<>{timeInfo}{statsBadge}{modeToggle}{copyButton}</>}
               scrollToBlockOrdinal={scrollToBlockOrdinal}
               onScrollComplete={onBlockScrollComplete}
             />

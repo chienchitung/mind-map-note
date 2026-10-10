@@ -104,6 +104,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   const directionLabel = (direction: FileSortDirection) => (fileSort.key === 'name'
     ? t(direction === 'asc' ? 'sidebar.sortNameAsc' : 'sidebar.sortNameDesc')
     : t(direction === 'asc' ? 'sidebar.sortOldestFirst' : 'sidebar.sortNewestFirst'));
+  const sortSummary = t('sidebar.sortSummary', {
+    mode: fileSort.key === 'manual' ? sortKeyLabel.manual : `${sortKeyLabel[fileSort.key]} · ${directionLabel(fileSort.direction)}`,
+  });
   const sortMenuItemClass = 'w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2';
   const folderMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -132,22 +135,24 @@ const Sidebar: React.FC<SidebarProps> = ({
           <button onClick={() => setActiveTab('trash')} className={tabClass('trash')}>{t('sidebar.tabTrash')}</button>
         </div>
         {activeTab === 'files' && (
-          <div className="flex items-center justify-between gap-0.5">
-            <div className="relative min-w-0" ref={sortMenuRef}>
+          <div className="flex items-center justify-end gap-0.5">
+            <div className="relative" ref={sortMenuRef}>
               <button
                 onClick={() => setIsSortMenuOpen(open => !open)}
-                className={`flex items-center gap-1 max-w-full px-2 py-1 rounded-full text-xs transition-colors duration-150 ease-apple ${isSortMenuOpen ? 'bg-secondary text-text-main' : 'text-text-secondary hover:bg-secondary hover:text-text-main'}`}
-                title={t('sidebar.sortTitle')}
-                aria-label={t('sidebar.sortTitle')}
+                className={`p-1.5 rounded-full transition-all duration-150 ease-apple active:scale-90 ${
+                  fileSort.key !== 'manual'
+                    ? 'bg-accent/10 text-accent hover:bg-accent/20'
+                    : isSortMenuOpen ? 'bg-secondary text-text-main' : 'text-text-secondary hover:bg-secondary'
+                }`}
+                title={sortSummary}
+                aria-label={sortSummary}
                 aria-expanded={isSortMenuOpen}
               >
-                <SortIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">
-                  {fileSort.key === 'manual' ? sortKeyLabel.manual : `${sortKeyLabel[fileSort.key]} · ${directionLabel(fileSort.direction)}`}
-                </span>
+                <SortIcon className="w-4 h-4" />
               </button>
               {isSortMenuOpen && (
-                <div className="glass-surface-solid absolute left-0 top-full mt-1.5 z-30 w-52 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main" role="menu">
+                <div className="glass-surface-solid absolute right-0 top-full mt-1.5 z-30 w-52 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main" role="menu">
+                  <p className="px-3 pt-1 pb-0.5 text-[11px] text-text-secondary">{t('sidebar.sortTitle')}</p>
                   {(['manual', 'name', 'created', 'updated'] as FileSortKey[]).map(key => (
                     <button
                       key={key}
@@ -162,27 +167,25 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </button>
                   ))}
                   {fileSort.key !== 'manual' && (
-                    <>
-                      <div className="my-1 mx-2 h-px bg-border-color/70" />
-                      {(fileSort.key === 'name' ? ['asc', 'desc'] as const : ['desc', 'asc'] as const)
-                        .map(direction => (
-                          <button
-                            key={direction}
-                            role="menuitemradio"
-                            aria-checked={fileSort.direction === direction}
-                            onClick={() => setFileSort({ ...fileSort, direction })}
-                            className={sortMenuItemClass}
-                          >
-                            <CheckIcon className={`w-4 h-4 flex-shrink-0 ${fileSort.direction === direction ? '' : 'invisible'}`} />
-                            <span>{directionLabel(direction)}</span>
-                          </button>
-                        ))}
-                    </>
+                    <div className="flex gap-1 px-1.5 pt-1 pb-0.5" role="radiogroup" aria-label={t('sidebar.sortTitle')}>
+                      {(fileSort.key === 'name' ? ['asc', 'desc'] as const : ['desc', 'asc'] as const).map(direction => (
+                        <button
+                          key={direction}
+                          role="radio"
+                          aria-checked={fileSort.direction === direction}
+                          onClick={() => setFileSort({ ...fileSort, direction })}
+                          className={`flex-1 py-1 text-xs rounded-lg transition-colors duration-150 ease-apple ${
+                            fileSort.direction === direction ? 'bg-accent text-white' : 'bg-secondary text-text-secondary hover:text-text-main'
+                          }`}
+                        >
+                          {directionLabel(direction)}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-0.5 flex-shrink-0">
             <button onClick={() => setJustCreatedNodeId(onCreateNode('file', 'root'))} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newNote')} aria-label={t('sidebar.newNote')}>
               <PlusIcon className="w-4 h-4" />
             </button>
@@ -215,7 +218,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </button>
                 </div>
               )}
-            </div>
             </div>
           </div>
         )}

@@ -5,7 +5,8 @@ import OutlineView from './OutlineView';
 import VoiceRecordingsPanel from './VoiceRecordingsPanel';
 import TrashPanel from './TrashPanel';
 import useLocalStorage from '../hooks/useLocalStorage';
-import { PlusIcon, FolderPlusIcon, MoreIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon } from './icons';
+import { PlusIcon, FolderPlusIcon, MoreIcon, ChevronDoubleDownIcon, ChevronDoubleUpIcon, SortIcon, CheckIcon } from './icons';
+import { DEFAULT_FILE_SORT, defaultDirectionFor, type FileSort, type FileSortDirection, type FileSortKey } from '../utils/fileSort';
 import type { StoredVoiceRecording } from '../services/voiceRecordingStorage';
 import { useTranslation } from '../contexts/LanguageContext';
 
@@ -82,6 +83,28 @@ const Sidebar: React.FC<SidebarProps> = ({
   // below for why it lives here instead of inside FileExplorer.
   const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
   const [justCreatedNodeId, setJustCreatedNodeId] = useState<string | null>(null);
+
+  const [fileSort, setFileSort] = useLocalStorage<FileSort>('mind-map-file-sort', DEFAULT_FILE_SORT);
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isSortMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(event.target as Node)) setIsSortMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSortMenuOpen]);
+  const sortKeyLabel: Record<FileSortKey, string> = {
+    manual: t('sidebar.sortManual'),
+    name: t('sidebar.sortName'),
+    created: t('sidebar.sortCreated'),
+    updated: t('sidebar.sortUpdated'),
+  };
+  const directionLabel = (direction: FileSortDirection) => (fileSort.key === 'name'
+    ? t(direction === 'asc' ? 'sidebar.sortNameAsc' : 'sidebar.sortNameDesc')
+    : t(direction === 'asc' ? 'sidebar.sortOldestFirst' : 'sidebar.sortNewestFirst'));
+  const sortMenuItemClass = 'w-full text-left px-3 py-1.5 text-sm rounded-xl hover:bg-accent hover:text-white transition-colors duration-150 ease-apple flex items-center gap-2';
   const folderMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!isFolderMenuOpen) return;
@@ -109,7 +132,57 @@ const Sidebar: React.FC<SidebarProps> = ({
           <button onClick={() => setActiveTab('trash')} className={tabClass('trash')}>{t('sidebar.tabTrash')}</button>
         </div>
         {activeTab === 'files' && (
-          <div className="flex items-center justify-end gap-0.5">
+          <div className="flex items-center justify-between gap-0.5">
+            <div className="relative min-w-0" ref={sortMenuRef}>
+              <button
+                onClick={() => setIsSortMenuOpen(open => !open)}
+                className={`flex items-center gap-1 max-w-full px-2 py-1 rounded-full text-xs transition-colors duration-150 ease-apple ${isSortMenuOpen ? 'bg-secondary text-text-main' : 'text-text-secondary hover:bg-secondary hover:text-text-main'}`}
+                title={t('sidebar.sortTitle')}
+                aria-label={t('sidebar.sortTitle')}
+                aria-expanded={isSortMenuOpen}
+              >
+                <SortIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">
+                  {fileSort.key === 'manual' ? sortKeyLabel.manual : `${sortKeyLabel[fileSort.key]} · ${directionLabel(fileSort.direction)}`}
+                </span>
+              </button>
+              {isSortMenuOpen && (
+                <div className="glass-surface-solid absolute left-0 top-full mt-1.5 z-30 w-52 border border-border-color/70 rounded-2xl shadow-apple-md py-1.5 px-1.5 text-text-main" role="menu">
+                  {(['manual', 'name', 'created', 'updated'] as FileSortKey[]).map(key => (
+                    <button
+                      key={key}
+                      role="menuitemradio"
+                      aria-checked={fileSort.key === key}
+                      onClick={() => setFileSort({ key, direction: fileSort.key === key ? fileSort.direction : defaultDirectionFor(key) })}
+                      className={sortMenuItemClass}
+                    >
+                      <CheckIcon className={`w-4 h-4 flex-shrink-0 ${fileSort.key === key ? '' : 'invisible'}`} />
+                      <span>{sortKeyLabel[key]}</span>
+                      {key === 'manual' && <span className="ml-auto text-[11px] opacity-60">{t('sidebar.sortManualHint')}</span>}
+                    </button>
+                  ))}
+                  {fileSort.key !== 'manual' && (
+                    <>
+                      <div className="my-1 mx-2 h-px bg-border-color/70" />
+                      {(fileSort.key === 'name' ? ['asc', 'desc'] as const : ['desc', 'asc'] as const)
+                        .map(direction => (
+                          <button
+                            key={direction}
+                            role="menuitemradio"
+                            aria-checked={fileSort.direction === direction}
+                            onClick={() => setFileSort({ ...fileSort, direction })}
+                            className={sortMenuItemClass}
+                          >
+                            <CheckIcon className={`w-4 h-4 flex-shrink-0 ${fileSort.direction === direction ? '' : 'invisible'}`} />
+                            <span>{directionLabel(direction)}</span>
+                          </button>
+                        ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
             <button onClick={() => setJustCreatedNodeId(onCreateNode('file', 'root'))} className="p-1.5 rounded-full hover:bg-secondary transition-all duration-150 ease-apple active:scale-90 text-text-secondary" title={t('sidebar.newNote')} aria-label={t('sidebar.newNote')}>
               <PlusIcon className="w-4 h-4" />
             </button>
@@ -143,6 +216,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
             </div>
+            </div>
           </div>
         )}
       </div>
@@ -161,6 +235,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             collapsedFolderIds={collapsedFolderIdSet}
             onToggleFolder={handleToggleFolder}
             autoRenameNodeId={justCreatedNodeId}
+            sort={fileSort}
           />
         ) : activeTab === 'recordings' ? (
           <VoiceRecordingsPanel

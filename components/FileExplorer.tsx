@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
+import { sortChildIds, formatShortDate, formatFullDate, type FileSort, type FileSortKey } from '../utils/fileSort';
 import { FileSystemTree, FileSystemNode } from '../types';
 import { FolderIcon, FileIcon, ChevronRightIcon, PencilIcon, TrashIcon, XIcon, ExportIcon, DocumentIcon, ArchiveIcon } from './icons';
 import { useTranslation } from '../contexts/LanguageContext';
@@ -133,6 +134,7 @@ interface FileExplorerProps {
   collapsedFolderIds: Set<string>;
   onToggleFolder: (folderId: string) => void;
   autoRenameNodeId?: string | null;
+  sort: FileSort;
 }
 
 interface IFileExplorerContext {
@@ -145,6 +147,7 @@ interface IFileExplorerContext {
   setDraggingNodeId: (id: string | null) => void;
   collapsedFolderIds: Set<string>;
   onToggleFolder: (folderId: string) => void;
+  sort: FileSort;
 }
 
 // Whether `targetId` is `draggedId` itself or one of its descendants — used
@@ -162,6 +165,8 @@ const isNodeOrDescendant = (tree: FileSystemTree, draggedId: string, targetId: s
   return false;
 };
 
+const SORT_LABEL_KEYS = { manual: 'sidebar.sortManual', name: 'sidebar.sortName', created: 'sidebar.sortCreated', updated: 'sidebar.sortUpdated' } as const satisfies Record<FileSortKey, string>;
+
 const FileExplorerContext = React.createContext<IFileExplorerContext | null>(null);
 
 const Node: React.FC<{
@@ -174,9 +179,10 @@ const Node: React.FC<{
 }> = ({ node, tree, level, activeNoteId, onSelectNote, onMoveNode }) => {
   const context = useContext(FileExplorerContext);
   if (!context) throw new Error("Node must be used within a FileExplorerContext");
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
 
-  const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu, draggingNodeId, setDraggingNodeId, collapsedFolderIds, onToggleFolder } = context;
+  const { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu, draggingNodeId, setDraggingNodeId, collapsedFolderIds, onToggleFolder, sort } = context;
+  const locale = language === 'en' ? 'en-US' : 'zh-TW';
 
   // Not in collapsedFolderIds means expanded — so a brand-new folder starts
   // expanded without needing an explicit entry. See collapsedFolderIds'
@@ -250,6 +256,15 @@ const Node: React.FC<{
     // dataTransfer types list, which is always available during dragover.
     const hasDragData = draggingNodeId !== null || e.dataTransfer.types.includes('text/plain');
     if (!hasDragData || (draggingNodeId !== null && isNodeOrDescendant(tree, draggingNodeId, node.id))) return;
+    // Sorted lists have no manual order to drop into: only moving into a
+    // folder means anything there.
+    if (sort.key !== 'manual') {
+      if (node.type !== 'folder') return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      setDropIndicator('inside');
+      return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const rect = e.currentTarget.getBoundingClientRect();
@@ -299,6 +314,13 @@ const Node: React.FC<{
   };
 
   const isActive = node.type === 'file' && node.id === activeNoteId;
+  const timeTitle = [
+    node.createdAt ? t('fileExplorer.createdAt', { time: formatFullDate(node.createdAt, locale) }) : null,
+    node.updatedAt ? t('fileExplorer.updatedAt', { time: formatFullDate(node.updatedAt, locale) }) : null,
+  ].filter(Boolean).join('\n');
+  const shownTime = node.type === 'file'
+    ? (sort.key === 'created' ? node.createdAt : sort.key === 'updated' ? node.updatedAt : undefined)
+    : undefined;
 
   return (
     <div>
@@ -307,6 +329,7 @@ const Node: React.FC<{
         style={{ paddingLeft: `${level * 16 + 6}px` }}
         onClick={handleClick}
         onContextMenu={(e) => onContextMenu(e, node.id)}
+        title={timeTitle || undefined}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         draggable={node.parentId !== null} // Root items cannot be dragged
@@ -343,6 +366,11 @@ const Node: React.FC<{
         ) : (
           <span className="truncate flex-grow cursor-pointer text-[13px]">{node.name}</span>
         )}
+        {shownTime !== undefined && !isHovering && !isRenaming && (
+          <span className={`flex-shrink-0 ml-2 text-[11px] tabular-nums ${isActive ? 'text-white/75' : 'text-text-secondary/70'}`}>
+            {formatShortDate(shownTime, locale)}
+          </span>
+        )}
         {isHovering && !isRenaming && (
           <div className="flex-shrink-0 ml-auto flex items-center gap-0.5">
             <button onClick={(e) => { e.stopPropagation(); setRenamingNodeId(node.id); }} title={t('fileExplorer.rename')} aria-label={t('fileExplorer.rename')} className={`p-1 rounded-full transition-colors duration-150 ease-apple ${isActive ? 'hover:bg-white/20' : 'hover:bg-border-color/60'}`}><PencilIcon className="w-3.5 h-3.5" /></button>
@@ -352,7 +380,7 @@ const Node: React.FC<{
       </div>
       {isExpanded && node.type === 'folder' && (
         <div>
-          {node.childrenIds.map(childId => (
+          {sortChildIds(tree, node.childrenIds, sort).map(childId => (
             tree[childId] && <Node
               key={childId}
               node={tree[childId]}
@@ -371,7 +399,7 @@ const Node: React.FC<{
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const { t } = useTranslation();
-  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode, onExportFolderMarkdown, onExportFolderMarkdownZip, onExportFolderPDF, collapsedFolderIds, onToggleFolder } = props;
+  const { tree, activeNoteId, onSelectNote, onRenameNode, onDeleteNode, onMoveNode, onExportFolderMarkdown, onExportFolderMarkdownZip, onExportFolderPDF, collapsedFolderIds, onToggleFolder, sort } = props;
   const rootNode = tree['root'];
 
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
@@ -415,7 +443,7 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const closeContextMenu = () => setContextMenu(null);
 
   const contextNode = contextMenu ? tree[contextMenu.nodeId] : null;
-  const contextValue: IFileExplorerContext = { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu: handleContextMenu, draggingNodeId, setDraggingNodeId, collapsedFolderIds, onToggleFolder };
+  const contextValue: IFileExplorerContext = { renamingNodeId, setRenamingNodeId, onRenameNode, onDeleteNode, onContextMenu: handleContextMenu, draggingNodeId, setDraggingNodeId, collapsedFolderIds, onToggleFolder, sort };
 
   // Only nested items (not already at root) need a way back out — dropping
   // a folder's contents anywhere but onto another folder previously did
@@ -425,8 +453,13 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   return (
     <FileExplorerContext.Provider value={contextValue}>
       <div className="h-full bg-primary text-text-secondary text-sm flex flex-col">
+        {draggingNodeId !== null && sort.key !== 'manual' && (
+          <p className="mx-2.5 mt-1 px-3 py-2 rounded-xl bg-accent/10 text-accent text-xs leading-snug">
+            {t('fileExplorer.sortedDragHint', { sort: t(SORT_LABEL_KEYS[sort.key]) })}
+          </p>
+        )}
         <div className="flex-grow overflow-y-auto px-2.5 pt-2 pb-2 space-y-0.5">
-          {rootNode.childrenIds.map(childId => (
+          {sortChildIds(tree, rootNode.childrenIds, sort).map(childId => (
             tree[childId] ? (
               <Node
                   key={childId}

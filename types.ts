@@ -21,6 +21,11 @@ export interface FileSystemNode {
   // childrenIds, but still present in the tree/notes so it can be
   // restored). Absent for a node that's live and visible normally.
   deletedAt?: number;
+  // Epoch ms. Optional only for data saved before these existed;
+  // useFileSystem fills them in on load (see withTimestamps).
+  createdAt?: number;
+  // Last change to a note's content or to the node's name.
+  updatedAt?: number;
 }
 
 export interface FileSystemTree {

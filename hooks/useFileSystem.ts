@@ -18,6 +18,24 @@ const IMAGES_STORAGE_KEY = 'mind-map-images';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+// Nodes saved before timestamps existed get them filled in: ids embed their
+// creation time (see generateId), and the last update is unknown, so it
+// starts out equal to the creation time.
+const withTimestamps = (tree: FileSystemTree): FileSystemTree => {
+    if (Object.values(tree).every(node => node.createdAt !== undefined)) return tree;
+    const fallback = Date.now();
+    const migrated: FileSystemTree = {};
+    Object.values(tree).forEach(node => {
+        const fromId = Number(/^id_(\d{12,})_/.exec(node.id)?.[1]);
+        const createdAt = node.createdAt ?? (Number.isFinite(fromId) && fromId > 0 ? fromId : fallback);
+        migrated[node.id] = { ...node, createdAt, updatedAt: node.updatedAt ?? createdAt };
+    });
+    return migrated;
+};
+
+const touch = (tree: FileSystemTree, nodeId: string): FileSystemTree =>
+    tree[nodeId] ? { ...tree, [nodeId]: { ...tree[nodeId], updatedAt: Date.now() } } : tree;
+
 // Writes to localStorage are debounced by this many ms so rapid successive
 // edits (typing, dragging nodes, etc.) don't serialize the whole workspace
 // — including any base64 images — on every single state change.
@@ -111,7 +129,7 @@ const getInitialFileSystem = () => {
     if (savedTree && savedNotes) {
         try {
             return {
-                tree: JSON.parse(savedTree) as FileSystemTree,
+                tree: withTimestamps(JSON.parse(savedTree) as FileSystemTree),
                 notes: JSON.parse(savedNotes) as NotesContent,
                 images: savedImages ? (JSON.parse(savedImages) as Images) : {},
             };
@@ -124,9 +142,10 @@ const getInitialFileSystem = () => {
     const rootId = 'root';
     const initialNoteId = generateId();
     
+    const now = Date.now();
     const initialTree: FileSystemTree = {
-        [rootId]: { id: rootId, name: 'Root', type: 'folder', parentId: null, childrenIds: [initialNoteId] },
-        [initialNoteId]: { id: initialNoteId, name: translate('app.firstNoteName'), type: 'file', parentId: rootId, childrenIds: [] },
+        [rootId]: { id: rootId, name: 'Root', type: 'folder', parentId: null, childrenIds: [initialNoteId], createdAt: now, updatedAt: now },
+        [initialNoteId]: { id: initialNoteId, name: translate('app.firstNoteName'), type: 'file', parentId: rootId, childrenIds: [], createdAt: now, updatedAt: now },
     };
 
     const initialNotes: NotesContent = {
@@ -253,7 +272,7 @@ export const useFileSystem = () => {
                 const savedTree = localStorage.getItem(TREE_STORAGE_KEY);
                 const savedNotes = localStorage.getItem(NOTES_STORAGE_KEY);
                 if (!savedTree || !savedNotes) return;
-                const tree = JSON.parse(savedTree) as FileSystemTree;
+                const tree = withTimestamps(JSON.parse(savedTree) as FileSystemTree);
                 const notes = JSON.parse(savedNotes) as NotesContent;
                 const previousNotes = latestStateRef.current.notes;
                 latestStateRef.current = { ...latestStateRef.current, tree, notes };
@@ -283,9 +302,10 @@ export const useFileSystem = () => {
     const saveNoteImmediately = useCallback((noteId: string, content: string) => {
         const current = latestStateRef.current;
         if (!current.tree[noteId] || current.notes[noteId] === content) return;
-        latestStateRef.current = { ...current, notes: { ...current.notes, [noteId]: content } };
+        const tree = touch(current.tree, noteId);
+        latestStateRef.current = { ...current, tree, notes: { ...current.notes, [noteId]: content } };
         flushToStorage();
-        setState(prev => (prev.tree[noteId] ? { ...prev, notes: { ...prev.notes, [noteId]: content } } : prev));
+        setState(prev => (prev.tree[noteId] ? { ...prev, tree: touch(prev.tree, noteId), notes: { ...prev.notes, [noteId]: content } } : prev));
     }, [flushToStorage]);
 
     const addImage = useCallback((dataUrl: string): string => {
@@ -312,7 +332,8 @@ export const useFileSystem = () => {
     const createNode = useCallback((type: 'file' | 'folder', parentId: string | null = 'root') => {
         const id = generateId();
         const defaultName = type === 'file' ? translate('app.untitledNoteName') : translate('app.newFolderName');
-        const newNode: FileSystemNode = { id, name: defaultName, type, parentId, childrenIds: [] };
+        const now = Date.now();
+        const newNode: FileSystemNode = { id, name: defaultName, type, parentId, childrenIds: [], createdAt: now, updatedAt: now };
         
         setState(prevState => {
             const newTree = { ...prevState.tree, [id]: newNode };
@@ -353,11 +374,14 @@ export const useFileSystem = () => {
             // entry in `notes` with no corresponding tree node, which then
             // persists to storage forever with no way to see or remove it.
             if (!prevState.tree[noteId]) return prevState;
+            if (prevState.notes[noteId] === content && !options?.collectGarbage) return prevState;
+            const contentChanged = prevState.notes[noteId] !== content;
             const newNotes = { ...prevState.notes, [noteId]: content };
             const newImages = options?.collectGarbage
                 ? garbageCollectImages(newNotes, prevState.images)
                 : prevState.images;
-            return { ...prevState, notes: newNotes, images: newImages };
+            const newTree = contentChanged ? touch(prevState.tree, noteId) : prevState.tree;
+            return { tree: newTree, notes: newNotes, images: newImages };
         });
     }, []);
 
@@ -365,8 +389,8 @@ export const useFileSystem = () => {
         if (!newName.trim()) return;
         setState(prevState => {
             const newTree = { ...prevState.tree };
-            if (newTree[nodeId]) {
-                newTree[nodeId] = { ...newTree[nodeId], name: newName.trim() };
+            if (newTree[nodeId] && newTree[nodeId].name !== newName.trim()) {
+                newTree[nodeId] = { ...newTree[nodeId], name: newName.trim(), updatedAt: Date.now() };
             }
             return { ...prevState, tree: newTree };
         });
@@ -496,7 +520,7 @@ export const useFileSystem = () => {
     // Wholesale replace of the workspace, used to restore a backup. Callers
     // are responsible for confirming with the user first — this has no undo.
     const restoreFromBackup = useCallback((data: { tree: FileSystemTree; notes: NotesContent; images: Images }) => {
-        setState(data);
+        setState({ ...data, tree: withTimestamps(data.tree) });
     }, []);
 
     return { tree, notes, images, externalChange, createNode, updateNote, saveNoteImmediately, renameNode, deleteNode, restoreNode, permanentlyDeleteNode, moveNode, addImage, restoreFromBackup, storageError, dismissStorageError: () => setStorageError(null) };

@@ -1,7 +1,9 @@
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { Extension, Node, type NodeViewProps } from '@tiptap/core';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { findInText, type TextMatch } from '../utils/findMatches';
 import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
@@ -17,6 +19,41 @@ import { BoldIcon, ItalicIcon, InlineCodeIcon, CodeBlockIcon, QuoteIcon, BulletL
 import { compressImageFile } from '../utils/imageCompression';
 import { renderMathToHtml } from '../utils/renderMathToHtml';
 import { useTranslation } from '../contexts/LanguageContext';
+
+// Find & replace (driven by Editor.tsx's find bar). Matches are document
+// positions; each textblock's text is searched as one string, so a match
+// can span formatting changes (e.g. half-bold), but not a formula or image.
+export interface RichTextEditorHandle {
+  findMatches: (query: string, matchCase: boolean) => TextMatch[];
+  showMatches: (matches: TextMatch[], current: number) => void;
+  replaceMatch: (match: TextMatch, replacement: string) => void;
+  replaceAll: (matches: TextMatch[], replacement: string) => void;
+}
+
+const findHighlightKey = new PluginKey<DecorationSet>('findHighlight');
+const FindHighlight = Extension.create({
+  name: 'findHighlight',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<DecorationSet>({
+        key: findHighlightKey,
+        state: {
+          init: () => DecorationSet.empty,
+          apply: (tr, decorations) => {
+            const meta = tr.getMeta(findHighlightKey) as { matches: TextMatch[]; current: number } | undefined;
+            if (meta) {
+              return DecorationSet.create(tr.doc, meta.matches.map((match, index) => Decoration.inline(
+                match.from, match.to, { class: index === meta.current ? 'find-match find-match-current' : 'find-match' },
+              )));
+            }
+            return decorations.map(tr.mapping, tr.doc);
+          },
+        },
+        props: { decorations: state => findHighlightKey.getState(state) },
+      }),
+    ];
+  },
+});
 
 interface RichTextEditorProps {
   value: string;
@@ -493,7 +530,7 @@ const rewriteBase64ImagesInNode = (node: ProseMirrorNode, onImagePasted: (dataUr
   return node.copy(Fragment.from(mappedChildren));
 };
 
-const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }) => {
+const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }, ref) => {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   // editorProps below is fixed at construction (useEditor's deps are `[]`,
@@ -528,6 +565,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
       ArrowInputRules,
       MathNode,
       MathConversion,
+      FindHighlight,
     ],
     content: value,
     onUpdate: ({ editor }) => {
@@ -644,6 +682,53 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
     onScrollComplete?.();
   }, [scrollToBlockOrdinal, editor, onScrollComplete]);
 
+  useImperativeHandle(ref, () => ({
+    findMatches: (query, matchCase) => {
+      if (!editor || !query) return [];
+      const matches: TextMatch[] = [];
+      editor.state.doc.descendants((node, pos) => {
+        if (!node.isTextblock) return true;
+        // Text of the block with each non-text inline node (formula, image,
+        // line break) as one placeholder char, mapped back to positions.
+        let text = '';
+        const positions: number[] = [];
+        node.forEach((child, offset) => {
+          const piece = child.isText ? child.text ?? '' : '\uFFFC';
+          for (let i = 0; i < piece.length; i++) positions.push(pos + 1 + offset + i);
+          text += piece;
+        });
+        findInText(text, query, matchCase).forEach(({ from, to }) => {
+          matches.push({ from: positions[from], to: positions[to - 1] + 1 });
+        });
+        return false;
+      });
+      return matches;
+    },
+    showMatches: (matches, current) => {
+      if (!editor) return;
+      const tr = editor.state.tr.setMeta(findHighlightKey, { matches, current }).setMeta('addToHistory', false);
+      const target = matches[current];
+      if (target) tr.setSelection(TextSelection.create(tr.doc, target.from, target.to)).scrollIntoView();
+      editor.view.dispatch(tr);
+    },
+    replaceMatch: (match, replacement) => {
+      if (!editor) return;
+      const tr = editor.state.tr;
+      if (replacement) tr.insertText(replacement, match.from, match.to);
+      else tr.delete(match.from, match.to);
+      editor.view.dispatch(tr);
+    },
+    replaceAll: (matches, replacement) => {
+      if (!editor || matches.length === 0) return;
+      const tr = editor.state.tr;
+      [...matches].sort((a, b) => b.from - a.from).forEach(match => {
+        if (replacement) tr.insertText(replacement, match.from, match.to);
+        else tr.delete(match.from, match.to);
+      });
+      editor.view.dispatch(tr);
+    },
+  }), [editor]);
+
   if (!editor) return null;
 
   // Inserts a formula at the cursor (turning any selected text into its
@@ -713,6 +798,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
       </div>
     </div>
   );
-};
+});
+
+RichTextEditor.displayName = 'RichTextEditor';
 
 export default RichTextEditor;

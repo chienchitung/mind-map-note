@@ -401,6 +401,14 @@ body {
   color: var(--color-text-secondary);
 }
 
+.rich-editor-content .find-match {
+  background-color: rgba(255, 214, 10, 0.35);
+  border-radius: 3px;
+}
+.rich-editor-content .find-match-current {
+  background-color: rgba(255, 149, 0, 0.55);
+}
+
 .editor-backdrop mark.active-match {
   background-color: rgba(255, 149, 0, 0.55);
 }

@@ -336,7 +336,8 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
         const segmentFraction = totalSegments > 0 ? completedSegments / totalSegments : 0;
 
         let label = t('voiceNote.generatingLabel');
-        if (processingPhase === 'normalizing') label = hasVideo ? t('voiceNote.extractingAudio') : t('voiceNote.normalizingAudio');
+        if (processingPhase === 'proofreading') label = t('voiceNote.proofreadingLabel');
+        else if (processingPhase === 'normalizing') label = hasVideo ? t('voiceNote.extractingAudio') : t('voiceNote.normalizingAudio');
         else if (processingPhase === 'uploading') label = t('voiceNote.uploadingAudio');
         else if (processingPhase === 'transcribing') {
           label = showSegmentProgress

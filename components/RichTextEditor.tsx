@@ -1,7 +1,9 @@
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { Extension, Node, type NodeViewProps } from '@tiptap/core';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { findInText, type TextMatch } from '../utils/findMatches';
 import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
@@ -17,6 +19,41 @@ import { BoldIcon, ItalicIcon, InlineCodeIcon, CodeBlockIcon, QuoteIcon, BulletL
 import { compressImageFile } from '../utils/imageCompression';
 import { renderMathToHtml } from '../utils/renderMathToHtml';
 import { useTranslation } from '../contexts/LanguageContext';
+
+// Find & replace (driven by Editor.tsx's find bar). Matches are document
+// positions; each textblock's text is searched as one string, so a match
+// can span formatting changes (e.g. half-bold), but not a formula or image.
+export interface RichTextEditorHandle {
+  findMatches: (query: string, matchCase: boolean) => TextMatch[];
+  showMatches: (matches: TextMatch[], current: number) => void;
+  replaceMatch: (match: TextMatch, replacement: string) => void;
+  replaceAll: (matches: TextMatch[], replacement: string) => void;
+}
+
+const findHighlightKey = new PluginKey<DecorationSet>('findHighlight');
+const FindHighlight = Extension.create({
+  name: 'findHighlight',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<DecorationSet>({
+        key: findHighlightKey,
+        state: {
+          init: () => DecorationSet.empty,
+          apply: (tr, decorations) => {
+            const meta = tr.getMeta(findHighlightKey) as { matches: TextMatch[]; current: number } | undefined;
+            if (meta) {
+              return DecorationSet.create(tr.doc, meta.matches.map((match, index) => Decoration.inline(
+                match.from, match.to, { class: index === meta.current ? 'find-match find-match-current' : 'find-match' },
+              )));
+            }
+            return decorations.map(tr.mapping, tr.doc);
+          },
+        },
+        props: { decorations: state => findHighlightKey.getState(state) },
+      }),
+    ];
+  },
+});
 
 interface RichTextEditorProps {
   value: string;
@@ -141,6 +178,9 @@ const ResolvingImage = TiptapImage.extend({
   },
 });
 
+const mathStorage = (editor: NodeViewProps['editor']) =>
+  (editor.storage as unknown as { math: { openAt: number | null } }).math;
+
 // Renders the node's stored LaTeX via the same shared renderer
 // MarkdownPreview.tsx uses (same backslash-quirk handling, same
 // html-only-output choice), so a note's math renders identically whether
@@ -156,6 +196,7 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
   const latex: string = node.attrs.latex || '';
   const displayMode: boolean = !!node.attrs.displayMode;
   const [draft, setDraft] = useState<string | null>(null);
+  const [draftDisplayMode, setDraftDisplayMode] = useState(displayMode);
   const editingRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const html = useMemo(
@@ -163,8 +204,8 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
     [latex, displayMode]
   );
   const previewHtml = useMemo(
-    () => (draft?.trim() ? DOMPurify.sanitize(renderMathToHtml(draft, displayMode)) : ''),
-    [draft, displayMode]
+    () => (draft?.trim() ? DOMPurify.sanitize(renderMathToHtml(draft, draftDisplayMode)) : ''),
+    [draft, draftDisplayMode]
   );
   const isEditing = draft !== null;
 
@@ -177,8 +218,18 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
   const startEditing = () => {
     if (!editor.isEditable) return;
     editingRef.current = true;
+    setDraftDisplayMode(displayMode);
     setDraft(latex);
   };
+
+  // A formula just inserted from the toolbar opens its editor right away.
+  useEffect(() => {
+    const storage = mathStorage(editor);
+    if (storage.openAt === null || typeof getPos !== 'function' || getPos() !== storage.openAt) return;
+    storage.openAt = null;
+    setTimeout(startEditing, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const finishEditing = (apply: boolean) => {
     if (!editingRef.current) return;
@@ -186,10 +237,12 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
     const value = (draft ?? '').trim();
     setDraft(null);
     const pos = typeof getPos === 'function' ? getPos() : undefined;
-    const removed = apply && value === '';
-    if (apply && value !== latex) {
-      if (removed) deleteNode();
-      else updateAttributes({ latex: value });
+    // Cancelling a formula that never had any source (just inserted from
+    // the toolbar) removes it rather than leaving an invisible empty node.
+    const removed = (apply && value === '') || (!apply && latex === '');
+    if (removed) deleteNode();
+    else if (apply && (value !== latex || draftDisplayMode !== displayMode)) {
+      updateAttributes({ latex: value, displayMode: draftDisplayMode });
     }
     // Hand the caret back to the text right after the formula.
     if (pos !== undefined) {
@@ -199,7 +252,7 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
 
   if (isEditing) {
     return (
-      <NodeViewWrapper as="span" className={`math-editor ${displayMode ? 'flex my-1' : 'inline-flex align-middle'}`}>
+      <NodeViewWrapper as="span" className={`math-editor ${draftDisplayMode ? 'flex my-1' : 'inline-flex align-middle'}`}>
         <textarea
           ref={inputRef}
           value={draft}
@@ -224,7 +277,26 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
           {previewHtml
             ? <span dangerouslySetInnerHTML={{ __html: previewHtml }} />
             : <span className="math-editor-hint">{t('richEditor.formulaEmptyHint')}</span>}
-          <span className="math-editor-hint">{t('richEditor.formulaKeysHint')}</span>
+          <span className="math-editor-footer">
+            {/* onMouseDown preventDefault keeps focus in the textarea, which
+                would otherwise blur and apply the edit on the first click. */}
+            <span className="math-editor-mode" role="radiogroup" aria-label={t('richEditor.formulaMode')}>
+              {([false, true] as const).map(block => (
+                <button
+                  key={String(block)}
+                  type="button"
+                  role="radio"
+                  aria-checked={draftDisplayMode === block}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => setDraftDisplayMode(block)}
+                  className={draftDisplayMode === block ? 'is-active' : ''}
+                >
+                  {t(block ? 'richEditor.formulaDisplay' : 'richEditor.formulaInline')}
+                </button>
+              ))}
+            </span>
+            <span className="math-editor-hint">{t('richEditor.formulaKeysHint')}</span>
+          </span>
         </span>
       </NodeViewWrapper>
     );
@@ -289,6 +361,9 @@ const MathNode = Node.create({
 
   addStorage() {
     return {
+      // Position of a formula the toolbar just inserted, whose editor
+      // should open as soon as it mounts (see MathNodeView).
+      openAt: null as number | null,
       markdown: {
         serialize(state: { write: (text: string) => void }, node: { attrs: { latex: string; displayMode: boolean } }) {
           const latex = node.attrs.latex || '';
@@ -455,7 +530,7 @@ const rewriteBase64ImagesInNode = (node: ProseMirrorNode, onImagePasted: (dataUr
   return node.copy(Fragment.from(mappedChildren));
 };
 
-const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }) => {
+const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({ value, onChange, onImagePasted, images, toolbarExtras, scrollToBlockOrdinal, onScrollComplete }, ref) => {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   // editorProps below is fixed at construction (useEditor's deps are `[]`,
@@ -490,6 +565,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
       ArrowInputRules,
       MathNode,
       MathConversion,
+      FindHighlight,
     ],
     content: value,
     onUpdate: ({ editor }) => {
@@ -606,7 +682,63 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
     onScrollComplete?.();
   }, [scrollToBlockOrdinal, editor, onScrollComplete]);
 
+  useImperativeHandle(ref, () => ({
+    findMatches: (query, matchCase) => {
+      if (!editor || !query) return [];
+      const matches: TextMatch[] = [];
+      editor.state.doc.descendants((node, pos) => {
+        if (!node.isTextblock) return true;
+        // Text of the block with each non-text inline node (formula, image,
+        // line break) as one placeholder char, mapped back to positions.
+        let text = '';
+        const positions: number[] = [];
+        node.forEach((child, offset) => {
+          const piece = child.isText ? child.text ?? '' : '\uFFFC';
+          for (let i = 0; i < piece.length; i++) positions.push(pos + 1 + offset + i);
+          text += piece;
+        });
+        findInText(text, query, matchCase).forEach(({ from, to }) => {
+          matches.push({ from: positions[from], to: positions[to - 1] + 1 });
+        });
+        return false;
+      });
+      return matches;
+    },
+    showMatches: (matches, current) => {
+      if (!editor) return;
+      const tr = editor.state.tr.setMeta(findHighlightKey, { matches, current }).setMeta('addToHistory', false);
+      const target = matches[current];
+      if (target) tr.setSelection(TextSelection.create(tr.doc, target.from, target.to)).scrollIntoView();
+      editor.view.dispatch(tr);
+    },
+    replaceMatch: (match, replacement) => {
+      if (!editor) return;
+      const tr = editor.state.tr;
+      if (replacement) tr.insertText(replacement, match.from, match.to);
+      else tr.delete(match.from, match.to);
+      editor.view.dispatch(tr);
+    },
+    replaceAll: (matches, replacement) => {
+      if (!editor || matches.length === 0) return;
+      const tr = editor.state.tr;
+      [...matches].sort((a, b) => b.from - a.from).forEach(match => {
+        if (replacement) tr.insertText(replacement, match.from, match.to);
+        else tr.delete(match.from, match.to);
+      });
+      editor.view.dispatch(tr);
+    },
+  }), [editor]);
+
   if (!editor) return null;
+
+  // Inserts a formula at the cursor (turning any selected text into its
+  // source) and opens its editor.
+  const insertFormula = () => {
+    const { from, to, empty } = editor.state.selection;
+    const selected = empty ? '' : editor.state.doc.textBetween(from, to, ' ').trim().replace(/^\$+|\$+$/g, '');
+    mathStorage(editor).openAt = from;
+    editor.chain().focus().insertContentAt({ from, to }, { type: 'math', attrs: { latex: selected, displayMode: false } }).run();
+  };
 
   return (
     <div className="h-full w-full flex flex-col">
@@ -637,6 +769,9 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
         <ToolbarButton title={t('richEditor.codeBlock')} active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>
           <CodeBlockIcon className="w-4 h-4" />
         </ToolbarButton>
+        <ToolbarButton title={t('richEditor.insertFormula')} active={editor.isActive('math')} onClick={insertFormula}>
+          <span className="font-serif text-[15px] leading-none">Σ</span>
+        </ToolbarButton>
         <ToolbarButton title={t('richEditor.bulletList')} active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
           <BulletListIcon className="w-4 h-4" />
         </ToolbarButton>
@@ -663,6 +798,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
       </div>
     </div>
   );
-};
+});
+
+RichTextEditor.displayName = 'RichTextEditor';
 
 export default RichTextEditor;

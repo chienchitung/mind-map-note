@@ -17,7 +17,7 @@ import { transcribeViaBackend, MAX_BACKEND_UPLOAD_BYTES, type BackendTranscribeP
 // an already-fully-transcribed recording. See index.tsx's vite:preloadError
 // handler, which recovers *other* stale chunks via a reload — but a reload
 // here would also wipe the in-memory transcript this step depends on.
-import { generateNoteFromTranscript, MissingApiKeyError, isRetryableGeminiError, extractGeminiErrorMessage } from '../services/geminiChatService';
+import { generateNoteFromTranscript, proofreadNote, MissingApiKeyError, isRetryableGeminiError, extractGeminiErrorMessage } from '../services/geminiChatService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
 import { extractTimeAnnotations, placeScreenshotsByTimestamp } from '../utils/screenshotPlacement';
 import { downloadBlob } from '../utils/downloadBlob';
@@ -34,7 +34,7 @@ const MICROPHONE_DEVICE_ID_STORAGE_KEY = 'voice-note-microphone-device-id';
 
 export type VoiceNoteStage = 'idle' | 'recording' | 'processing' | 'error';
 export type VoiceNoteInputMode = 'record' | 'upload';
-export type VoiceNoteProcessingPhase = 'uploading' | 'normalizing' | 'transcribing' | 'generating';
+export type VoiceNoteProcessingPhase = 'uploading' | 'normalizing' | 'transcribing' | 'generating' | 'proofreading';
 
 export interface VoiceNoteState {
   stage: VoiceNoteStage;
@@ -673,11 +673,15 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       let attempt = 0;
       for (;;) {
         try {
-          const noteMarkdown = await generateNoteFromTranscript(
+          const draftMarkdown = await generateNoteFromTranscript(
             transcriptForGeneration,
             geminiApiKeyRef.current,
             hasScreenshots ? { withScreenshotAnchors: true } : undefined
           );
+          if (cancelledRef.current) return;
+          // Never throws: falls back to the draft on any failure.
+          setState(s => ({ ...s, processingPhase: 'proofreading' }));
+          const noteMarkdown = await proofreadNote(draftMarkdown, transcriptForGeneration, geminiApiKeyRef.current);
           if (cancelledRef.current) return;
           const { markdown: cleanedMarkdown, annotations } = extractTimeAnnotations(normalizeAiMarkdown(noteMarkdown));
           const finalMarkdown = placeScreenshotsByTimestamp(

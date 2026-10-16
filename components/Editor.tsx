@@ -1,5 +1,9 @@
-import React, { useState, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
-import { CopyIcon, CheckIcon, ImageIcon } from './icons';
+import React, { useState, useRef, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
+import { CopyIcon, CheckIcon, ImageIcon, SearchIcon } from './icons';
+import NoteTimeInfo from './NoteTimeInfo';
+import FindReplaceBar from './FindReplaceBar';
+import type { RichTextEditorHandle } from './RichTextEditor';
+import { findInText, type TextMatch } from '../utils/findMatches';
 import Spinner from './Spinner';
 import { Images } from '../types';
 import { compressImageFile } from '../utils/imageCompression';
@@ -11,8 +15,6 @@ import useLocalStorage from '../hooks/useLocalStorage';
 // TipTap/ProseMirror add real weight (~300KB gzip) and are only needed once
 // a user opts into rich mode, so keep them out of the initial bundle that
 // every load — including plain-text-only users — would otherwise pay for.
-import NoteTimeInfo from './NoteTimeInfo';
-
 const RichTextEditor = lazy(() => import('./RichTextEditor'));
 
 interface EditorProps {
@@ -87,9 +89,132 @@ const Editor: React.FC<EditorProps> = ({
     }
   };
 
+  // --- Find & replace -------------------------------------------------
+  const richRef = useRef<RichTextEditorHandle>(null);
+  const [isFindOpen, setIsFindOpen] = useState(false);
+  const [findFocusToken, setFindFocusToken] = useState(0);
+  const [findQuery, setFindQuery] = useState('');
+  const [replacement, setReplacement] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+  const [currentMatch, setCurrentMatch] = useState(0);
+  const [richMatches, setRichMatches] = useState<TextMatch[]>([]);
+  const [findNotice, setFindNotice] = useState<string | null>(null);
+  // Set when the current match should also be selected and scrolled to
+  // (navigating, new query) rather than just re-highlighted (typing).
+  const revealMatchRef = useRef(false);
+
+  const plainMatches = useMemo(
+    () => (isFindOpen && mode === 'plain' ? findInText(value, findQuery, matchCase) : []),
+    [isFindOpen, mode, value, findQuery, matchCase]
+  );
+  useEffect(() => {
+    if (mode !== 'rich') return;
+    setRichMatches(isFindOpen ? richRef.current?.findMatches(findQuery, matchCase) ?? [] : []);
+  }, [mode, isFindOpen, value, findQuery, matchCase]);
+  const matches = mode === 'plain' ? plainMatches : richMatches;
+  const current = matches.length > 0 ? Math.min(currentMatch, matches.length - 1) : -1;
+
+  useEffect(() => {
+    revealMatchRef.current = true;
+    setCurrentMatch(0);
+    setFindNotice(null);
+  }, [findQuery, matchCase]);
+
+  // Highlight (and, when navigating, reveal) the matches.
+  useEffect(() => {
+    const reveal = revealMatchRef.current;
+    revealMatchRef.current = false;
+    if (mode === 'rich') {
+      richRef.current?.showMatches(isFindOpen ? matches : [], reveal ? current : -1);
+      return;
+    }
+    if (!reveal || current < 0) return;
+    const textarea = textareaRef.current;
+    const mark = backdropRef.current?.querySelector<HTMLElement>('mark.active-match');
+    if (textarea && mark) {
+      textarea.scrollTop = Math.max(0, mark.offsetTop - textarea.clientHeight / 3);
+      textarea.setSelectionRange(matches[current].from, matches[current].to);
+      handleScroll();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches, current, mode, isFindOpen]);
+
+  const openFind = useCallback(() => {
+    let selected = '';
+    if (mode === 'plain' && textareaRef.current) {
+      const { selectionStart, selectionEnd } = textareaRef.current;
+      selected = value.slice(selectionStart, selectionEnd);
+    } else if (mode === 'rich') {
+      selected = window.getSelection()?.toString() ?? '';
+    }
+    if (selected && !selected.includes('\n')) setFindQuery(selected);
+    setIsFindOpen(true);
+    setFindFocusToken(token => token + 1);
+  }, [mode, value]);
+
+  const closeFind = () => {
+    setIsFindOpen(false);
+    setFindNotice(null);
+    if (mode === 'rich') richRef.current?.showMatches([], -1);
+    else textareaRef.current?.focus();
+  };
+
+  // Ctrl+H on Windows/Linux; ⌘⌥F on macOS, where ⌘H hides the app.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isReplaceShortcut = (event.ctrlKey && !event.metaKey && !event.altKey && event.code === 'KeyH')
+        || ((event.metaKey || event.ctrlKey) && event.altKey && event.code === 'KeyF');
+      if (!isReplaceShortcut) return;
+      event.preventDefault();
+      openFind();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [openFind]);
+
+  const goToMatch = (step: number) => {
+    if (matches.length === 0) return;
+    revealMatchRef.current = true;
+    setCurrentMatch((current + step + matches.length) % matches.length);
+  };
+
+  const replaceCurrent = () => {
+    const match = matches[current];
+    if (!match) return;
+    revealMatchRef.current = true;
+    setFindNotice(null);
+    if (mode === 'rich') richRef.current?.replaceMatch(match, replacement);
+    else onChange(value.slice(0, match.from) + replacement + value.slice(match.to));
+    // The next match slides into the current index; wrap at the end.
+    if (current >= matches.length - 1) setCurrentMatch(0);
+  };
+
+  const replaceAll = () => {
+    if (matches.length === 0) return;
+    const count = matches.length;
+    if (mode === 'rich') {
+      richRef.current?.replaceAll(matches, replacement);
+    } else {
+      let next = '';
+      let last = 0;
+      matches.forEach(match => { next += value.slice(last, match.from) + replacement; last = match.to; });
+      onChange(next + value.slice(last));
+    }
+    setFindNotice(t('findReplace.replacedCount', { count }));
+  };
+
   const renderHighlightedText = () => {
     // Add a newline to prevent scroll height miscalculation on empty editor
-    return <>{value + '\n'}</>;
+    if (plainMatches.length === 0) return <>{value + '\n'}</>;
+    const parts: React.ReactNode[] = [];
+    let last = 0;
+    plainMatches.forEach((match, index) => {
+      parts.push(value.slice(last, match.from));
+      parts.push(<mark key={index} className={index === current ? 'active-match' : undefined}>{value.slice(match.from, match.to)}</mark>);
+      last = match.to;
+    });
+    parts.push(value.slice(last) + '\n');
+    return <>{parts}</>;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -325,6 +450,40 @@ const Editor: React.FC<EditorProps> = ({
 
   const timeInfo = <NoteTimeInfo createdAt={createdAt} updatedAt={updatedAt} />;
 
+  const findButton = (
+    <button
+      onClick={() => (isFindOpen ? closeFind() : openFind())}
+      className={`p-2 rounded-full bg-elevated shadow-apple-xs transition-all duration-150 ease-apple active:scale-90 ${isFindOpen ? 'text-accent ring-2 ring-accent/60' : 'text-text-secondary hover:bg-border-color/40'}`}
+      title={t('findReplace.buttonTitle', { shortcut: /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘⌥F' : 'Ctrl+H' })}
+      aria-label={t('findReplace.title')}
+      aria-pressed={isFindOpen}
+    >
+      <SearchIcon className="w-4 h-4" />
+    </button>
+  );
+
+  const findBar = isFindOpen && (
+    <div className="absolute left-3 right-3 md:left-auto top-14 md:top-16 z-30 flex justify-end">
+      <FindReplaceBar
+        query={findQuery}
+        onQueryChange={setFindQuery}
+        replacement={replacement}
+        onReplacementChange={setReplacement}
+        matchCase={matchCase}
+        onToggleMatchCase={() => setMatchCase(value => !value)}
+        matchCount={matches.length}
+        currentIndex={current}
+        notice={findNotice}
+        onPrevious={() => goToMatch(-1)}
+        onNext={() => goToMatch(1)}
+        onReplace={replaceCurrent}
+        onReplaceAll={replaceAll}
+        onClose={closeFind}
+        focusToken={findFocusToken}
+      />
+    </div>
+  );
+
   const copyButton = (
     <button
       onClick={handleCopy}
@@ -384,11 +543,13 @@ const Editor: React.FC<EditorProps> = ({
             {modeToggle}
             {uploadButton}
             <div className="flex-grow" />
+            {findButton}
             {timeInfo}
             {statsBadge}
             {copyButton}
           </div>
           <div className="hidden md:flex absolute top-3 right-3 z-10 items-center gap-1.5">
+            {findButton}
             {timeInfo}
             {statsBadge}
             {modeToggle}
@@ -405,6 +566,8 @@ const Editor: React.FC<EditorProps> = ({
         accept="image/*"
         className="hidden"
       />
+
+      {findBar}
 
       {mode === 'plain' ? (
         <div className="relative flex-1 min-h-0">
@@ -435,7 +598,8 @@ const Editor: React.FC<EditorProps> = ({
               onChange={onChange}
               onImagePasted={onImagePasted}
               images={images}
-              toolbarExtras={<>{timeInfo}{statsBadge}{modeToggle}{copyButton}</>}
+              ref={richRef}
+              toolbarExtras={<>{findButton}{timeInfo}{statsBadge}{modeToggle}{copyButton}</>}
               scrollToBlockOrdinal={scrollToBlockOrdinal}
               onScrollComplete={onBlockScrollComplete}
             />

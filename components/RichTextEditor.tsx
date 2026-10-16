@@ -141,6 +141,9 @@ const ResolvingImage = TiptapImage.extend({
   },
 });
 
+const mathStorage = (editor: NodeViewProps['editor']) =>
+  (editor.storage as unknown as { math: { openAt: number | null } }).math;
+
 // Renders the node's stored LaTeX via the same shared renderer
 // MarkdownPreview.tsx uses (same backslash-quirk handling, same
 // html-only-output choice), so a note's math renders identically whether
@@ -156,6 +159,7 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
   const latex: string = node.attrs.latex || '';
   const displayMode: boolean = !!node.attrs.displayMode;
   const [draft, setDraft] = useState<string | null>(null);
+  const [draftDisplayMode, setDraftDisplayMode] = useState(displayMode);
   const editingRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const html = useMemo(
@@ -163,8 +167,8 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
     [latex, displayMode]
   );
   const previewHtml = useMemo(
-    () => (draft?.trim() ? DOMPurify.sanitize(renderMathToHtml(draft, displayMode)) : ''),
-    [draft, displayMode]
+    () => (draft?.trim() ? DOMPurify.sanitize(renderMathToHtml(draft, draftDisplayMode)) : ''),
+    [draft, draftDisplayMode]
   );
   const isEditing = draft !== null;
 
@@ -177,8 +181,18 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
   const startEditing = () => {
     if (!editor.isEditable) return;
     editingRef.current = true;
+    setDraftDisplayMode(displayMode);
     setDraft(latex);
   };
+
+  // A formula just inserted from the toolbar opens its editor right away.
+  useEffect(() => {
+    const storage = mathStorage(editor);
+    if (storage.openAt === null || typeof getPos !== 'function' || getPos() !== storage.openAt) return;
+    storage.openAt = null;
+    setTimeout(startEditing, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const finishEditing = (apply: boolean) => {
     if (!editingRef.current) return;
@@ -186,10 +200,12 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
     const value = (draft ?? '').trim();
     setDraft(null);
     const pos = typeof getPos === 'function' ? getPos() : undefined;
-    const removed = apply && value === '';
-    if (apply && value !== latex) {
-      if (removed) deleteNode();
-      else updateAttributes({ latex: value });
+    // Cancelling a formula that never had any source (just inserted from
+    // the toolbar) removes it rather than leaving an invisible empty node.
+    const removed = (apply && value === '') || (!apply && latex === '');
+    if (removed) deleteNode();
+    else if (apply && (value !== latex || draftDisplayMode !== displayMode)) {
+      updateAttributes({ latex: value, displayMode: draftDisplayMode });
     }
     // Hand the caret back to the text right after the formula.
     if (pos !== undefined) {
@@ -199,7 +215,7 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
 
   if (isEditing) {
     return (
-      <NodeViewWrapper as="span" className={`math-editor ${displayMode ? 'flex my-1' : 'inline-flex align-middle'}`}>
+      <NodeViewWrapper as="span" className={`math-editor ${draftDisplayMode ? 'flex my-1' : 'inline-flex align-middle'}`}>
         <textarea
           ref={inputRef}
           value={draft}
@@ -224,7 +240,26 @@ const MathNodeView: React.FC<NodeViewProps> = ({ node, editor, getPos, updateAtt
           {previewHtml
             ? <span dangerouslySetInnerHTML={{ __html: previewHtml }} />
             : <span className="math-editor-hint">{t('richEditor.formulaEmptyHint')}</span>}
-          <span className="math-editor-hint">{t('richEditor.formulaKeysHint')}</span>
+          <span className="math-editor-footer">
+            {/* onMouseDown preventDefault keeps focus in the textarea, which
+                would otherwise blur and apply the edit on the first click. */}
+            <span className="math-editor-mode" role="radiogroup" aria-label={t('richEditor.formulaMode')}>
+              {([false, true] as const).map(block => (
+                <button
+                  key={String(block)}
+                  type="button"
+                  role="radio"
+                  aria-checked={draftDisplayMode === block}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => setDraftDisplayMode(block)}
+                  className={draftDisplayMode === block ? 'is-active' : ''}
+                >
+                  {t(block ? 'richEditor.formulaDisplay' : 'richEditor.formulaInline')}
+                </button>
+              ))}
+            </span>
+            <span className="math-editor-hint">{t('richEditor.formulaKeysHint')}</span>
+          </span>
         </span>
       </NodeViewWrapper>
     );
@@ -289,6 +324,9 @@ const MathNode = Node.create({
 
   addStorage() {
     return {
+      // Position of a formula the toolbar just inserted, whose editor
+      // should open as soon as it mounts (see MathNodeView).
+      openAt: null as number | null,
       markdown: {
         serialize(state: { write: (text: string) => void }, node: { attrs: { latex: string; displayMode: boolean } }) {
           const latex = node.attrs.latex || '';
@@ -608,6 +646,15 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
 
   if (!editor) return null;
 
+  // Inserts a formula at the cursor (turning any selected text into its
+  // source) and opens its editor.
+  const insertFormula = () => {
+    const { from, to, empty } = editor.state.selection;
+    const selected = empty ? '' : editor.state.doc.textBetween(from, to, ' ').trim().replace(/^\$+|\$+$/g, '');
+    mathStorage(editor).openAt = from;
+    editor.chain().focus().insertContentAt({ from, to }, { type: 'math', attrs: { latex: selected, displayMode: false } }).run();
+  };
+
   return (
     <div className="h-full w-full flex flex-col">
       <div className="flex items-center gap-1 px-2 py-2 border-b border-border-color/70 flex-wrap flex-shrink-0">
@@ -636,6 +683,9 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, onImag
         </ToolbarButton>
         <ToolbarButton title={t('richEditor.codeBlock')} active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>
           <CodeBlockIcon className="w-4 h-4" />
+        </ToolbarButton>
+        <ToolbarButton title={t('richEditor.insertFormula')} active={editor.isActive('math')} onClick={insertFormula}>
+          <span className="font-serif text-[15px] leading-none">Σ</span>
         </ToolbarButton>
         <ToolbarButton title={t('richEditor.bulletList')} active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
           <BulletListIcon className="w-4 h-4" />

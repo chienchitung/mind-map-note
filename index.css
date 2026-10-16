@@ -375,6 +375,27 @@ body {
   gap: 2px;
   overflow-x: auto;
 }
+.rich-editor-content .math-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rich-editor-content .math-editor-mode {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background-color: var(--color-primary);
+}
+.rich-editor-content .math-editor-mode button {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+.rich-editor-content .math-editor-mode button.is-active {
+  background-color: var(--color-accent);
+  color: #fff;
+}
 .rich-editor-content .math-editor-hint {
   font-size: 0.75rem;
   color: var(--color-text-secondary);

@@ -185,6 +185,9 @@ const isNodeOrDescendant = (tree: FileSystemTree, draggedId: string, targetId: s
   return false;
 };
 
+const AUTO_SCROLL_EDGE_PX = 48;
+const AUTO_SCROLL_MAX_STEP_PX = 18;
+
 const SORT_LABEL_KEYS = { manual: 'sidebar.sortManual', name: 'sidebar.sortName', created: 'sidebar.sortCreated', updated: 'sidebar.sortUpdated' } as const satisfies Record<FileSortKey, string>;
 
 const FileExplorerContext = React.createContext<IFileExplorerContext | null>(null);
@@ -587,6 +590,28 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
     window.addEventListener('mouseup', handleUp);
   };
 
+  // Scrolls the list while a drag hovers near its top or bottom edge, so a
+  // folder far off-screen in a long list can still be reached. dragover
+  // keeps firing while the pointer rests, so each event nudges it along,
+  // faster the closer to the edge and the longer it stays there.
+  const edgeHoverStartRef = useRef<number | null>(null);
+  const handleListDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    const list = listRef.current;
+    if (!list || draggingIds.length === 0) return;
+    const rect = list.getBoundingClientRect();
+    const fromTop = event.clientY - rect.top;
+    const fromBottom = rect.bottom - event.clientY;
+    const distance = Math.min(fromTop, fromBottom);
+    if (distance >= AUTO_SCROLL_EDGE_PX) {
+      edgeHoverStartRef.current = null;
+      return;
+    }
+    edgeHoverStartRef.current ??= event.timeStamp;
+    const heldSeconds = (event.timeStamp - edgeHoverStartRef.current) / 1000;
+    const step = AUTO_SCROLL_MAX_STEP_PX * (1 - Math.max(0, distance) / AUTO_SCROLL_EDGE_PX) * (1 + Math.min(heldSeconds * 2, 5));
+    list.scrollTop += Math.ceil(step) * (fromTop < fromBottom ? -1 : 1);
+  };
+
   const handleDeleteSelected = () => {
     const ids = topLevelIds(selectedIds).filter(id => tree[id]?.parentId !== null);
     if (ids.length === 0) return;
@@ -635,12 +660,7 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   return (
     <FileExplorerContext.Provider value={contextValue}>
       <div className="relative h-full bg-primary text-text-secondary text-sm flex flex-col">
-        {draggingNodeId !== null && sort.key !== 'manual' && (
-          <p className="mx-2.5 mt-1 px-3 py-2 rounded-xl bg-accent/10 text-accent text-xs leading-snug">
-            {t('fileExplorer.sortedDragHint', { sort: t(SORT_LABEL_KEYS[sort.key]) })}
-          </p>
-        )}
-        <div ref={listRef} onMouseDown={handleListMouseDown} className={`relative flex-grow overflow-y-auto px-2.5 pt-2 space-y-0.5 ${selectedIds.size > 0 ? 'pb-14' : 'pb-2'}`}>
+        <div ref={listRef} onMouseDown={handleListMouseDown} onDragOver={handleListDragOver} className={`relative flex-grow overflow-y-auto px-2.5 pt-2 space-y-0.5 ${selectedIds.size > 0 ? 'pb-14' : 'pb-2'}`}>
           {marquee && (
             <div
               className="absolute z-10 pointer-events-none border border-accent bg-accent/10 rounded-sm"
@@ -674,6 +694,15 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
               <XIcon className="w-3.5 h-3.5" />
             </button>
           </div>
+        )}
+        {/* Below the list, not above it: anything appearing above the
+            list mid-drag pushes every row down, sliding the target folder
+            out from under the cursor and covering the top edge that
+            scrolls the list. */}
+        {draggingNodeId !== null && sort.key !== 'manual' && (
+          <p className="mx-2.5 mb-2 px-3 py-2 rounded-xl bg-accent/10 text-accent text-xs leading-snug">
+            {t('fileExplorer.sortedDragHint', { sort: t(SORT_LABEL_KEYS[sort.key]) })}
+          </p>
         )}
         {showRootDropZone && (
           <div

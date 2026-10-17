@@ -392,16 +392,19 @@ export const generateNoteFromTranscript = async (
             ? `Create a comprehensive study note from the speech transcript below. This is a faithful reconstruction task, not a short summary.
 
 Requirements:
-1. Cover every substantive point in the transcript. Preserve definitions, explanations, arguments, cause-and-effect relationships, comparisons, conditions, exceptions, ordered steps, examples, names, terminology, numbers, dates, conclusions, action items, and unresolved questions when present. In particular, keep every example the speaker works through, every calculation with its intermediate steps and specific numbers (e.g. how a parameter count or output size is derived), every analogy, and every practical or implementation step — these are often the most valuable parts of a lecture, so never reduce them to a one-line mention.
+1. Cover every substantive point in the transcript. Preserve definitions, explanations, arguments, cause-and-effect relationships, comparisons, conditions, exceptions, ordered steps, examples, names, terminology, numbers, dates, conclusions, action items, and unresolved questions when present. In particular, keep every example the speaker works through, every calculation with its intermediate steps and specific numbers (e.g. how a parameter count or output size is derived), every analogy, and every practical or implementation step — these are often the most valuable parts of a lecture, so never reduce them to a one-line mention. If the content includes decisions or action items (e.g. a meeting), collect them at the end of the note under a separate "## Decisions and action items" section, noting the owner and deadline of each action item where stated.
 2. Remove only speech filler, false starts, exact repetition, clearly off-topic conversation, and transcription noise (garbled fragments or passages in an unrelated language that the speaker clearly did not say). If repeated passages add a new detail, retain that detail.
 3. Use the transcript as the only factual source. Do not add outside facts, inferred conclusions, invented examples, or corrections. If a short explanation that the speaker did not give is truly needed to make a point understandable, start that sentence or bullet with "(Supplement)" so it can be told apart from the lecture content. Mark genuinely unclear source content as "[unclear in transcript]" instead of guessing. Never turn a vague or garbled passage into specific names, products, tools, numbers or settings the transcript does not contain.
    - Odd or nonsensical words in the transcript are almost always speech recognition errors, not the speaker's mistakes. When the context makes the intended term clear, write the correct term directly; otherwise mark it "[unclear in transcript]". Never describe such words as the speaker misspeaking.
 4. Keep related details together and preserve the speaker's intended sequence where order matters. Distinguish the speaker's opinions or proposals from established statements when the transcript makes that distinction.
-5. Produce readable Markdown suitable for both a note and a mind map:
-   - One descriptive "#" title based on the central topic.
-   - "##" headings for major topics and "###" headings only when useful.
-   - "-" bullet lists for facts and explanations; numbered lists for procedures or ranked items.
-   - Plain-text arrows for simple relationships (A → B).
+5. Produce readable Markdown suitable for both a note and a mind map, structured "overview first, details below":
+   - One descriptive "#" title based on the central topic; "##" headings for major topics and "###" for subtopics.
+   - The first level of bullets under each topic is the overview: one line per item, written as "Name: one-sentence explanation", so a reader can grasp the key points from the first level alone.
+   - Put calculations, examples, analogies and cases one level below the item they belong to; start examples with "e.g.". Use at most two levels of bullet indentation.
+   - One bullet covers one idea; if it takes more than one sentence, split it into two bullets.
+   - No parenthetical asides (such as comments on how the speaker phrased something or how precise a number is).
+   - When there is little content, do not force it into an overview and details.
+   - Numbered lists for procedures, steps or ordered items; plain-text arrows for simple relationships (A → B).
    - No Markdown tables and no horizontal-rule dividers.
    - Whenever the transcript contains code (commands, function calls, snippets), put it in a complete fenced code block with a language tag (e.g. "\`\`\`python" … "\`\`\`"). Every opening fence must have exactly one matching closing fence on its own line, and never emit an extra or unpaired "\`\`\`". Short identifiers inside a sentence use single backticks instead (e.g. \`drop_duplicates()\`).
 6. Use LaTeX only for real mathematical or chemical formulas. Wrap inline formulas in a single $ and block formulas in $$. Use one backslash per LaTeX command.
@@ -416,16 +419,19 @@ END TRANSCRIPT`
             : `請將下方語音逐字稿整理成一份完整的學習筆記。這是忠實重建內容的工作，不是簡短摘要。
 
 整理要求：
-1. 涵蓋逐字稿中的每個實質重點。若原文有提到，必須保留定義、解釋、論點、因果關係、比較、適用條件、例外、先後步驟、舉例、人名、專有名詞、數字、日期、結論、待辦事項與尚未解決的問題。尤其要完整保留講者實際講解的每個範例、每個計算過程（含中間步驟與具體數字，例如參數數量或輸出尺寸如何算出）、每個比喻，以及每個實作或操作步驟——這些往往是課程中最有價值的部分，不得只用一句話帶過。
+1. 涵蓋逐字稿中的每個實質重點。若原文有提到，必須保留定義、解釋、論點、因果關係、比較、適用條件、例外、先後步驟、舉例、人名、專有名詞、數字、日期、結論、待辦事項與尚未解決的問題。尤其要完整保留講者實際講解的每個範例、每個計算過程（含中間步驟與具體數字，例如參數數量或輸出尺寸如何算出）、每個比喻，以及每個實作或操作步驟——這些往往是課程中最有價值的部分，不得只用一句話帶過。若內容包含決議或待辦事項（例如會議），在筆記最後以「## 決議與待辦事項」獨立整理，待辦事項盡量註明負責人與期限。
 2. 只刪除口語贅字、說話停頓、語句重啟、完全相同的重複內容、明顯離題對話，以及轉錄雜訊（亂碼片段，或講者顯然沒有說的其他語言段落）。若重複段落帶有新的細節，仍須保留該細節。
 3. 逐字稿是唯一事實來源。不得加入外部知識、推測性結論、自創案例或自行更正內容。若確實需要補一小段講者沒說的解釋才能看懂，該句或該項目開頭必須標示「（補充）」，讓讀者能和課堂內容區分。來源確實無法辨識時，請標示「[逐字稿內容不清楚]」，不要猜測。不得把含糊或亂碼的段落補成逐字稿中沒有的具體人名、機構、產品、工具、數字或設定。
    - 逐字稿中奇怪或不通順的詞，幾乎都是語音辨識錯誤，而不是講者說錯。若上下文能判斷原本的用詞，直接寫出正確用詞；無法判斷時標示「[逐字稿內容不清楚]」。不得寫成「講者口誤」或「課堂口誤」。
 4. 將相關細節放在一起；當順序具有意義時，保留講者原本的順序。若原文有區分個人意見、建議與既定事實，筆記也要清楚區分。
-5. 輸出適合一般筆記與心智圖解析的 Markdown：
-   - 依核心主題建立一個具體的「#」標題。
-   - 主要主題使用「##」，必要時才使用「###」。
-   - 事實與說明使用「-」列表；流程、步驟或有順序的項目使用編號列表。
-   - 單純關係直接使用文字箭頭（A → B）。
+5. 輸出適合一般筆記與心智圖解析的 Markdown，採「先總覽、後細節」的結構：
+   - 依核心主題建立一個具體的「#」標題；主要主題使用「##」，子主題使用「###」。
+   - 每個主題的第一層列點是總覽：每項一行，寫成「名稱：一句話說明」，讓讀者只看第一層就能掌握重點。
+   - 計算過程、範例、比喻、案例等細節，放在對應項目的下一層；範例以「例：」開頭。列點最多兩層縮排。
+   - 一個列點只講一件事；一句話講不完就拆成兩項。
+   - 不寫括號旁白（例如對講者說法或數值精確度的評論）。
+   - 內容很少時不必硬拆成總覽與細節。
+   - 流程、步驟或有順序的項目使用編號列表；單純關係使用文字箭頭（A → B）。
    - 不使用 Markdown 表格，也不插入水平分隔線。
    - 逐字稿中出現程式碼（指令、函式呼叫、程式片段）時，必須放進完整的程式碼區塊並標註語言（例如「\`\`\`python」……「\`\`\`」）。每個開頭的 \`\`\` 都要有且只有一個獨立成行的結尾 \`\`\`，不得多出或遺漏任何 \`\`\`。句子中的簡短名稱則用單一反引號（例如 \`drop_duplicates()\`）。
 6. LaTeX 只用於真正的數學或化學公式。行內公式用單一 $ 包住，獨立公式用 $$ 包住；LaTeX 指令只使用一個反斜線。

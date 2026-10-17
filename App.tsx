@@ -41,6 +41,13 @@ import { createChatSession, streamChatReply, MissingApiKeyError, extractGeminiEr
 // instead of padding out everyone's initial bundle.
 const AIPanel = lazy(() => import('./components/AIPanel'));
 
+const AI_PANEL_WIDTH_KEY = 'mindmap-ai-panel-width';
+const AI_PANEL_DEFAULT_WIDTH = 480;
+const AI_PANEL_MIN_WIDTH = 360;
+// Leaves the editor at least this much room beside the panel.
+const clampAIPanelWidth = (width: number) =>
+  Math.round(Math.max(AI_PANEL_MIN_WIDTH, Math.min(width, window.innerWidth * 0.6, 960)));
+
 // Identifies exported workspace backup files so imports can sanity-check
 // they're not some unrelated JSON file.
 const BACKUP_APP_ID = 'mind-map-note';
@@ -319,6 +326,36 @@ const App: React.FC = () => {
   // start would trigger the lazy AIPanel chunk immediately for everyone.
   // Only start mounting it once the user has actually opened it.
   const [hasOpenedAIPanel, setHasOpenedAIPanel] = useState(false);
+  // Desktop AI panel width, dragged from its left edge and remembered.
+  const [aiPanelWidth, setAIPanelWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem(AI_PANEL_WIDTH_KEY));
+      if (saved) return saved;
+    } catch { /* storage unavailable */ }
+    return AI_PANEL_DEFAULT_WIDTH;
+  });
+  const [isResizingAIPanel, setIsResizingAIPanel] = useState(false);
+  const handleAIPanelResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsResizingAIPanel(true);
+    let latestWidth = aiPanelWidth;
+    const handleMove = (moveEvent: PointerEvent) => {
+      latestWidth = clampAIPanelWidth(window.innerWidth - moveEvent.clientX);
+      setAIPanelWidth(latestWidth);
+    };
+    const handleUp = () => {
+      setIsResizingAIPanel(false);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      document.body.style.removeProperty('cursor');
+      document.body.style.removeProperty('user-select');
+      try { localStorage.setItem(AI_PANEL_WIDTH_KEY, String(latestWidth)); } catch { /* storage unavailable */ }
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  };
   useEffect(() => {
     if (isAIPanelOpen) setHasOpenedAIPanel(true);
   }, [isAIPanelOpen]);
@@ -1171,7 +1208,24 @@ const App: React.FC = () => {
             </>
           )
         ) : (
-          <aside className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out ${isAIPanelOpen ? 'w-1/3 max-w-md border-l border-border-color/60' : 'w-0'}`}>
+          <aside
+            className={`relative h-full flex-shrink-0 ${isResizingAIPanel ? '' : 'transition-[width] duration-300 ease-in-out'} ${isAIPanelOpen ? 'border-l border-border-color/60' : ''}`}
+            style={{ width: isAIPanelOpen ? clampAIPanelWidth(aiPanelWidth) : 0 }}
+          >
+              {isAIPanelOpen && (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label={t('aiPanel.resize')}
+                  title={t('aiPanel.resize')}
+                  onPointerDown={handleAIPanelResizeStart}
+                  onDoubleClick={() => {
+                    setAIPanelWidth(AI_PANEL_DEFAULT_WIDTH);
+                    try { localStorage.removeItem(AI_PANEL_WIDTH_KEY); } catch { /* storage unavailable */ }
+                  }}
+                  className={`absolute inset-y-0 -left-1 w-2 z-10 cursor-col-resize transition-colors duration-150 hover:bg-accent/40 ${isResizingAIPanel ? 'bg-accent/50' : ''}`}
+                />
+              )}
               <div className="h-full overflow-hidden">
                   {hasOpenedAIPanel && aiPanelElement}
               </div>

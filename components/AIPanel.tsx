@@ -98,6 +98,47 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
     return () => resizeObserver.disconnect();
   }, [input]);
 
+  // A display formula wider than its bubble is scaled down to fit (to a
+  // floor of 70%, past which it scrolls instead), re-checked whenever a
+  // reply streams in or the panel is resized.
+  const messagesRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = messagesRef.current;
+    if (!root) return;
+    let frame = 0;
+    const fitFormulas = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        root.querySelectorAll<HTMLElement>('.chat-bubble .katex-display').forEach(formula => {
+          formula.style.fontSize = '';
+          // A few passes, since spacing that doesn't scale with font size
+          // keeps the first estimate slightly too wide.
+          let scale = 1;
+          for (let pass = 0; pass < 4 && scale > 0.7; pass++) {
+            const available = formula.clientWidth;
+            const needed = formula.scrollWidth;
+            if (available <= 0 || needed <= available + 1) break;
+            scale = Math.max(0.7, scale * (available / needed) * 0.99);
+            formula.style.fontSize = `${scale}em`;
+          }
+        });
+      });
+    };
+    fitFormulas();
+    // KaTeX's web fonts arrive after first render and widen every formula.
+    document.fonts?.addEventListener('loadingdone', fitFormulas);
+    const resizeObserver = new ResizeObserver(fitFormulas);
+    resizeObserver.observe(root);
+    const mutationObserver = new MutationObserver(fitFormulas);
+    mutationObserver.observe(root, { childList: true, subtree: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      document.fonts?.removeEventListener('loadingdone', fitFormulas);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim() && !isLoading) {
@@ -131,7 +172,7 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
         </div>
       </div>
 
-      <div className="flex-grow overflow-y-auto p-6 space-y-6">
+      <div ref={messagesRef} className="flex-grow overflow-y-auto px-4 py-5 space-y-5">
         {messages.map((msg, index) => {
           const isStreamingThis = isStreaming && index === messages.length - 1;
           return (
@@ -142,7 +183,7 @@ const AIPanel: React.FC<AIPanelProps> = ({ onToggleCollapse, onNewConversation, 
                       <ChatbotIcon className="w-4 h-4 text-accent" />
                   </div>
                 )}
-                <div className={`px-4 py-2.5 rounded-2xl max-w-[75%] ${msg.role === 'user' ? 'bg-accent text-white rounded-br-md' : 'bg-elevated text-text-main rounded-bl-md shadow-apple-xs'}`}>
+                <div className={`chat-bubble min-w-0 px-4 py-2.5 rounded-2xl ${msg.role === 'user' ? 'max-w-[85%] bg-accent text-white rounded-br-md' : 'flex-1 bg-elevated text-text-main rounded-bl-md shadow-apple-xs'}`}>
                   <MarkdownPreview markdown={msg.text} images={images} />
                 </div>
               </div>

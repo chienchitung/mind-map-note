@@ -10,5 +10,11 @@ services:
       # See backend/main.py's ALLOWED_ORIGINS.
       - key: ALLOWED_ORIGINS
         sync: false
+      # Turns on the YouTube connection test (/youtube/test). Pick a long
+      # random value; leave it unset to keep the feature off. The cookies
+      # file is added separately as a Secret File named youtube_cookies.txt.
+      # See backend/youtube_probe.py.
+      - key: YOUTUBE_ACCESS_TOKEN
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.15

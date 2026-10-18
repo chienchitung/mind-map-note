@@ -9,12 +9,13 @@ from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Body, FastAPI, File, Form, Header, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 load_dotenv()
 
+import youtube_probe
 from audio_pipeline import (
     AudioProcessingError,
     GroqRateLimitError,
@@ -135,6 +136,34 @@ app.add_middleware(
     path="/audio/transcribe/stream",
     max_bytes=MAX_UPLOAD_BYTES + MAX_MULTIPART_OVERHEAD_BYTES,
 )
+
+
+@app.get("/youtube/test", response_class=HTMLResponse)
+async def youtube_test_page():
+    # Only exists once YOUTUBE_ACCESS_TOKEN is configured (see youtube_probe.py).
+    if not youtube_probe.access_token():
+        return JSONResponse(status_code=404, content={"message": "Not found."})
+    return youtube_probe.TEST_PAGE
+
+
+@app.post("/youtube/probe")
+async def youtube_probe_endpoint(
+    payload: dict = Body(...),
+    authorization: str | None = Header(default=None),
+):
+    if not youtube_probe.access_token():
+        return JSONResponse(status_code=404, content={"message": "Not found."})
+    if not youtube_probe.is_authorized(authorization):
+        return JSONResponse(status_code=401, content={"message": "Wrong or missing access token."})
+    url = str(payload.get("url") or "")
+    if not youtube_probe.is_youtube_url(url):
+        return JSONResponse(status_code=400, content={"message": "Only youtube.com / youtu.be links are accepted."})
+    try:
+        result = await asyncio.wait_for(asyncio.to_thread(youtube_probe.probe, url), timeout=90)
+    except asyncio.TimeoutError:
+        result = {"ok": False, "error_type": "timeout", "message": "YouTube did not respond within 90 seconds."}
+    print(f"[youtube probe] ok={result.get('ok')} error_type={result.get('error_type')} cookies={result.get('cookies_used')}", flush=True)
+    return result
 
 
 @app.get("/health")

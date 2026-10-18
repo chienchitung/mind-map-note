@@ -294,7 +294,7 @@ Speech recognition often turns terminology, names, product names, English acrony
 1. "asr" corrections: recognition errors carried into the note, especially proper nouns and technical terms. Only when the context makes the correct term clear.
 2. "mismatch" corrections: places where the note contradicts the transcript (misread meaning, wrongly copied numbers or formulas, reversed cause-and-effect or comparisons). "evidence" must be an exact, verbatim quote copied from the transcript that proves the correction.
 3. "find" must be copied exactly from the note and be just long enough to be unambiguous (a term or short phrase); "replace" is its corrected form. Do not add new information, explanations or content that is missing from the note.
-4. "flags": statements that clearly conflict with well-established knowledge, transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, so do not flag it. List flags with the reason; do not correct them.
+4. "flags": statements that clearly conflict with well-established knowledge, transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so is a code parameter value already marked with a "# Supplement" comment, so do not flag either. List flags with the reason; do not correct them.
 5. If there is nothing to report, return empty lists. Write "reason" in English.
 
 BEGIN NOTE
@@ -310,7 +310,7 @@ END TRANSCRIPT`
 1. 「asr」修正：被帶進筆記的辨識錯誤，特別是專有名詞與術語。只有在上下文能明確判斷正確用詞時才列出。
 2. 「mismatch」修正：筆記與逐字稿不符之處（誤解原意、數字或公式抄錯、因果或比較關係顛倒）。「evidence」必須是從逐字稿逐字複製、能證明此修正的原文片段。
 3. 「find」必須從筆記中逐字複製，長度只要足以辨識即可（一個詞或短語）；「replace」是修正後的寫法。不得加入筆記沒有的新資訊、解釋或內容。
-4. 「flags」：明顯與公認知識不符的說法、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，不要列出。列出並說明原因，不要修正。
+4. 「flags」：明顯與公認知識不符的說法、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，程式碼中已用「# 補充」註解標示的參數值也不算，都不要列出。列出並說明原因，不要修正。
 5. 若沒有任何問題，回傳空清單。「reason」使用繁體中文。
 
 筆記開始
@@ -394,7 +394,7 @@ export const generateNoteFromTranscript = async (
 Requirements:
 1. Cover every substantive point in the transcript. Preserve definitions, explanations, arguments, cause-and-effect relationships, comparisons, conditions, exceptions, ordered steps, examples, names, terminology, numbers, dates, conclusions, action items, and unresolved questions when present. In particular, keep every example the speaker works through, every calculation with its intermediate steps and specific numbers (e.g. how a parameter count or output size is derived), every analogy, and every practical or implementation step — these are often the most valuable parts of a lecture, so never reduce them to a one-line mention. If the content includes decisions or action items (e.g. a meeting), collect them at the end of the note under a separate "## Decisions and action items" section, noting the owner and deadline of each action item where stated.
 2. Remove only speech filler, false starts, exact repetition, clearly off-topic conversation, and transcription noise (garbled fragments or passages in an unrelated language that the speaker clearly did not say). If repeated passages add a new detail, retain that detail.
-3. Use the transcript as the only factual source. Do not add outside facts, inferred conclusions, invented examples, or corrections. If a short explanation that the speaker did not give is truly needed to make a point understandable, start that sentence or bullet with "(Supplement)" so it can be told apart from the lecture content. Mark genuinely unclear source content as "[unclear in transcript]" instead of guessing. Never turn a vague or garbled passage into specific names, products, tools, numbers or settings the transcript does not contain.
+3. Use the transcript as the only factual source. Do not add outside facts, inferred conclusions, invented examples, or corrections. If a short explanation that the speaker did not give is truly needed to make a point understandable, start that sentence or bullet with "(Supplement)" so it can be told apart from the lecture content. Mark genuinely unclear source content as "[unclear in transcript]" instead of guessing. Never turn a vague or garbled passage into specific names, products, tools, numbers or settings the transcript does not contain (parameter values in code are the exception; follow the code rule in item 5).
    - Odd or nonsensical words in the transcript are almost always speech recognition errors, not the speaker's mistakes. When the context makes the intended term clear, write the correct term directly; otherwise mark it "[unclear in transcript]". Never describe such words as the speaker misspeaking.
 4. Keep related details together and preserve the speaker's intended sequence where order matters. Distinguish the speaker's opinions or proposals from established statements when the transcript makes that distinction.
 5. Produce readable Markdown suitable for both a note and a mind map, structured "overview first, details below":
@@ -406,7 +406,10 @@ Requirements:
    - When there is little content, do not force it into an overview and details.
    - Numbered lists for procedures, steps or ordered items; plain-text arrows for simple relationships (A → B).
    - No Markdown tables and no horizontal-rule dividers.
-   - Whenever the transcript contains code (commands, function calls, snippets), put it in a complete fenced code block with a language tag (e.g. "\`\`\`python" … "\`\`\`"). Every opening fence must have exactly one matching closing fence on its own line, and never emit an extra or unpaired "\`\`\`". Short identifiers inside a sentence use single backticks instead (e.g. \`drop_duplicates()\`).
+   - Code:
+     - Code the speaker reads out or shows goes in a complete fenced code block with a language tag (e.g. "\`\`\`python" … "\`\`\`").
+     - Code the speaker explains in words (e.g. "sort the importances with Pandas' sort_values, largest first") is also rebuilt as a code block from that explanation, so the steps can be followed directly. Use the functions, objects and parameter values the speaker mentions as stated; to keep the code complete and runnable, a value the speaker did not give (such as a max depth or random seed) may be filled in with a common default, but mark it with a comment on the same line: "# Supplement: not stated by the speaker, common value" (e.g. \`clf = DecisionTreeClassifier(max_depth=3, random_state=42)  # Supplement: max_depth, random_state not stated by the speaker, common values\`), so readers can tell it apart from the lecture content.
+     - Every opening fence must have exactly one matching closing fence on its own line, and never emit an extra or unpaired "\`\`\`". Short identifiers inside a sentence use single backticks instead (e.g. \`drop_duplicates()\`).
 6. Use LaTeX only for real mathematical or chemical formulas. Wrap inline formulas in a single $ and block formulas in $$. Use one backslash per LaTeX command.
 7. Write the entire note in English. Proper nouns, technical terms, and code may remain in their original form when translation would reduce accuracy.
 8. Before answering, silently verify that every meaningful section of the transcript is represented. The note should be as long as needed for completeness.${screenshotAnchorInstruction}
@@ -421,7 +424,7 @@ END TRANSCRIPT`
 整理要求：
 1. 涵蓋逐字稿中的每個實質重點。若原文有提到，必須保留定義、解釋、論點、因果關係、比較、適用條件、例外、先後步驟、舉例、人名、專有名詞、數字、日期、結論、待辦事項與尚未解決的問題。尤其要完整保留講者實際講解的每個範例、每個計算過程（含中間步驟與具體數字，例如參數數量或輸出尺寸如何算出）、每個比喻，以及每個實作或操作步驟——這些往往是課程中最有價值的部分，不得只用一句話帶過。若內容包含決議或待辦事項（例如會議），在筆記最後以「## 決議與待辦事項」獨立整理，待辦事項盡量註明負責人與期限。
 2. 只刪除口語贅字、說話停頓、語句重啟、完全相同的重複內容、明顯離題對話，以及轉錄雜訊（亂碼片段，或講者顯然沒有說的其他語言段落）。若重複段落帶有新的細節，仍須保留該細節。
-3. 逐字稿是唯一事實來源。不得加入外部知識、推測性結論、自創案例或自行更正內容。若確實需要補一小段講者沒說的解釋才能看懂，該句或該項目開頭必須標示「（補充）」，讓讀者能和課堂內容區分。來源確實無法辨識時，請標示「[逐字稿內容不清楚]」，不要猜測。不得把含糊或亂碼的段落補成逐字稿中沒有的具體人名、機構、產品、工具、數字或設定。
+3. 逐字稿是唯一事實來源。不得加入外部知識、推測性結論、自創案例或自行更正內容。若確實需要補一小段講者沒說的解釋才能看懂，該句或該項目開頭必須標示「（補充）」，讓讀者能和課堂內容區分。來源確實無法辨識時，請標示「[逐字稿內容不清楚]」，不要猜測。不得把含糊或亂碼的段落補成逐字稿中沒有的具體人名、機構、產品、工具、數字或設定（程式碼中的參數值例外，依第 5 點的程式碼規則處理）。
    - 逐字稿中奇怪或不通順的詞，幾乎都是語音辨識錯誤，而不是講者說錯。若上下文能判斷原本的用詞，直接寫出正確用詞；無法判斷時標示「[逐字稿內容不清楚]」。不得寫成「講者口誤」或「課堂口誤」。
 4. 將相關細節放在一起；當順序具有意義時，保留講者原本的順序。若原文有區分個人意見、建議與既定事實，筆記也要清楚區分。
 5. 輸出適合一般筆記與心智圖解析的 Markdown，採「先總覽、後細節」的結構：
@@ -433,7 +436,10 @@ END TRANSCRIPT`
    - 內容很少時不必硬拆成總覽與細節。
    - 流程、步驟或有順序的項目使用編號列表；單純關係使用文字箭頭（A → B）。
    - 不使用 Markdown 表格，也不插入水平分隔線。
-   - 逐字稿中出現程式碼（指令、函式呼叫、程式片段）時，必須放進完整的程式碼區塊並標註語言（例如「\`\`\`python」……「\`\`\`」）。每個開頭的 \`\`\` 都要有且只有一個獨立成行的結尾 \`\`\`，不得多出或遺漏任何 \`\`\`。句子中的簡短名稱則用單一反引號（例如 \`drop_duplicates()\`）。
+   - 程式碼：
+     - 講者唸出或展示的程式碼，放進完整的程式碼區塊並標註語言（例如「\`\`\`python」……「\`\`\`」）。
+     - 講者用口頭說明的程式操作（例如「用 Pandas 的 sort_values 依重要性由大到小排序」），也依說明重建成程式碼區塊，讓步驟可以直接對照使用。講者提到的函式、物件與參數值照實使用；為了讓程式碼完整可執行，講者沒說的參數值（例如最大深度、隨機種子）可補上常見的預設值，但必須在同一行以註解標示「# 補充：講者未提及，採常見值」（例如 \`clf = DecisionTreeClassifier(max_depth=3, random_state=42)  # 補充：max_depth、random_state 講者未提及，採常見值\`），讓讀者分得出哪些是課堂內容。
+     - 每個開頭的 \`\`\` 都要有且只有一個獨立成行的結尾 \`\`\`，不得多出或遺漏任何 \`\`\`。句子中的簡短名稱則用單一反引號（例如 \`drop_duplicates()\`）。
 6. LaTeX 只用於真正的數學或化學公式。行內公式用單一 $ 包住，獨立公式用 $$ 包住；LaTeX 指令只使用一個反斜線。
 7. 全文使用繁體中文。人名、專有名詞、程式碼或翻譯後會失真的詞彙可保留原文。
 8. 回答前先在內部檢查逐字稿的每個有意義段落是否都已納入。筆記長度應依內容完整度決定，不得為了簡短而省略資訊。${screenshotAnchorInstruction}

@@ -25,7 +25,9 @@ import { useTranslation } from '../contexts/LanguageContext';
 // can span formatting changes (e.g. half-bold), but not a formula or image.
 export interface RichTextEditorHandle {
   findMatches: (query: string, matchCase: boolean) => TextMatch[];
-  showMatches: (matches: TextMatch[], current: number) => void;
+  // Highlights every match, marks `current`, and when `reveal` is set also
+  // selects it and scrolls it into view.
+  showMatches: (matches: TextMatch[], current: number, reveal: boolean) => void;
   replaceMatch: (match: TextMatch, replacement: string) => void;
   replaceAll: (matches: TextMatch[], replacement: string) => void;
 }
@@ -704,12 +706,16 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({ 
       });
       return matches;
     },
-    showMatches: (matches, current) => {
+    showMatches: (matches, current, reveal) => {
       if (!editor) return;
       const tr = editor.state.tr.setMeta(findHighlightKey, { matches, current }).setMeta('addToHistory', false);
-      const target = matches[current];
-      if (target) tr.setSelection(TextSelection.create(tr.doc, target.from, target.to)).scrollIntoView();
+      const target = reveal ? matches[current] : undefined;
+      if (target) tr.setSelection(TextSelection.create(tr.doc, target.from, target.to));
       editor.view.dispatch(tr);
+      // Scrolled here rather than with tr.scrollIntoView(): ProseMirror only
+      // scrolls to the selection while the editor has focus, and focus is in
+      // the find bar's input while stepping through matches.
+      if (target) editor.view.dom.querySelector('.find-match-current')?.scrollIntoView({ block: 'center' });
     },
     replaceMatch: (match, replacement) => {
       if (!editor) return;

@@ -136,13 +136,15 @@ const Editor: React.FC<EditorProps> = ({
 
   // Highlight (and, when navigating, reveal) the matches.
   useEffect(() => {
-    const reveal = revealMatchRef.current;
-    revealMatchRef.current = false;
+    // Kept pending while there's nothing to reveal yet: in rich mode the
+    // matches for a new query arrive a render after the query itself.
+    const reveal = revealMatchRef.current && current >= 0;
+    if (reveal) revealMatchRef.current = false;
     if (mode === 'rich') {
-      richRef.current?.showMatches(isFindOpen ? matches : [], reveal ? current : -1);
+      richRef.current?.showMatches(isFindOpen ? matches : [], current, reveal);
       return;
     }
-    if (!reveal || current < 0) return;
+    if (!reveal) return;
     const textarea = textareaRef.current;
     const mark = backdropRef.current?.querySelector<HTMLElement>('mark.active-match');
     if (textarea && mark) {
@@ -169,7 +171,7 @@ const Editor: React.FC<EditorProps> = ({
   const closeFind = () => {
     setIsFindOpen(false);
     setFindNotice(null);
-    if (mode === 'rich') richRef.current?.showMatches([], -1);
+    if (mode === 'rich') richRef.current?.showMatches([], -1, false);
     else textareaRef.current?.focus();
   };
 

@@ -51,6 +51,25 @@ GROQ_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 # implementation's default no_speech_threshold.
 NO_SPEECH_PROB_THRESHOLD = 0.6
 
+# Auto language mode: Whisper picks a language from the opening seconds of
+# each window it processes and then writes the whole window in it. A window
+# that opens on silence (e.g. a class's practice time) can come back as
+# Portuguese or Russian, with the speaker's Chinese "translated" into it.
+# So the language is detected once, from a short clip that has real speech,
+# and then pinned for the whole recording.
+LANGUAGE_PROBE_SECONDS = 60
+LANGUAGE_PROBE_OFFSETS_SECONDS = (0, 120, 300, 600)
+LANGUAGE_PROBE_MIN_SPEECH_CHARS = 20
+
+# Whisper reports the detected language by name; requests take the code.
+WHISPER_LANGUAGE_CODES = {
+    "chinese": "zh", "mandarin": "zh", "cantonese": "yue", "english": "en", "japanese": "ja",
+    "korean": "ko", "vietnamese": "vi", "thai": "th", "indonesian": "id", "malay": "ms",
+    "tagalog": "tl", "hindi": "hi", "spanish": "es", "portuguese": "pt", "french": "fr",
+    "german": "de", "italian": "it", "dutch": "nl", "russian": "ru", "ukrainian": "uk",
+    "polish": "pl", "turkish": "tr", "arabic": "ar", "hebrew": "he", "swedish": "sv",
+}
+
 GROQ_RATE_LIMIT_MAX_RETRIES = 5
 GROQ_RATE_LIMIT_DEFAULT_WAIT_SECONDS = 15.0
 
@@ -270,6 +289,62 @@ async def _transcribe_bytes(
         if on_rate_limited:
             await on_rate_limited(wait_seconds, attempt + 1)
         await asyncio.sleep(wait_seconds)
+
+
+def _language_code(value) -> Optional[str]:
+    name = str(value or "").strip().lower()
+    if name in WHISPER_LANGUAGE_CODES.values():
+        return name
+    return WHISPER_LANGUAGE_CODES.get(name)
+
+
+def _extract_probe_clip(source_path: str, start_seconds: float, out_path: str) -> bool:
+    if not FFMPEG_BIN:
+        return False
+    try:
+        subprocess.run(
+            [FFMPEG_BIN, "-v", "error", "-y", "-ss", str(start_seconds), "-t", str(LANGUAGE_PROBE_SECONDS),
+             "-i", source_path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", out_path],
+            check=True, capture_output=True, timeout=60,
+        )
+        return os.path.getsize(out_path) > 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+async def detect_spoken_language(
+    source_path: str,
+    groq_api_key: str,
+    on_rate_limited: Optional[Callable[[float, int], Awaitable[None]]] = None,
+) -> Optional[str]:
+    """
+    Transcribes short clips from the start of the recording until one has
+    enough real speech, and returns the language Whisper detected there as a
+    code (e.g. "zh"). Returns None when no clip has speech or the language
+    isn't recognised — the caller then falls back to Whisper's own per-window
+    detection, i.e. the previous behavior. A rejected key or an exhausted
+    rate limit still raises, as the transcription itself would.
+    """
+    duration_seconds = _probe_duration_seconds(source_path)
+    with tempfile.TemporaryDirectory(prefix="voice_note_probe_") as tmp_dir:
+        for offset in LANGUAGE_PROBE_OFFSETS_SECONDS:
+            if offset and duration_seconds and offset >= duration_seconds:
+                break
+            clip_path = os.path.join(tmp_dir, f"probe_{offset}.mp3")
+            if not await asyncio.to_thread(_extract_probe_clip, source_path, offset, clip_path):
+                return None
+            with open(clip_path, "rb") as f:
+                clip_bytes = f.read()
+            try:
+                raw = await _transcribe_bytes(clip_bytes, "probe.mp3", groq_api_key, None, on_rate_limited)
+            except (InvalidGroqApiKeyError, GroqRateLimitError):
+                raise
+            except Exception:
+                return None
+            speech = "".join(str(seg.get("text") or "").strip() for seg in _drop_silent_segments(raw.get("segments") or []))
+            if len(speech) >= LANGUAGE_PROBE_MIN_SPEECH_CHARS:
+                return _language_code(raw.get("language"))
+    return None
 
 
 ChunkDoneCallback = Callable[[int, int], Awaitable[None]]

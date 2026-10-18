@@ -294,7 +294,7 @@ Speech recognition often turns terminology, names, product names, English acrony
 1. "asr" corrections: recognition errors carried into the note, especially proper nouns and technical terms. Only when the context makes the correct term clear.
 2. "mismatch" corrections: places where the note contradicts the transcript (misread meaning, wrongly copied numbers or formulas, reversed cause-and-effect or comparisons). "evidence" must be an exact, verbatim quote copied from the transcript that proves the correction.
 3. "find" must be copied exactly from the note and be just long enough to be unambiguous (a term or short phrase); "replace" is its corrected form. Do not add new information, explanations or content that is missing from the note.
-4. "flags": statements that clearly conflict with well-established knowledge, transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so is a code parameter value already marked with a "# Supplement" comment, so do not flag either. List flags with the reason; do not correct them.
+4. "flags": statements that clearly conflict with well-established knowledge, transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so are a code parameter value already marked with a "# Supplement" comment and a standard formula already marked "(Supplement)", so do not flag any of these. List flags with the reason; do not correct them.
 5. If there is nothing to report, return empty lists. Write "reason" in English.
 
 BEGIN NOTE
@@ -310,7 +310,7 @@ END TRANSCRIPT`
 1. 「asr」修正：被帶進筆記的辨識錯誤，特別是專有名詞與術語。只有在上下文能明確判斷正確用詞時才列出。
 2. 「mismatch」修正：筆記與逐字稿不符之處（誤解原意、數字或公式抄錯、因果或比較關係顛倒）。「evidence」必須是從逐字稿逐字複製、能證明此修正的原文片段。
 3. 「find」必須從筆記中逐字複製，長度只要足以辨識即可（一個詞或短語）；「replace」是修正後的寫法。不得加入筆記沒有的新資訊、解釋或內容。
-4. 「flags」：明顯與公認知識不符的說法、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，程式碼中已用「# 補充」註解標示的參數值也不算，都不要列出。列出並說明原因，不要修正。
+4. 「flags」：明顯與公認知識不符的說法、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，程式碼中已用「# 補充」註解標示的參數值、開頭已標示「（補充）」的標準公式也不算，都不要列出。列出並說明原因，不要修正。
 5. 若沒有任何問題，回傳空清單。「reason」使用繁體中文。
 
 筆記開始
@@ -411,6 +411,8 @@ Requirements:
      - Code the speaker explains in words (e.g. "sort the importances with Pandas' sort_values, largest first") is also rebuilt as a code block from that explanation, so the steps can be followed directly. Use the functions, objects and parameter values the speaker mentions as stated; to keep the code complete and runnable, a value the speaker did not give (such as a max depth or random seed) may be filled in with a common default, but mark it with a comment on the same line: "# Supplement: not stated by the speaker, common value" (e.g. \`clf = DecisionTreeClassifier(max_depth=3, random_state=42)  # Supplement: max_depth, random_state not stated by the speaker, common values\`), so readers can tell it apart from the lecture content.
      - Every opening fence must have exactly one matching closing fence on its own line, and never emit an extra or unpaired "\`\`\`". Short identifiers inside a sentence use single backticks instead (e.g. \`drop_duplicates()\`).
 6. Use LaTeX only for real mathematical or chemical formulas. Wrap inline formulas in a single $ and block formulas in $$. Use one backslash per LaTeX command.
+   - Write out any formula the speaker reads out or writes as stated.
+   - When the speaker names a well-known, verifiable formula or metric (e.g. F1 score, the sigmoid function, Euclidean distance, Gini impurity) without stating it, add the standard formula one level below that item, starting with "(Supplement)" (e.g. "(Supplement) $F_1 = \\dfrac{2 \\cdot Precision \\cdot Recall}{Precision + Recall}$"). Never add a formula for a method the speaker devised or a calculation specific to the course or an organization.
 7. Write the entire note in English. Proper nouns, technical terms, and code may remain in their original form when translation would reduce accuracy.
 8. Before answering, silently verify that every meaningful section of the transcript is represented. The note should be as long as needed for completeness.${screenshotAnchorInstruction}
 
@@ -441,6 +443,8 @@ END TRANSCRIPT`
      - 講者用口頭說明的程式操作（例如「用 Pandas 的 sort_values 依重要性由大到小排序」），也依說明重建成程式碼區塊，讓步驟可以直接對照使用。講者提到的函式、物件與參數值照實使用；為了讓程式碼完整可執行，講者沒說的參數值（例如最大深度、隨機種子）可補上常見的預設值，但必須在同一行以註解標示「# 補充：講者未提及，採常見值」（例如 \`clf = DecisionTreeClassifier(max_depth=3, random_state=42)  # 補充：max_depth、random_state 講者未提及，採常見值\`），讓讀者分得出哪些是課堂內容。
      - 每個開頭的 \`\`\` 都要有且只有一個獨立成行的結尾 \`\`\`，不得多出或遺漏任何 \`\`\`。句子中的簡短名稱則用單一反引號（例如 \`drop_duplicates()\`）。
 6. LaTeX 只用於真正的數學或化學公式。行內公式用單一 $ 包住，獨立公式用 $$ 包住；LaTeX 指令只使用一個反斜線。
+   - 講者唸出或寫出的公式，照實寫成公式。
+   - 講者提到公認、可查證的公式或指標（例如 F1 分數、Sigmoid 函數、歐幾里得距離、Gini 不純度），但沒有說出公式時，在該項目的下一層補上標準公式，開頭標示「（補充）」（例如「（補充）$F_1 = \\dfrac{2 \\cdot Precision \\cdot Recall}{Precision + Recall}$」）。講者自創的方法、特定課程或企業內部的計算方式，不得自行補上公式。
 7. 全文使用繁體中文。人名、專有名詞、程式碼或翻譯後會失真的詞彙可保留原文。
 8. 回答前先在內部檢查逐字稿的每個有意義段落是否都已納入。筆記長度應依內容完整度決定，不得為了簡短而省略資訊。${screenshotAnchorInstruction}
 

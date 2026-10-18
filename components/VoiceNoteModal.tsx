@@ -3,7 +3,6 @@ import { XIcon, MicIcon, StopCircleIcon, WarningIcon, UploadIcon, ExportIcon } f
 import Spinner from './Spinner';
 import type { VoiceNoteState, useVoiceNotePipeline } from '../hooks/useVoiceNotePipeline';
 import { useTranslation } from '../contexts/LanguageContext';
-import { fetchYoutubeInfo, type YoutubeVideoInfo } from '../services/backendAudioService';
 
 type VoiceNoteActions = ReturnType<typeof useVoiceNotePipeline>['actions'];
 
@@ -20,9 +19,6 @@ interface VoiceNoteModalProps {
   // see actions.setMicrophoneDeviceId and startRecording in
   // useVoiceNotePipeline.ts.
   microphoneDeviceId: string;
-  // Must match the backend's YOUTUBE_ACCESS_TOKEN; empty until set in Settings.
-  youtubeAccessToken: string;
-  onOpenSettings: () => void;
 }
 
 const formatDuration = (totalSeconds: number): string => {
@@ -47,7 +43,7 @@ const ProgressBar: React.FC<{ fraction: number }> = ({ fraction }) => (
   </div>
 );
 
-const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state, actions, microphoneDeviceId, youtubeAccessToken, onOpenSettings }) => {
+const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state, actions, microphoneDeviceId }) => {
   const { t } = useTranslation();
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [captureTabAudio, setCaptureTabAudio] = useState(false);
@@ -55,9 +51,6 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [microphoneOptions, setMicrophoneOptions] = useState<MediaDeviceInfo[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [youtubeUrl, setYoutubeUrl] = useState('');
-  const [youtubeInfo, setYoutubeInfo] = useState<YoutubeVideoInfo | null>(null);
-  const [youtubeLookup, setYoutubeLookup] = useState<{ status: 'idle' | 'loading' | 'waking' | 'error'; message?: string }>({ status: 'idle' });
 
   const { stage } = state;
   useEffect(() => { setShowDiscardConfirm(false); }, [stage]);
@@ -118,24 +111,6 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
     if (file) actions.selectFile(file);
   };
 
-  // Confirms the link points at the intended video (title, length) before
-  // committing to a download and transcription.
-  const lookUpYoutube = async () => {
-    const url = youtubeUrl.trim();
-    if (!url) return;
-    setYoutubeInfo(null);
-    setYoutubeLookup({ status: 'loading' });
-    try {
-      const info = await fetchYoutubeInfo(url, youtubeAccessToken, {
-        onWakeupRetry: () => setYoutubeLookup({ status: 'waking' }),
-      });
-      setYoutubeInfo(info);
-      setYoutubeLookup({ status: 'idle' });
-    } catch (error) {
-      setYoutubeLookup({ status: 'error', message: error instanceof Error ? error.message : String(error) });
-    }
-  };
-
   const renderDiscardConfirm = (label: string) => (
     <div className="flex flex-col items-center gap-2 mt-5">
       <p className="text-xs text-text-secondary">{label}</p>
@@ -182,84 +157,9 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
               >
                 {t('voiceNote.tabUpload')}
               </button>
-              <button
-                role="tab"
-                aria-selected={inputMode === 'youtube'}
-                onClick={() => actions.setInputMode('youtube')}
-                className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ease-apple ${
-                  inputMode === 'youtube' ? 'bg-accent text-white shadow-apple-xs' : 'text-text-secondary hover:text-text-main'
-                }`}
-              >
-                {t('voiceNote.tabYoutube')}
-              </button>
             </div>
 
-            {inputMode === 'youtube' ? (
-              <div className="w-full text-left">
-                <p className="text-sm text-text-secondary mb-4 leading-relaxed text-center">
-                  {t('voiceNote.youtubeDescription')}
-                </p>
-                {!youtubeAccessToken ? (
-                  <div className="text-center">
-                    <p className="text-sm text-text-main mb-3">{t('voiceNote.youtubeNeedsToken')}</p>
-                    <button
-                      onClick={onOpenSettings}
-                      className="px-4 py-2 text-sm font-medium rounded-full bg-accent text-white hover:opacity-90 transition-all duration-150 ease-apple active:scale-95"
-                    >
-                      {t('voiceNote.youtubeOpenSettings')}
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <label htmlFor="youtube-url" className="block text-xs font-medium text-text-main mb-1">{t('voiceNote.youtubeUrlLabel')}</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        id="youtube-url"
-                        type="url"
-                        value={youtubeUrl}
-                        onChange={(e) => { setYoutubeUrl(e.target.value); setYoutubeInfo(null); setYoutubeLookup({ status: 'idle' }); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); void lookUpYoutube(); } }}
-                        placeholder="https://youtu.be/..."
-                        className="flex-grow min-w-0 px-3 py-2 bg-secondary border border-transparent rounded-xl text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
-                      />
-                      <button
-                        onClick={() => void lookUpYoutube()}
-                        disabled={!youtubeUrl.trim() || youtubeLookup.status === 'loading' || youtubeLookup.status === 'waking'}
-                        className="px-3 py-2 text-sm font-medium rounded-xl bg-secondary text-text-main hover:bg-border-color/60 disabled:opacity-40 transition-colors duration-150 ease-apple flex-shrink-0"
-                      >
-                        {youtubeLookup.status === 'loading' || youtubeLookup.status === 'waking' ? t('voiceNote.youtubeLookingUp') : t('voiceNote.youtubeLookup')}
-                      </button>
-                    </div>
-                    {youtubeLookup.status === 'waking' && (
-                      <p className="text-xs text-text-secondary mt-2">{t('voiceNote.backendWakingUp')}</p>
-                    )}
-                    {youtubeLookup.status === 'error' && (
-                      <p className="text-xs text-red-600 dark:text-red-400 mt-2 leading-relaxed">{youtubeLookup.message}</p>
-                    )}
-                    {youtubeInfo && (
-                      <div className="mt-3 rounded-xl border border-border-color/70 bg-secondary/60 px-3 py-2.5">
-                        <p className="text-sm font-medium text-text-main break-words">{youtubeInfo.title || youtubeUrl.trim()}</p>
-                        <p className="text-xs text-text-secondary mt-0.5">
-                          {[youtubeInfo.uploader, youtubeInfo.duration_seconds ? t('voiceNote.youtubeDuration', { duration: formatDuration(youtubeInfo.duration_seconds) }) : null].filter(Boolean).join(' · ')}
-                        </p>
-                        {youtubeInfo.too_long && (
-                          <p className="text-xs text-red-600 dark:text-red-400 mt-1">{t('youtube.errorTooLong')}</p>
-                        )}
-                      </div>
-                    )}
-                    <div className="text-center mt-4">
-                      <button
-                        onClick={() => actions.startYoutube(youtubeUrl.trim())}
-                        disabled={!youtubeInfo || youtubeInfo.too_long}
-                        className="px-5 py-2 text-sm font-medium rounded-full bg-accent text-white hover:opacity-90 disabled:opacity-40 transition-all duration-150 ease-apple active:scale-95"
-                      >
-                        {t('voiceNote.youtubeStart')}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : inputMode === 'record' ? (
+            {inputMode === 'record' ? (
               <>
                 <p className="text-sm text-text-secondary mb-4 leading-relaxed">
                   {t('voiceNote.recordDescription')}
@@ -436,14 +336,8 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
         const showSegmentProgress = processingPhase === 'transcribing' && totalSegments > 1;
         const segmentFraction = totalSegments > 0 ? completedSegments / totalSegments : 0;
 
-        const showDownloadProgress = processingPhase === 'downloading' && state.downloadPercent !== null;
         let label = t('voiceNote.generatingLabel');
         if (processingPhase === 'proofreading') label = t('voiceNote.proofreadingLabel');
-        else if (processingPhase === 'downloading') {
-          label = showDownloadProgress
-            ? t('voiceNote.downloadingYoutubePercent', { percent: state.downloadPercent ?? 0 })
-            : t('voiceNote.downloadingYoutube');
-        }
         else if (processingPhase === 'normalizing') label = hasVideo ? t('voiceNote.extractingAudio') : t('voiceNote.normalizingAudio');
         else if (processingPhase === 'uploading') label = t('voiceNote.uploadingAudio');
         else if (processingPhase === 'transcribing') {
@@ -471,9 +365,9 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
             {hasVideo && previewUrl && (
               <video src={previewUrl} controls className="w-full max-h-40 rounded-lg mb-4 bg-black" />
             )}
-            {showSegmentProgress || showDownloadProgress ? (
+            {showSegmentProgress ? (
               <div className="w-full mb-4">
-                <ProgressBar fraction={showDownloadProgress ? (state.downloadPercent ?? 0) / 100 : segmentFraction} />
+                <ProgressBar fraction={segmentFraction} />
               </div>
             ) : (
               <Spinner className="w-8 h-8 text-accent mb-4" />

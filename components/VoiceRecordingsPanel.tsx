@@ -119,17 +119,14 @@ const VoiceRecordingsPanel: React.FC<VoiceRecordingsPanelProps> = ({
                     <p className="text-xs text-text-secondary line-clamp-3 mb-2 leading-relaxed">{rec.transcript}</p>
                   )}
                   <div className="flex items-center gap-3">
-                    {/* A note made from a YouTube link keeps only its transcript. */}
-                    {rec.segments.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => downloadStoredAudio(rec, title)}
-                        className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
-                      >
-                        <ExportIcon className="w-3.5 h-3.5" />
-                        {t('voiceRecordings.downloadAudio')}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => downloadStoredAudio(rec, title)}
+                      className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+                    >
+                      <ExportIcon className="w-3.5 h-3.5" />
+                      {t('voiceRecordings.downloadAudio')}
+                    </button>
                     <button
                       type="button"
                       onClick={() => downloadTranscript(rec, title)}

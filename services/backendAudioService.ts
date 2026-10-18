@@ -58,7 +58,7 @@ const pingBackendAwake = async (signal: AbortSignal | undefined, onRetrying?: ()
 };
 
 export interface BackendTranscribeProgress {
-    phase: 'downloading' | 'normalizing' | 'splitting' | 'transcribing' | 'rate_limited';
+    phase: 'normalizing' | 'splitting' | 'transcribing' | 'rate_limited';
     percent?: number;
     completed?: number;
     total?: number;
@@ -105,17 +105,8 @@ export const transcribeViaBackend = async (
         signal,
     });
 
-    return readTranscriptionStream(response, onProgress);
-};
-
-/** Reads the backend's progress/final/error SSE stream into a result. */
-const readTranscriptionStream = async (
-    response: Response,
-    onProgress?: (progress: BackendTranscribeProgress) => void,
-): Promise<TranscriptionResult> => {
     if (!response.ok) {
         const data = await response.json().catch(() => null);
-        if (data?.error_type) throw mapBackendError(data);
         throw new Error(data?.message || translate('groq.transcriptionFailedHttp', { status: response.status }));
     }
 
@@ -141,94 +132,6 @@ const readTranscriptionStream = async (
     return finalResult;
 };
 
-export class YoutubeSourceError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'YoutubeSourceError';
-    }
-}
-
-// Server-side reasons a YouTube link failed (see backend/youtube_audio.py's
-// _classify_error), turned into something the user can act on.
-const youtubeErrorMessage = (data: any): string => {
-    switch (data?.error_type === 'youtube_error' ? data?.youtube_error_type : data?.error_type) {
-        case 'youtube_unauthorized':
-            return translate('youtube.errorUnauthorized');
-        case 'youtube_bad_url':
-            return translate('youtube.errorBadUrl');
-        case 'bot_check':
-        case 'download_forbidden':
-        case 'rate_limited':
-            return translate('youtube.errorBlocked');
-        case 'login_required':
-            return translate('youtube.errorLoginRequired');
-        case 'unavailable':
-            return translate('youtube.errorUnavailable');
-        case 'too_long':
-            return translate('youtube.errorTooLong');
-        default:
-            return translate('youtube.errorGeneric', { message: data?.message || '' });
-    }
-};
-
-export interface YoutubeVideoInfo {
-    title: string | null;
-    uploader: string | null;
-    duration_seconds: number | null;
-    too_long: boolean;
-}
-
-const youtubeHeaders = (accessToken: string) => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${accessToken}`,
-});
-
-/** Looks up a YouTube video's title and length, for confirming before transcribing. */
-export const fetchYoutubeInfo = async (
-    url: string,
-    accessToken: string,
-    options: { signal?: AbortSignal; onWakeupRetry?: () => void } = {},
-): Promise<YoutubeVideoInfo> => {
-    if (!accessToken) throw new YoutubeSourceError(translate('youtube.errorMissingToken'));
-    await pingBackendAwake(options.signal, options.onWakeupRetry);
-    const response = await fetch(`${BACKEND_URL}/youtube/info`, {
-        method: 'POST',
-        headers: youtubeHeaders(accessToken),
-        body: JSON.stringify({ url }),
-        signal: options.signal,
-    });
-    const data = await response.json().catch(() => null);
-    if (response.status === 404) throw new YoutubeSourceError(translate('youtube.errorNotEnabled'));
-    if (!response.ok) throw new YoutubeSourceError(youtubeErrorMessage(data));
-    return data as YoutubeVideoInfo;
-};
-
-/**
- * Has the backend download a YouTube video's audio and transcribe it — the
- * same result and progress events as transcribeViaBackend, with a
- * 'downloading' phase first.
- */
-export const transcribeYoutubeViaBackend = async (
-    url: string,
-    accessToken: string,
-    groqApiKey: string,
-    options: TranscribeViaBackendOptions = {},
-): Promise<TranscriptionResult> => {
-    const { signal, onProgress, onWakeupRetry } = options;
-    if (!groqApiKey) throw new MissingGroqApiKeyError();
-    if (!accessToken) throw new YoutubeSourceError(translate('youtube.errorMissingToken'));
-
-    await pingBackendAwake(signal, onWakeupRetry);
-    const response = await fetch(`${BACKEND_URL}/youtube/transcribe/stream`, {
-        method: 'POST',
-        headers: youtubeHeaders(accessToken),
-        body: JSON.stringify({ url, groq_api_key: groqApiKey, language: getTranscriptionLanguage() }),
-        signal,
-    });
-    if (response.status === 404) throw new YoutubeSourceError(translate('youtube.errorNotEnabled'));
-    return readTranscriptionStream(response, onProgress);
-};
-
 const mapBackendError = (data: any): Error => {
     const message: string = data?.message || translate('pipeline.unknownError');
     switch (data?.error_type) {
@@ -242,10 +145,6 @@ const mapBackendError = (data: any): Error => {
             return new Error(translate('groq.noSpeechDetected'));
         case 'too_large':
             return new FileTooLargeError();
-        case 'youtube_error':
-        case 'youtube_unauthorized':
-        case 'youtube_bad_url':
-            return new YoutubeSourceError(youtubeErrorMessage(data));
         default:
             return new Error(message);
     }

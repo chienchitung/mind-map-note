@@ -5,5 +5,3 @@ python-multipart==0.0.32
 python-dotenv==1.2.4
 httpx==0.28.1
 opencc-python-reimplemented==0.1.7
-yt-dlp[default]==2026.8.19
-deno==2.9.7

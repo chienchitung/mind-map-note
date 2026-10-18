@@ -8,7 +8,7 @@ import {
   InvalidGroqApiKeyError,
   type TranscriptionResult,
 } from '../services/groqTranscriptionService';
-import { transcribeViaBackend, transcribeYoutubeViaBackend, MAX_BACKEND_UPLOAD_BYTES, type BackendTranscribeProgress } from '../services/backendAudioService';
+import { transcribeViaBackend, MAX_BACKEND_UPLOAD_BYTES, type BackendTranscribeProgress } from '../services/backendAudioService';
 // Statically imported (not `await import(...)`) so this module is bundled
 // into the entry chunk rather than its own hashed lazy chunk — the same
 // reasoning as VoiceNoteModal's entry-bundle move: a deployment that
@@ -33,8 +33,8 @@ import useLocalStorage from './useLocalStorage';
 const MICROPHONE_DEVICE_ID_STORAGE_KEY = 'voice-note-microphone-device-id';
 
 export type VoiceNoteStage = 'idle' | 'recording' | 'processing' | 'error';
-export type VoiceNoteInputMode = 'record' | 'upload' | 'youtube';
-export type VoiceNoteProcessingPhase = 'downloading' | 'uploading' | 'normalizing' | 'transcribing' | 'generating' | 'proofreading';
+export type VoiceNoteInputMode = 'record' | 'upload';
+export type VoiceNoteProcessingPhase = 'uploading' | 'normalizing' | 'transcribing' | 'generating' | 'proofreading';
 
 export interface VoiceNoteState {
   stage: VoiceNoteStage;
@@ -92,9 +92,6 @@ export interface VoiceNoteState {
   // far this session — see startScreenshotCapture. Always 0 unless the
   // current recording kept a video track (captureVideo).
   screenshotCount: number;
-  // While the backend downloads a YouTube video's audio (processingPhase
-  // 'downloading'), how far along it is; null when unknown or not applicable.
-  downloadPercent: number | null;
 }
 
 export interface VoiceRecordingData {
@@ -115,8 +112,6 @@ export interface VoiceRecordingData {
 
 interface UseVoiceNotePipelineOptions {
   groqApiKey: string;
-  // Sent with YouTube links; the backend only fetches videos for its owner.
-  youtubeAccessToken: string;
   geminiApiKey: string;
   // `recording` carries the raw transcript and every audio segment that
   // went into it, for callers that want to persist the source material
@@ -269,10 +264,9 @@ const initialState: VoiceNoteState = {
   previewUrl: null,
   awaitingVideoReview: false,
   screenshotCount: 0,
-  downloadPercent: null,
 };
 
-export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApiKey, onNoteGenerated, onError, insertImage }: UseVoiceNotePipelineOptions) => {
+export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated, onError, insertImage }: UseVoiceNotePipelineOptions) => {
   const [state, setState] = useState<VoiceNoteState>(initialState);
   const [microphoneDeviceId, setMicrophoneDeviceId] = useLocalStorage<string>(MICROPHONE_DEVICE_ID_STORAGE_KEY, '');
   const microphoneDeviceIdRef = useRef(microphoneDeviceId);
@@ -283,8 +277,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
   // sees the latest values without needing to be torn down and restarted
   // whenever a prop changes mid-flight.
   const groqApiKeyRef = useRef(groqApiKey);
-  const youtubeAccessTokenRef = useRef(youtubeAccessToken);
-  useEffect(() => { youtubeAccessTokenRef.current = youtubeAccessToken; }, [youtubeAccessToken]);
   const geminiApiKeyRef = useRef(geminiApiKey);
   const onNoteGeneratedRef = useRef(onNoteGenerated);
   const onErrorRef = useRef(onError);
@@ -590,7 +582,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
       previewUrl: null,
       awaitingVideoReview: false,
       screenshotCount: 0,
-      downloadPercent: null,
     }));
   }, []);
 
@@ -747,24 +738,17 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
   // queue: the backend itself splits an oversized file into Groq-sized
   // chunks and retries rate-limited ones (see backend/audio_pipeline.py),
   // so there's only ever one request to make here regardless of length.
-  //
-  // `source` is either a recorded/selected blob (uploaded to the backend)
-  // or a YouTube link (downloaded by the backend itself); everything after
-  // the transcription result comes back is the same for both.
-  const transcribeSource = useCallback(async (
-    source: { blob: Blob; filename: string } | { youtubeUrl: string },
-  ) => {
+  const uploadAndTranscribe = useCallback(async (blobOrFile: Blob, filename: string) => {
     if (cancelledRef.current) return;
-    const isYoutube = 'youtubeUrl' in source;
     setState(s => ({
-      ...s, processingPhase: isYoutube ? 'downloading' : 'uploading', totalSegments: 0, completedSegments: 0,
-      backendWakingUp: false, downloadPercent: null,
+      ...s, processingPhase: 'uploading', totalSegments: 0, completedSegments: 0,
+      backendWakingUp: false,
     }));
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
     try {
-      const options = {
+      const result = await transcribeViaBackend(blobOrFile, filename, groqApiKeyRef.current, {
         signal: controller.signal,
         onWakeupRetry: () => {
           if (cancelledRef.current) return;
@@ -772,9 +756,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
         },
         onProgress: (progress: BackendTranscribeProgress) => {
           if (cancelledRef.current) return;
-          if (progress.phase === 'downloading') {
-            setState(s => ({ ...s, processingPhase: 'downloading', backendWakingUp: false, downloadPercent: progress.percent ?? s.downloadPercent }));
-          } else if (progress.phase === 'normalizing' || progress.phase === 'splitting') {
+          if (progress.phase === 'normalizing' || progress.phase === 'splitting') {
             setState(s => ({ ...s, processingPhase: 'normalizing', backendWakingUp: false }));
           } else if (progress.phase === 'transcribing') {
             setState(s => ({
@@ -791,17 +773,12 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
             void waitForRateLimitCooldown(progress.waitSeconds ?? 15);
           }
         },
-      };
-      const result: TranscriptionResult = isYoutube
-        ? await transcribeYoutubeViaBackend(source.youtubeUrl, youtubeAccessTokenRef.current, groqApiKeyRef.current, options)
-        : await transcribeViaBackend(source.blob, source.filename, groqApiKeyRef.current, options);
+      });
       if (cancelledRef.current) return;
 
       transcriptPartsRef.current.push(result.text);
       timestampedTranscriptPartsRef.current.push(...buildTimestampedLines(result));
-      // A YouTube session has no local audio to keep; only its transcript
-      // is saved with the note.
-      if (!isYoutube) audioSegmentsRef.current.push(source.blob);
+      audioSegmentsRef.current.push(blobOrFile);
       setState(s => ({ ...s, transcriptSoFar: result.text, totalSegments: 1, completedSegments: 1 }));
 
       if (videoReviewPendingRef.current || finalizedRef.current) {
@@ -940,7 +917,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
 
   // Lets a paused-for-video-review pipeline proceed to note generation —
   // see awaitingVideoReview. A no-op if there's nothing pending, or if
-  // transcription hasn't produced a result yet (transcribeSource's own
+  // transcription hasn't produced a result yet (uploadAndTranscribe's own
   // success handler picks this up once it does, since videoReviewPendingRef
   // will already be false by then).
   const confirmVideoReviewed = useCallback(() => {
@@ -1184,7 +1161,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
         }
 
         const filename = `recording-${Date.now()}.${extensionForMimeType(capturedMimeType)}`;
-        void transcribeSource({ blob, filename });
+        void uploadAndTranscribe(blob, filename);
       };
 
       mediaRecorderRef.current = recorder;
@@ -1212,7 +1189,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
         handlePipelineError(new Error(translate('pipeline.recordingStartFailed')));
       }
     }
-  }, [handlePipelineError, monitorMicrophoneStream, stopRecording, updateElapsedFromClock, transcribeSource]);
+  }, [handlePipelineError, monitorMicrophoneStream, stopRecording, updateElapsedFromClock, uploadAndTranscribe]);
 
   // Synchronize immediately when a background tab becomes visible again;
   // otherwise the UI can briefly show the last throttled timer value.
@@ -1279,42 +1256,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
       previewUrl: previewUrlRef.current,
     }));
 
-    await transcribeSource({ blob: file, filename: file.name });
-  }, [handlePipelineError, transcribeSource]);
-
-  // A YouTube link: the backend downloads the audio itself, so nothing is
-  // uploaded and there's no local recording to preview or download.
-  const startYoutube = useCallback(async (url: string) => {
-    cancelledRef.current = false;
-    finalizedRef.current = false;
-    transcriptPartsRef.current = [];
-    timestampedTranscriptPartsRef.current = [];
-    audioSegmentsRef.current = [];
-    rawRecordingBlobRef.current = null;
-    uploadedFileRef.current = null;
-    hasVideoRef.current = false;
-    revokePreviewUrl();
-
-    setState(s => ({
-      ...s,
-      stage: 'processing',
-      processingPhase: 'downloading',
-      errorMessage: '',
-      totalSegments: 0,
-      completedSegments: 0,
-      transcriptSoFar: '',
-      rateLimitRetrySeconds: null,
-      generationRetrySeconds: null,
-      backendWakingUp: false,
-      microphoneStatus: 'connected',
-      hasVideo: false,
-      canDownload: false,
-      previewUrl: null,
-      downloadPercent: null,
-    }));
-
-    await transcribeSource({ youtubeUrl: url });
-  }, [transcribeSource]);
+    await uploadAndTranscribe(file, file.name);
+  }, [handlePipelineError, uploadAndTranscribe]);
 
   // Downloads whatever raw source material is currently available —
   // the originally uploaded file at full quality, or the raw recorded
@@ -1391,7 +1334,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
       previewUrl: null,
       awaitingVideoReview: false,
       screenshotCount: 0,
-      downloadPercent: null,
     }));
   }, []);
 
@@ -1471,7 +1413,7 @@ export const useVoiceNotePipeline = ({ groqApiKey, youtubeAccessToken, geminiApi
     state,
     microphoneDeviceId,
     actions: {
-      startRecording, stopRecording, selectFile, startYoutube, cancel, retry, setInputMode, downloadRecording, confirmVideoReviewed,
+      startRecording, stopRecording, selectFile, cancel, retry, setInputMode, downloadRecording, confirmVideoReviewed,
       setMicrophoneDeviceId,
     },
   };

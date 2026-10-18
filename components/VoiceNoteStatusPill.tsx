@@ -34,7 +34,6 @@ const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClic
       label = t('voicePill.awaitingVideoReview');
     } else if (processingPhase === 'normalizing') label = hasVideo ? t('voicePill.extractingAudio') : t('voicePill.normalizing');
     else if (processingPhase === 'uploading') label = t('voicePill.uploading');
-    else if (processingPhase === 'downloading') label = t('voicePill.downloading');
     else if (processingPhase === 'transcribing') {
       label = totalSegments > 1 ? t('voicePill.transcribingSegments', { completed: completedSegments, total: totalSegments }) : t('voicePill.transcribing');
     } else if (processingPhase === 'generating') {

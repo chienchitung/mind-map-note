@@ -10,8 +10,6 @@ interface SettingsModalProps {
   onSaveApiKey: (key: string) => void;
   groqApiKey: string;
   onSaveGroqApiKey: (key: string) => void;
-  youtubeAccessToken: string;
-  onSaveYoutubeAccessToken: (token: string) => void;
   transcriptionLanguage: TranscriptionLanguage;
   onSaveTranscriptionLanguage: (language: TranscriptionLanguage) => void;
   onExportBackup: () => void;
@@ -25,8 +23,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaveApiKey,
   groqApiKey,
   onSaveGroqApiKey,
-  youtubeAccessToken,
-  onSaveYoutubeAccessToken,
   transcriptionLanguage,
   onSaveTranscriptionLanguage,
   onExportBackup,
@@ -37,7 +33,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isRevealed, setIsRevealed] = useState(false);
   const [draftGroqKey, setDraftGroqKey] = useState(groqApiKey);
   const [isGroqRevealed, setIsGroqRevealed] = useState(false);
-  const [draftYoutubeToken, setDraftYoutubeToken] = useState(youtubeAccessToken);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,16 +41,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsRevealed(false);
       setDraftGroqKey(groqApiKey);
       setIsGroqRevealed(false);
-      setDraftYoutubeToken(youtubeAccessToken);
     }
-  }, [isOpen, apiKey, groqApiKey, youtubeAccessToken]);
+  }, [isOpen, apiKey, groqApiKey]);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
     onSaveApiKey(draftKey.trim());
     onSaveGroqApiKey(draftGroqKey.trim());
-    onSaveYoutubeAccessToken(draftYoutubeToken.trim());
     onClose();
   };
 
@@ -244,23 +237,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               ))}
             </div>
-          </div>
-
-          <div className="mt-5">
-            <label htmlFor="youtube-access-token" className="block text-sm font-medium text-text-main mb-1.5">
-              {t('settings.youtubeAccessToken')}
-            </label>
-            <p className="text-sm text-text-secondary mb-3 leading-relaxed">{t('settings.youtubeAccessTokenDescription')}</p>
-            <input
-              id="youtube-access-token"
-              type="password"
-              value={draftYoutubeToken}
-              onChange={(e) => setDraftYoutubeToken(e.target.value)}
-              placeholder={t('settings.youtubeAccessTokenPlaceholder')}
-              autoComplete="off"
-              spellCheck={false}
-              className="w-full px-3.5 py-2.5 bg-secondary border border-transparent rounded-xl text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors duration-150 ease-apple"
-            />
           </div>
         </section>
 

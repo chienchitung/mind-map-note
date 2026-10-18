@@ -24,7 +24,8 @@ from urllib.parse import urlparse
 
 import yt_dlp
 
-DEFAULT_COOKIES_FILE = "/etc/secrets/youtube_cookies.txt"
+SECRETS_DIR = "/etc/secrets"
+DEFAULT_COOKIES_FILE = f"{SECRETS_DIR}/youtube_cookies.txt"
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"}
 
 
@@ -53,6 +54,28 @@ def _cookies_file() -> Optional[str]:
     return path if path and os.path.isfile(path) else None
 
 
+def _secret_file_names() -> list:
+    # Names only, never contents: shown when the cookies file isn't found,
+    # so a misnamed Secret File is easy to spot.
+    try:
+        return sorted(os.listdir(SECRETS_DIR))
+    except OSError:
+        return []
+
+
+def _cookies_format(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            head = f.read(4096)
+    except OSError:
+        return "unreadable"
+    if head.lstrip().startswith(("[", "{")):
+        return "json (yt-dlp needs the Netscape cookies.txt format)"
+    if "# Netscape HTTP Cookie File" in head or "# HTTP Cookie File" in head or "\t" in head:
+        return "netscape"
+    return "unknown"
+
+
 def _deno_path() -> Optional[str]:
     try:
         import deno
@@ -79,6 +102,11 @@ def probe(url: str) -> dict:
     cookies_source = _cookies_file()
     deno_path = _deno_path()
     report = {"cookies_used": bool(cookies_source), "js_runtime": bool(deno_path)}
+    if cookies_source:
+        report["cookies_format"] = _cookies_format(cookies_source)
+    else:
+        report["cookies_expected_at"] = os.getenv("YOUTUBE_COOKIES_FILE", DEFAULT_COOKIES_FILE)
+        report["secret_files_found"] = _secret_file_names()
 
     with tempfile.TemporaryDirectory(prefix="yt_probe_") as tmp_dir:
         options = {

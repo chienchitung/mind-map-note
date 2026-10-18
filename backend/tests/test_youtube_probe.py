@@ -57,5 +57,25 @@ class YoutubeProbeEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(classify('Video unavailable'), 'unavailable')
 
 
+    def test_cookie_format_detection(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            netscape = Path(folder) / 'a.txt'
+            netscape.write_text('# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tx\n')
+            json_file = Path(folder) / 'b.txt'
+            json_file.write_text('[{"domain": ".youtube.com"}]')
+            self.assertEqual(youtube_probe._cookies_format(str(netscape)), 'netscape')
+            self.assertTrue(youtube_probe._cookies_format(str(json_file)).startswith('json'))
+
+    def test_missing_cookies_report_lists_secret_file_names(self):
+        with patch.dict(os.environ, {'YOUTUBE_COOKIES_FILE': '/nonexistent/youtube_cookies.txt'}), \
+             patch.object(youtube_probe, '_secret_file_names', return_value=['cookies.txt']), \
+             patch.object(youtube_probe.yt_dlp, 'YoutubeDL', side_effect=RuntimeError('Sign in to confirm you’re not a bot')):
+            result = youtube_probe.probe('https://youtu.be/x')
+        self.assertFalse(result['cookies_used'])
+        self.assertEqual(result['secret_files_found'], ['cookies.txt'])
+        self.assertEqual(result['error_type'], 'bot_check')
+
+
 if __name__ == '__main__':
     unittest.main()

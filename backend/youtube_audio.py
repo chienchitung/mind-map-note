@@ -1,11 +1,13 @@
 """
-Test-only check of whether this server can reach YouTube through yt-dlp.
+YouTube links as a voice-note source: fetches a video's audio with yt-dlp so
+it can go through the same transcription pipeline as an uploaded file.
 
 YouTube often answers cloud servers with "Sign in to confirm you're not a
-bot", so before building a full "paste a YouTube link" feature this starts
-downloading a video's audio and stops after a few seconds' worth (nothing is
-kept). Listing formats alone isn't enough: YouTube can list them to a cloud
-server and then refuse the stream.
+bot", so downloads use the owner's cookies and try several of yt-dlp's
+player clients in turn. probe() is a diagnostic for the /youtube/test page:
+it downloads a few seconds' worth and stops — listing formats alone isn't
+enough, since YouTube can list them to a cloud server and then refuse the
+stream.
 
 Configured entirely through the environment, so it stays off unless set up:
 - YOUTUBE_ACCESS_TOKEN: required; requests must send it as a Bearer token.
@@ -128,6 +130,126 @@ class _EnoughDownloaded(Exception):
     pass
 
 
+# Audio only; a video-only upload (rare) falls back to a small video, since
+# the audio is all that's transcribed. Capped so a mislabeled stream can't
+# fill the disk.
+AUDIO_FORMAT = "bestaudio/best[height<=360]/best"
+MAX_DOWNLOAD_BYTES = 600 * 1024 * 1024
+# Long enough for a full day's lecture; anything longer is likely a stream
+# or loop that would only burn Groq quota.
+MAX_DURATION_SECONDS = 6 * 3600
+
+
+def _ydl_options(tmp_dir: str, cookies_source: Optional[str], deno_path: Optional[str],
+                 player_client: Optional[str], **extra) -> dict:
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "socket_timeout": 15,
+        # Only YouTube: this must never fetch arbitrary URLs.
+        "allowed_extractors": ["youtube", "youtube:tab"],
+        **extra,
+    }
+    if deno_path:
+        options["js_runtimes"] = {"deno": {"path": deno_path}}
+    if player_client:
+        options["extractor_args"] = {"youtube": {"player_client": [player_client]}}
+    if cookies_source:
+        # A copy: yt-dlp writes refreshed cookies back to the file, and
+        # Render's Secret Files are read-only.
+        cookies_copy = os.path.join(tmp_dir, "cookies.txt")
+        shutil.copyfile(cookies_source, cookies_copy)
+        options["cookiefile"] = cookies_copy
+    return options
+
+
+def _error_message(error: Exception) -> str:
+    return str(error).replace("\x1b[0;31mERROR:\x1b[0m ", "").removeprefix("ERROR: ").strip()
+
+
+class YoutubeError(Exception):
+    """yt-dlp couldn't get the video; error_type is one of _classify_error's."""
+
+    def __init__(self, message: str, error_type: str):
+        super().__init__(message)
+        self.error_type = error_type
+
+
+def fetch_info(url: str) -> dict:
+    """The video's title and length, for confirming before transcribing."""
+    cookies_source = _cookies_file()
+    deno_path = _deno_path()
+    with tempfile.TemporaryDirectory(prefix="yt_info_") as tmp_dir:
+        options = _ydl_options(tmp_dir, cookies_source, deno_path, None,
+                               skip_download=True, ignore_no_formats_error=True)
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=False) or {}
+        except Exception as error:
+            message = _error_message(error)
+            raise YoutubeError(message[:300], _classify_error(message)) from error
+    return {
+        "title": info.get("title"),
+        "uploader": info.get("uploader"),
+        "duration_seconds": info.get("duration"),
+        "too_long": bool(info.get("duration") and info["duration"] > MAX_DURATION_SECONDS),
+        "max_duration_seconds": MAX_DURATION_SECONDS,
+    }
+
+
+def download_audio(url: str, out_dir: str, on_progress=None, log=print) -> dict:
+    """
+    Downloads the video's audio into out_dir, trying each player client
+    until one works. Returns {"path", "title", "duration_seconds"}; raises
+    YoutubeError if none did. Runs in a worker thread; on_progress(percent)
+    is called from it.
+    """
+    cookies_source = _cookies_file()
+    deno_path = _deno_path()
+    last_percent = {"value": -1}
+
+    def hook(status):
+        if status.get("status") != "downloading" or not on_progress:
+            return
+        total = status.get("total_bytes") or status.get("total_bytes_estimate") or 0
+        if total:
+            percent = min(99, int(status.get("downloaded_bytes", 0) * 100 / total))
+            if percent != last_percent["value"]:
+                last_percent["value"] = percent
+                on_progress(percent)
+
+    last_error = None
+    for player_client in PLAYER_CLIENTS:
+        attempt_dir = tempfile.mkdtemp(prefix="attempt_", dir=out_dir)
+        options = _ydl_options(attempt_dir, cookies_source, deno_path, player_client,
+                               format=AUDIO_FORMAT, max_filesize=MAX_DOWNLOAD_BYTES,
+                               outtmpl=os.path.join(attempt_dir, "audio.%(ext)s"),
+                               progress_hooks=[hook])
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=True) or {}
+        except Exception as error:
+            message = _error_message(error)
+            last_error = YoutubeError(message[:300], _classify_attempt_error(message))
+            log(f"youtube client {player_client or 'default'} failed: {last_error.error_type}")
+            shutil.rmtree(attempt_dir, ignore_errors=True)
+            continue
+        if info.get("duration") and info["duration"] > MAX_DURATION_SECONDS:
+            raise YoutubeError("This video is too long to transcribe.", "too_long")
+        files = [name for name in os.listdir(attempt_dir) if name.startswith("audio.")]
+        if not files:
+            last_error = YoutubeError("The download finished without an audio file.", "other")
+            continue
+        log(f"youtube client {player_client or 'default'} downloaded {files[0]}")
+        return {
+            "path": os.path.join(attempt_dir, files[0]),
+            "title": info.get("title"),
+            "duration_seconds": info.get("duration"),
+        }
+    raise last_error or YoutubeError("Could not download this video.", "other")
+
+
 def _try_download(url: str, cookies_source: Optional[str], deno_path: Optional[str], player_client: Optional[str]) -> dict:
     """Starts downloading the best audio and stops after PROBE_DOWNLOAD_BYTES."""
     progress = {"bytes": 0}
@@ -139,27 +261,10 @@ def _try_download(url: str, cookies_source: Optional[str], deno_path: Optional[s
                 raise _EnoughDownloaded()
 
     with tempfile.TemporaryDirectory(prefix="yt_probe_") as tmp_dir:
-        options = {
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
-            "format": "bestaudio/best",
-            "socket_timeout": 15,
-            "outtmpl": os.path.join(tmp_dir, "audio.%(ext)s"),
-            "progress_hooks": [hook],
-            # Only YouTube: this must never fetch arbitrary URLs.
-            "allowed_extractors": ["youtube", "youtube:tab"],
-        }
-        if deno_path:
-            options["js_runtimes"] = {"deno": {"path": deno_path}}
-        if player_client:
-            options["extractor_args"] = {"youtube": {"player_client": [player_client]}}
-        if cookies_source:
-            # A copy: yt-dlp writes refreshed cookies back to the file, and
-            # Render's Secret Files are read-only.
-            cookies_copy = os.path.join(tmp_dir, "cookies.txt")
-            shutil.copyfile(cookies_source, cookies_copy)
-            options["cookiefile"] = cookies_copy
+        options = _ydl_options(tmp_dir, cookies_source, deno_path, player_client,
+                               format="bestaudio/best",
+                               outtmpl=os.path.join(tmp_dir, "audio.%(ext)s"),
+                               progress_hooks=[hook])
         info = {}
         try:
             with yt_dlp.YoutubeDL(options) as ydl:
@@ -199,7 +304,7 @@ def probe(url: str) -> dict:
         try:
             outcome = _try_download(url, cookies_source, deno_path, player_client)
         except Exception as error:
-            message = str(error).replace("\x1b[0;31mERROR:\x1b[0m ", "").removeprefix("ERROR: ").strip()
+            message = _error_message(error)
             attempts.append({"client": label, "ok": False, "error_type": _classify_attempt_error(message),
                              "message": message[:300]})
             continue

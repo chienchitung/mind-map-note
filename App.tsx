@@ -280,6 +280,7 @@ const App: React.FC = () => {
   const [showBackupReminder, setShowBackupReminder] = useState(false);
   const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
   const [groqApiKey, setGroqApiKey] = useLocalStorage<string>('groq-api-key', '');
+  const [youtubeAccessToken, setYoutubeAccessToken] = useLocalStorage<string>('youtube-access-token', '');
   const [transcriptionLanguage, setTranscriptionLanguage] = useLocalStorage<TranscriptionLanguage>(TRANSCRIPTION_LANGUAGE_STORAGE_KEY, 'auto');
   const [isVoiceNoteModalOpen, setIsVoiceNoteModalOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -803,6 +804,7 @@ const App: React.FC = () => {
   // minimized — closing the modal only hides the UI, never cancels it.
   const voiceNotePipeline = useVoiceNotePipeline({
     groqApiKey,
+    youtubeAccessToken,
     geminiApiKey: apiKey,
     onNoteGenerated: handleVoiceNoteGenerated,
     onError: handleVoiceNoteError,
@@ -1214,6 +1216,8 @@ const App: React.FC = () => {
         onSaveApiKey={setApiKey}
         groqApiKey={groqApiKey}
         onSaveGroqApiKey={setGroqApiKey}
+        youtubeAccessToken={youtubeAccessToken}
+        onSaveYoutubeAccessToken={setYoutubeAccessToken}
         transcriptionLanguage={transcriptionLanguage}
         onSaveTranscriptionLanguage={setTranscriptionLanguage}
         onExportBackup={handleExportBackup}
@@ -1226,6 +1230,8 @@ const App: React.FC = () => {
           state={voiceNotePipeline.state}
           actions={voiceNotePipeline.actions}
           microphoneDeviceId={voiceNotePipeline.microphoneDeviceId}
+          youtubeAccessToken={youtubeAccessToken}
+          onOpenSettings={() => { setIsVoiceNoteModalOpen(false); setIsSettingsOpen(true); }}
         />
       )}
       {!isVoiceNoteModalOpen && voiceNotePipeline.state.stage !== 'idle' && (

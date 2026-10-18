@@ -29,7 +29,8 @@ import { normalizeAiMarkdown } from './utils/normalizeAiMarkdown';
 import { useTranslation } from './contexts/LanguageContext';
 import { TRANSCRIPTION_LANGUAGE_STORAGE_KEY, type TranscriptionLanguage } from './utils/transcriptionLanguage';
 import { buildFolderExportDocument, buildFolderExportZip } from './utils/folderExport';
-import { downloadBlob } from './utils/downloadBlob';
+import { downloadBlob, sanitizeFilename } from './utils/downloadBlob';
+import { parseBackup } from './utils/backupValidation';
 import { resolveMarkdownImages } from './utils/resolveMarkdownImages';
 // Statically imported for the same reason as in useVoiceNotePipeline.ts —
 // keeps this out of its own lazy chunk, which a deployment mid-session
@@ -526,14 +527,7 @@ const App: React.FC = () => {
     // means anything inside this app; a plain .md file opened anywhere else
     // would otherwise show every image as broken.
     const blob = new Blob([resolveMarkdownImages(markdown, images)], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${activeNoteName}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `${sanitizeFilename(activeNoteName)}.md`);
   };
 
   // PDF export leans on the browser's native print-to-PDF instead of a
@@ -586,14 +580,7 @@ const App: React.FC = () => {
     const doc = buildFolderExportDocument(tree, getNotesForExternalExport(), folderId);
     if (!doc) return;
     const blob = new Blob([doc.markdown], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${doc.title}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `${sanitizeFilename(doc.title)}.md`);
   };
 
   // Alternative to handleExportFolderMarkdown above: one .md file per note
@@ -670,15 +657,8 @@ const App: React.FC = () => {
     };
 
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
     const dateStr = new Date().toISOString().slice(0, 10);
-    a.download = `mindmap-note-backup-${dateStr}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `mindmap-note-backup-${dateStr}.json`);
 
     setActionMessage({ text: t('app.exportedBackup'), variant: 'success' });
   };
@@ -686,7 +666,7 @@ const App: React.FC = () => {
   const handleImportBackup = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
-      let data: any;
+      let data: unknown;
       try {
         data = JSON.parse(reader.result as string);
       } catch (error) {
@@ -695,11 +675,8 @@ const App: React.FC = () => {
         return;
       }
 
-      const isValid = data && typeof data === 'object' &&
-        data.tree && typeof data.tree === 'object' &&
-        data.notes && typeof data.notes === 'object';
-
-      if (!isValid) {
+      const backup = parseBackup(data);
+      if (!backup) {
         setActionMessage({ text: t('app.importBackupInvalid'), variant: 'warning' });
         return;
       }
@@ -708,11 +685,7 @@ const App: React.FC = () => {
         return;
       }
 
-      restoreFromBackup({
-        tree: data.tree as FileSystemTree,
-        notes: data.notes as NotesContent,
-        images: (data.images && typeof data.images === 'object') ? data.images as Images : {},
-      });
+      restoreFromBackup(backup);
       setActionMessage({ text: t('app.importBackupSuccess'), variant: 'success' });
     };
     reader.onerror = () => {
@@ -728,7 +701,8 @@ const App: React.FC = () => {
     if (targetNode && targetNode.name !== newName && newName.trim() !== '') {
         const lines = markdown.split('\n');
         const originalLine = targetNode.originalLine;
-        const updatedLine = originalLine.replace(targetNode.name, newName.trim());
+        // A replacer function, so "$&"-style patterns in the new name stay literal.
+        const updatedLine = originalLine.replace(targetNode.name, () => newName.trim());
         lines[targetNode.lineNumber] = updatedLine;
         commitMarkdownNow(lines.join('\n'));
     }

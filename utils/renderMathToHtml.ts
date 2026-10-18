@@ -37,6 +37,8 @@ export const renderMathToHtml = (rawExpr: string, displayMode: boolean): string 
     } catch {
         // Malformed LaTeX the renderer itself couldn't recover from — fall
         // back to the original source rather than losing the text.
-        return displayMode ? `$$${expr}$$` : `$${expr}$`;
+        // Escaped: this string is used as HTML, and the source is note text.
+        const source = expr.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return displayMode ? `$$${source}$$` : `$${source}$`;
     }
 };

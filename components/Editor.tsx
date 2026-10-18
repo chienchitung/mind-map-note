@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, Suspense, lazy } from 'react';
 import { CopyIcon, CheckIcon, ImageIcon, SearchIcon } from './icons';
 import NoteTimeInfo from './NoteTimeInfo';
 import FindReplaceBar from './FindReplaceBar';
@@ -52,6 +52,20 @@ const Editor: React.FC<EditorProps> = ({
 }) => {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Where the caret goes once an edit made from a key handler (list
+  // continuation, indent, pasted image) has re-rendered the textarea. Applied
+  // in a layout effect, i.e. before the next keystroke can be processed — a
+  // setTimeout here let fast typing land at the wrong spot first.
+  const pendingSelectionRef = useRef<[number, number] | null>(null);
+  const setSelectionAfterRender = (start: number, end: number = start) => {
+    pendingSelectionRef.current = [start, end];
+  };
+  useLayoutEffect(() => {
+    const pending = pendingSelectionRef.current;
+    if (!pending || !textareaRef.current) return;
+    pendingSelectionRef.current = null;
+    textareaRef.current.setSelectionRange(pending[0], pending[1]);
+  });
   const backdropRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCopied, setIsCopied] = useState(false);
@@ -221,6 +235,10 @@ const Editor: React.FC<EditorProps> = ({
     const target = e.currentTarget;
     const { selectionStart, selectionEnd, value } = target;
 
+    // Enter/Tab while an input method is composing (e.g. confirming a
+    // Chinese word) belongs to the IME, not to list handling.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
     // Handle automatic list continuation on Enter
     if (e.key === 'Enter' && selectionStart === selectionEnd) {
       // Find the current line's text
@@ -238,11 +256,11 @@ const Editor: React.FC<EditorProps> = ({
         if (content.trim() === '') { // Empty list item, so break out
           const newValue = value.substring(0, lineStart) + value.substring(selectionStart);
           onChange(newValue);
-          setTimeout(() => { target.selectionStart = target.selectionEnd = lineStart; }, 0);
+          setSelectionAfterRender(lineStart);
         } else { // Continue list
           const newValue = `${value.substring(0, selectionStart)}\n${prefix}${value.substring(selectionEnd)}`;
           onChange(newValue);
-          setTimeout(() => { target.selectionStart = target.selectionEnd = selectionStart + 1 + prefix.length; }, 0);
+          setSelectionAfterRender(selectionStart + 1 + prefix.length);
         }
         return;
       }
@@ -259,12 +277,12 @@ const Editor: React.FC<EditorProps> = ({
         if (content.trim() === '') { // Empty list item, so break out
             const newValue = value.substring(0, lineStart) + value.substring(selectionStart);
             onChange(newValue);
-            setTimeout(() => { target.selectionStart = target.selectionEnd = lineStart; }, 0);
+            setSelectionAfterRender(lineStart);
         } else { // Continue list with incremented number
             const newPrefix = `${indent}${number + 1}${delimiter}`;
             const newValue = `${value.substring(0, selectionStart)}\n${newPrefix}${value.substring(selectionEnd)}`;
             onChange(newValue);
-            setTimeout(() => { target.selectionStart = target.selectionEnd = selectionStart + 1 + newPrefix.length; }, 0);
+            setSelectionAfterRender(selectionStart + 1 + newPrefix.length);
         }
         return;
       }
@@ -312,11 +330,7 @@ const Editor: React.FC<EditorProps> = ({
       
       if (newMarkdown !== value) {
         onChange(newMarkdown);
-        // Defer cursor position update to after the re-render
-        setTimeout(() => {
-          target.selectionStart = newCursorStart;
-          target.selectionEnd = newCursorEnd;
-        }, 0);
+        setSelectionAfterRender(newCursorStart, newCursorEnd);
       }
     }
   };
@@ -351,9 +365,7 @@ const Editor: React.FC<EditorProps> = ({
       onChange(newValue);
 
       // Move cursor after the inserted markdown
-      setTimeout(() => {
-        textarea.selectionStart = textarea.selectionEnd = selectionStart + markdownImage.length;
-      }, 0);
+      setSelectionAfterRender(selectionStart + markdownImage.length);
     }
   };
 

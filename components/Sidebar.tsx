@@ -83,6 +83,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   // below for why it lives here instead of inside FileExplorer.
   const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
   const [justCreatedNodeId, setJustCreatedNodeId] = useState<string | null>(null);
+  const clearJustCreatedNodeId = useCallback(() => setJustCreatedNodeId(null), []);
 
   const [fileSort, setFileSort] = useLocalStorage<FileSort>('mind-map-file-sort', DEFAULT_FILE_SORT);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
@@ -237,6 +238,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             collapsedFolderIds={collapsedFolderIdSet}
             onToggleFolder={handleToggleFolder}
             autoRenameNodeId={justCreatedNodeId}
+            onAutoRenameHandled={clearJustCreatedNodeId}
             sort={fileSort}
           />
         ) : activeTab === 'recordings' ? (

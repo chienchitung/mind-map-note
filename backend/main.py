@@ -159,9 +159,9 @@ async def youtube_probe_endpoint(
     if not youtube_probe.is_youtube_url(url):
         return JSONResponse(status_code=400, content={"message": "Only youtube.com / youtu.be links are accepted."})
     try:
-        result = await asyncio.wait_for(asyncio.to_thread(youtube_probe.probe, url), timeout=90)
+        result = await asyncio.wait_for(asyncio.to_thread(youtube_probe.probe, url), timeout=150)
     except asyncio.TimeoutError:
-        result = {"ok": False, "error_type": "timeout", "message": "YouTube did not respond within 90 seconds."}
+        result = {"ok": False, "error_type": "timeout", "message": "YouTube did not respond within 150 seconds."}
     print(f"[youtube probe] ok={result.get('ok')} error_type={result.get('error_type')} cookies={result.get('cookies_used')}", flush=True)
     return result
 

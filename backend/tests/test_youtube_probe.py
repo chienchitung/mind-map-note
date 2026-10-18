@@ -57,5 +57,53 @@ class YoutubeProbeEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(classify('Video unavailable'), 'unavailable')
 
 
+    def test_cookie_format_detection(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            netscape = Path(folder) / 'a.txt'
+            netscape.write_text('# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tx\n')
+            json_file = Path(folder) / 'b.txt'
+            json_file.write_text('[{"domain": ".youtube.com"}]')
+            self.assertEqual(youtube_probe._cookies_format(str(netscape)), 'netscape')
+            self.assertTrue(youtube_probe._cookies_format(str(json_file)).startswith('json'))
+
+    def test_missing_cookies_report_lists_secret_file_names(self):
+        with patch.dict(os.environ, {'YOUTUBE_COOKIES_FILE': '/nonexistent/youtube_cookies.txt'}), \
+             patch.object(youtube_probe, '_secret_file_names', return_value=['cookies.txt']), \
+             patch.object(youtube_probe.yt_dlp, 'YoutubeDL', side_effect=RuntimeError('Sign in to confirm you’re not a bot')):
+            result = youtube_probe.probe('https://youtu.be/x')
+        self.assertFalse(result['cookies_used'])
+        self.assertEqual(result['secret_files_found'], ['cookies.txt'])
+        self.assertEqual(result['error_type'], 'bot_check')
+
+
+    def test_login_cookie_names_are_detected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'c.txt'
+            path.write_text('# Netscape HTTP Cookie File\n'
+                            '.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tsecret\n'
+                            '.youtube.com\tTRUE\t/\tTRUE\t0\tPREF\tf1\n')
+            self.assertEqual(youtube_probe._login_cookie_names(str(path)), ['SAPISID'])
+
+    def test_falls_back_to_another_player_client(self):
+        calls = []
+
+        def download(_url, _cookies, _deno, client):
+            calls.append(client)
+            if client is None:
+                raise RuntimeError('ERROR: unable to download video data: HTTP Error 403: Forbidden')
+            return {'info': {'title': 'Lecture'}, 'downloaded_bytes': 200_000}
+
+        with patch.object(youtube_probe, '_try_download', side_effect=download):
+            result = youtube_probe.probe('https://youtu.be/x')
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['client'], 'tv')
+        self.assertEqual(calls, [None, 'tv'])
+        self.assertEqual([a['ok'] for a in result['attempts']], [False, True])
+        self.assertEqual(result['attempts'][0]['error_type'], 'download_forbidden')
+        self.assertEqual(result['downloaded_bytes'], 200_000)
+
+
 if __name__ == '__main__':
     unittest.main()

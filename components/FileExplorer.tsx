@@ -134,6 +134,9 @@ interface FileExplorerProps {
   collapsedFolderIds: Set<string>;
   onToggleFolder: (folderId: string) => void;
   autoRenameNodeId?: string | null;
+  // Called once the auto-rename has started, so a later remount (switching
+  // sidebar tabs and back) doesn't put the same item into rename mode again.
+  onAutoRenameHandled?: () => void;
   sort: FileSort;
 }
 
@@ -446,10 +449,12 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
   const rootNode = tree['root'];
 
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
-  const { autoRenameNodeId } = props;
+  const { autoRenameNodeId, onAutoRenameHandled } = props;
   useEffect(() => {
-    if (autoRenameNodeId) setRenamingNodeId(autoRenameNodeId);
-  }, [autoRenameNodeId]);
+    if (!autoRenameNodeId) return;
+    setRenamingNodeId(autoRenameNodeId);
+    onAutoRenameHandled?.();
+  }, [autoRenameNodeId, onAutoRenameHandled]);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: string } | null>(null);
   const [moveToModalNodeId, setMoveToModalNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);

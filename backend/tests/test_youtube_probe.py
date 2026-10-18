@@ -77,5 +77,33 @@ class YoutubeProbeEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['error_type'], 'bot_check')
 
 
+    def test_login_cookie_names_are_detected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'c.txt'
+            path.write_text('# Netscape HTTP Cookie File\n'
+                            '.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tsecret\n'
+                            '.youtube.com\tTRUE\t/\tTRUE\t0\tPREF\tf1\n')
+            self.assertEqual(youtube_probe._login_cookie_names(str(path)), ['SAPISID'])
+
+    def test_falls_back_to_another_player_client(self):
+        calls = []
+
+        def download(_url, _cookies, _deno, client):
+            calls.append(client)
+            if client is None:
+                raise RuntimeError('ERROR: unable to download video data: HTTP Error 403: Forbidden')
+            return {'info': {'title': 'Lecture'}, 'downloaded_bytes': 200_000}
+
+        with patch.object(youtube_probe, '_try_download', side_effect=download):
+            result = youtube_probe.probe('https://youtu.be/x')
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['client'], 'tv')
+        self.assertEqual(calls, [None, 'tv'])
+        self.assertEqual([a['ok'] for a in result['attempts']], [False, True])
+        self.assertEqual(result['attempts'][0]['error_type'], 'download_forbidden')
+        self.assertEqual(result['downloaded_bytes'], 200_000)
+
+
 if __name__ == '__main__':
     unittest.main()

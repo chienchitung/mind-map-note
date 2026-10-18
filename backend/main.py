@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -11,7 +12,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from starlette.requests import Request
 
 load_dotenv()
 
@@ -56,21 +56,84 @@ MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
-@app.middleware("http")
-async def reject_oversized_uploads(request: Request, call_next):
-    # Rejects a well-behaved client's oversized upload before the body is
-    # even parsed (browsers always send an accurate Content-Length for a
-    # FormData Blob/File upload) — cheaper than accepting the whole body
-    # first and only then discovering it's too large.
-    if request.url.path == "/audio/transcribe/stream":
-        content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_UPLOAD_BYTES + MAX_MULTIPART_OVERHEAD_BYTES:
-            from fastapi.responses import JSONResponse
-            return JSONResponse(
-                status_code=413,
-                content={"message": f"Upload exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit."},
-            )
-    return await call_next(request)
+class UploadTooLarge(Exception):
+    pass
+
+
+class UploadSizeLimitMiddleware:
+    """
+    Caps the request body of the upload endpoint at the ASGI level.
+
+    A well-behaved client's oversized upload is rejected up front from its
+    Content-Length (browsers always send an accurate one for a FormData
+    upload). Counting the bytes as they arrive also covers a request with a
+    missing or understated Content-Length (e.g. chunked transfer encoding),
+    which would otherwise be parsed all the way to disk before the size
+    check after saving ever ran.
+    """
+
+    def __init__(self, app, path: str, max_bytes: int):
+        self.app = app
+        self.path = path
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"] != self.path:
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                declared = int(raw_length)
+            except ValueError:
+                await self._reject(send, 400, "Invalid Content-Length header.")
+                return
+            if declared > self.max_bytes:
+                await self._reject(send, 413, f"Upload exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit.")
+                return
+
+        received = 0
+        response_started = False
+
+        async def counting_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise UploadTooLarge()
+            return message
+
+        async def tracking_send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, counting_receive, tracking_send)
+        except UploadTooLarge:
+            if not response_started:
+                await self._reject(send, 413, f"Upload exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit.")
+
+    @staticmethod
+    async def _reject(send, status: int, message: str) -> None:
+        body = json.dumps({"message": message}).encode()
+        await send({
+            "type": "http.response.start",
+            "status": status,
+            "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())],
+        })
+        await send({"type": "http.response.body", "body": body})
+
+
+app.add_middleware(
+    UploadSizeLimitMiddleware,
+    path="/audio/transcribe/stream",
+    max_bytes=MAX_UPLOAD_BYTES + MAX_MULTIPART_OVERHEAD_BYTES,
+)
 
 
 @app.get("/health")
@@ -114,7 +177,12 @@ async def transcribe_stream(
 
         with tempfile.TemporaryDirectory(prefix="voice_note_") as tmp_dir:
             tmp_path = Path(tmp_dir)
-            ext = os.path.splitext(audio.filename or "")[1] or ".bin"
+            # Only the extension of the client's filename is kept, and only
+            # if it's a plain one (e.g. ".m4a"): it's used in a local path
+            # and handed to ffmpeg/ffprobe.
+            ext = os.path.splitext(audio.filename or "")[1].lower()
+            if not re.fullmatch(r"\.[a-z0-9]{1,10}", ext):
+                ext = ".bin"
             src_path = tmp_path / f"audio{ext}"
 
             queue: asyncio.Queue = asyncio.Queue()

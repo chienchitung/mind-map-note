@@ -202,5 +202,50 @@ class AudioUploadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(statuses, [])
 
 
+
+class UploadSizeLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        async def echo_app(scope, receive, send):
+            size = 0
+            while True:
+                message = await receive()
+                size += len(message.get('body', b''))
+                if not message.get('more_body'):
+                    break
+            body = str(size).encode()
+            await send({'type': 'http.response.start', 'status': 200, 'headers': [(b'content-length', str(len(body)).encode())]})
+            await send({'type': 'http.response.body', 'body': body})
+
+        limited = main.UploadSizeLimitMiddleware(echo_app, path='/upload', max_bytes=10)
+        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=limited), base_url='http://test')
+
+    async def asyncTearDown(self):
+        await self.client.aclose()
+
+    async def test_body_within_limit_passes_through(self):
+        response = await self.client.post('/upload', content=b'12345')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.text, '5')
+
+    async def test_declared_oversized_body_is_rejected(self):
+        response = await self.client.post('/upload', content=b'x' * 11)
+        self.assertEqual(response.status_code, 413)
+
+    async def test_chunked_body_without_length_is_cut_off(self):
+        async def chunks():
+            for _ in range(5):
+                yield b'abcd'
+        response = await self.client.post('/upload', content=chunks())
+        self.assertEqual(response.status_code, 413)
+
+    async def test_invalid_content_length_is_rejected(self):
+        response = await self.client.post('/upload', content=b'1', headers={'content-length': 'abc'})
+        self.assertEqual(response.status_code, 400)
+
+    async def test_other_paths_are_not_limited(self):
+        response = await self.client.post('/elsewhere', content=b'x' * 50)
+        self.assertEqual(response.status_code, 200)
+
+
 if __name__ == '__main__':
     unittest.main()

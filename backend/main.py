@@ -20,6 +20,7 @@ from audio_pipeline import (
     GroqRateLimitError,
     InvalidGroqApiKeyError,
     can_transcribe_webm_directly,
+    detect_spoken_language,
     normalize_audio,
     transcribe_audio,
 )
@@ -257,8 +258,18 @@ async def transcribe_stream(
                             "total": total_chunks,
                         }))
 
+                    transcription_language = language
+                    if not language or language == "auto":
+                        async def on_probe_rate_limited(wait_seconds: float, attempt: int) -> None:
+                            await on_rate_limited(wait_seconds, attempt, 1, 1)
+
+                        detected = await detect_spoken_language(normalized_path, groq_api_key, on_probe_rate_limited)
+                        log(f"auto language: detected {detected or 'nothing usable, leaving it to Whisper'}")
+                        if detected:
+                            transcription_language = detected
+
                     result = await transcribe_audio(
-                        normalized_path, groq_api_key, language,
+                        normalized_path, groq_api_key, transcription_language,
                         on_split_progress=emit_split_progress,
                         on_chunk_done=on_chunk_done,
                         on_rate_limited=on_rate_limited,

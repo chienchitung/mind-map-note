@@ -203,6 +203,66 @@ class AudioUploadTests(unittest.IsolatedAsyncioTestCase):
 
 
 
+class AutoLanguageTests(unittest.IsolatedAsyncioTestCase):
+    SPEECH = {'start': 0, 'end': 5, 'text': '好，那我們接下來介紹決策樹的模型訓練與評估方式', 'no_speech_prob': 0.02}
+    SILENCE = {'start': 0, 'end': 30, 'text': 'E aí', 'no_speech_prob': 0.95}
+
+    def fake_clip(self, _source, _offset, out_path):
+        Path(out_path).write_bytes(b'mp3')
+        return True
+
+    async def test_skips_silent_clips_and_returns_language_code(self):
+        groq = AsyncMock(side_effect=[
+            {'language': 'portuguese', 'segments': [self.SILENCE]},
+            {'language': 'Chinese', 'segments': [self.SPEECH]},
+        ])
+        with patch.object(audio_pipeline, '_probe_duration_seconds', return_value=4700), \
+             patch.object(audio_pipeline, '_extract_probe_clip', side_effect=self.fake_clip) as clip, \
+             patch.object(audio_pipeline, '_transcribe_bytes', new=groq):
+            language = await audio_pipeline.detect_spoken_language('lecture.webm', 'test-key')
+        self.assertEqual(language, 'zh')
+        self.assertEqual([call.args[1] for call in clip.call_args_list], [0, 120])
+        self.assertIsNone(groq.await_args_list[0].args[3])
+
+    async def test_unknown_language_or_no_speech_falls_back_to_whisper(self):
+        with patch.object(audio_pipeline, '_probe_duration_seconds', return_value=4700), \
+             patch.object(audio_pipeline, '_extract_probe_clip', side_effect=self.fake_clip), \
+             patch.object(audio_pipeline, '_transcribe_bytes',
+                          new=AsyncMock(return_value={'language': 'klingon', 'segments': [self.SPEECH]})):
+            self.assertIsNone(await audio_pipeline.detect_spoken_language('a.webm', 'test-key'))
+        with patch.object(audio_pipeline, '_probe_duration_seconds', return_value=4700), \
+             patch.object(audio_pipeline, '_extract_probe_clip', side_effect=self.fake_clip), \
+             patch.object(audio_pipeline, '_transcribe_bytes',
+                          new=AsyncMock(return_value={'language': 'russian', 'segments': [self.SILENCE]})) as groq:
+            self.assertIsNone(await audio_pipeline.detect_spoken_language('a.webm', 'test-key'))
+        self.assertEqual(groq.await_count, len(audio_pipeline.LANGUAGE_PROBE_OFFSETS_SECONDS))
+
+    async def test_auto_mode_pins_detected_language_for_the_transcription(self):
+        groq = AsyncMock(side_effect=[
+            {'language': 'chinese', 'segments': [self.SPEECH]},
+            {'text': '決策樹', 'duration': 1, 'segments': [{'start': 0, 'end': 1, 'text': '決策樹', 'no_speech_prob': 0.01}]},
+        ])
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url='http://test') as client:
+            with patch.object(audio_pipeline, '_transcribe_bytes', new=groq):
+                response = await client.post('/audio/transcribe/stream',
+                    files={'audio': ('speech.wav', sample_wav(), 'audio/wav')},
+                    data={'groq_api_key': 'test-key', 'language': 'auto'})
+        self.assertIn('event: final', response.text)
+        self.assertEqual(groq.await_count, 2)
+        self.assertEqual(groq.await_args_list[1].args[3], 'zh')
+
+    async def test_explicit_language_skips_detection(self):
+        groq = AsyncMock(return_value={'text': 'Hello', 'duration': 1,
+                                       'segments': [{'start': 0, 'end': 1, 'text': 'Hello', 'no_speech_prob': 0.01}]})
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url='http://test') as client:
+            with patch.object(audio_pipeline, '_transcribe_bytes', new=groq):
+                await client.post('/audio/transcribe/stream',
+                    files={'audio': ('speech.wav', sample_wav(), 'audio/wav')},
+                    data={'groq_api_key': 'test-key', 'language': 'en'})
+        self.assertEqual(groq.await_count, 1)
+        self.assertEqual(groq.await_args.args[3], 'en')
+
+
 class UploadSizeLimitTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         async def echo_app(scope, receive, send):

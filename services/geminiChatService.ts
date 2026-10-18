@@ -406,7 +406,10 @@ Requirements:
    - When there is little content, do not force it into an overview and details.
    - Numbered lists for procedures, steps or ordered items; plain-text arrows for simple relationships (A → B).
    - No Markdown tables and no horizontal-rule dividers.
-   - Whenever the transcript contains code (commands, function calls, snippets), put it in a complete fenced code block with a language tag (e.g. "\`\`\`python" … "\`\`\`"). Every opening fence must have exactly one matching closing fence on its own line, and never emit an extra or unpaired "\`\`\`". Short identifiers inside a sentence use single backticks instead (e.g. \`drop_duplicates()\`).
+   - Code:
+     - Code the speaker reads out or shows goes in a complete fenced code block with a language tag (e.g. "\`\`\`python" … "\`\`\`").
+     - Code the speaker explains in words (e.g. "sort the importances with Pandas' sort_values, largest first") is also rebuilt as a code block from that explanation, so the steps can be followed directly. Use only the functions, objects and parameter values the speaker mentions; never fill in a value the speaker did not give (such as a max depth or random seed) — leave that argument out and, if it matters, note it in a code comment (e.g. "# max depth: value not stated").
+     - Every opening fence must have exactly one matching closing fence on its own line, and never emit an extra or unpaired "\`\`\`". Short identifiers inside a sentence use single backticks instead (e.g. \`drop_duplicates()\`).
 6. Use LaTeX only for real mathematical or chemical formulas. Wrap inline formulas in a single $ and block formulas in $$. Use one backslash per LaTeX command.
 7. Write the entire note in English. Proper nouns, technical terms, and code may remain in their original form when translation would reduce accuracy.
 8. Before answering, silently verify that every meaningful section of the transcript is represented. The note should be as long as needed for completeness.${screenshotAnchorInstruction}
@@ -433,7 +436,10 @@ END TRANSCRIPT`
    - 內容很少時不必硬拆成總覽與細節。
    - 流程、步驟或有順序的項目使用編號列表；單純關係使用文字箭頭（A → B）。
    - 不使用 Markdown 表格，也不插入水平分隔線。
-   - 逐字稿中出現程式碼（指令、函式呼叫、程式片段）時，必須放進完整的程式碼區塊並標註語言（例如「\`\`\`python」……「\`\`\`」）。每個開頭的 \`\`\` 都要有且只有一個獨立成行的結尾 \`\`\`，不得多出或遺漏任何 \`\`\`。句子中的簡短名稱則用單一反引號（例如 \`drop_duplicates()\`）。
+   - 程式碼：
+     - 講者唸出或展示的程式碼，放進完整的程式碼區塊並標註語言（例如「\`\`\`python」……「\`\`\`」）。
+     - 講者用口頭說明的程式操作（例如「用 Pandas 的 sort_values 依重要性由大到小排序」），也依說明重建成程式碼區塊，讓步驟可以直接對照使用。只使用講者提到的函式、物件與參數值；講者沒說的參數值（例如最大深度、隨機種子）不得自行填入，該參數直接省略，必要時在程式碼註解註明（例如「# 最大深度：數值未提及」）。
+     - 每個開頭的 \`\`\` 都要有且只有一個獨立成行的結尾 \`\`\`，不得多出或遺漏任何 \`\`\`。句子中的簡短名稱則用單一反引號（例如 \`drop_duplicates()\`）。
 6. LaTeX 只用於真正的數學或化學公式。行內公式用單一 $ 包住，獨立公式用 $$ 包住；LaTeX 指令只使用一個反斜線。
 7. 全文使用繁體中文。人名、專有名詞、程式碼或翻譯後會失真的詞彙可保留原文。
 8. 回答前先在內部檢查逐字稿的每個有意義段落是否都已納入。筆記長度應依內容完整度決定，不得為了簡短而省略資訊。${screenshotAnchorInstruction}

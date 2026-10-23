@@ -177,6 +177,7 @@ interface ProofreadCorrection {
 interface ProofreadFlag {
     text: string;
     reason: string;
+    suggestion?: string;
 }
 
 const PROOFREAD_SCHEMA = {
@@ -189,7 +190,7 @@ const PROOFREAD_SCHEMA = {
                 properties: {
                     find: { type: Type.STRING },
                     replace: { type: Type.STRING },
-                    type: { type: Type.STRING, enum: ['asr', 'mismatch'] },
+                    type: { type: Type.STRING, enum: ['asr', 'mismatch', 'knowledge'] },
                     reason: { type: Type.STRING },
                     evidence: { type: Type.STRING },
                 },
@@ -203,6 +204,7 @@ const PROOFREAD_SCHEMA = {
                 properties: {
                     text: { type: Type.STRING },
                     reason: { type: Type.STRING },
+                    suggestion: { type: Type.STRING },
                 },
                 required: ['text', 'reason'],
             },
@@ -211,48 +213,68 @@ const PROOFREAD_SCHEMA = {
     required: ['corrections', 'flags'],
 };
 
-const collapseWhitespace = (text: string) => text.replace(/\s+/g, ' ').trim();
+// For checking that a quote comes from the transcript: drops the
+// "[mm:ss]" line stamps of a timestamped transcript and all whitespace, so
+// a quote running across two transcript lines still matches.
+const normalizeForMatch = (text: string) =>
+    text.replace(/\[\d{1,2}(?::\d{2}){1,2}\]/g, '').replace(/\s+/g, '');
 
+const PROOFREAD_COMMENTARY_REGEX = /逐字稿|筆記|口誤|講者|transcript|the note|misspoke|speaker/i;
 /**
  * Applies the proofreader's corrections to the note in code, so the model
  * can never rewrite, drop or add content beyond the exact spans it names.
- * A correction is only accepted when the transcript backs it: a speech
- * recognition fix must target wording that actually came from the
+ * A speech recognition fix must target wording that actually came from the
  * transcript, and a content fix must quote the transcript verbatim as
- * evidence. Hidden screenshot-time markers are never touched.
+ * evidence. A "knowledge" fix (a standard fact the speaker or recognition
+ * got wrong, such as a well-known port number) has no transcript to back
+ * it, so it must name enough of the note to be unambiguous and is always
+ * listed with the original for the reader to see. Corrections that fail
+ * these checks are returned as rejected so they can still be shown for
+ * review instead of silently vanishing. Hidden screenshot-time markers are
+ * never touched.
  */
 export const applyProofreadCorrections = (
     note: string,
     transcript: string,
     corrections: ProofreadCorrection[],
-): { note: string; applied: ProofreadCorrection[] } => {
-    const normalizedTranscript = collapseWhitespace(transcript);
+): { note: string; applied: ProofreadCorrection[]; rejected: ProofreadCorrection[] } => {
+    const normalizedTranscript = normalizeForMatch(transcript);
     // Odd indexes are the markers themselves, left out of every replacement.
     const parts = note.split(/(<!--shot:\d+-->)/);
     const applied: ProofreadCorrection[] = [];
+    const rejected: ProofreadCorrection[] = [];
     for (const correction of corrections) {
         const find = correction.find ?? '';
         const replace = correction.replace ?? '';
         if (find.trim().length < 2 || find === replace) continue;
         if (/<!--|-->/.test(find + replace)) continue;
+        if (!parts.some((part, i) => i % 2 === 0 && part.includes(find))) continue;
+        // A replacement that talks about the transcript, the note or what the
+        // speaker said (e.g. "Port 143 (or 1143 as misspoken)") is commentary
+        // written into the note, not a fix.
+        if (PROOFREAD_COMMENTARY_REGEX.test(replace.replace(find, ''))
+            && !PROOFREAD_COMMENTARY_REGEX.test(find)) continue;
         // A correction swaps a wrong term for a right one; anything much
         // longer than what it replaces is new content, not a fix.
-        if (replace.length > find.length * 3 + 20) continue;
-        const supported = correction.type === 'asr'
-            ? normalizedTranscript.includes(collapseWhitespace(find))
-            : correction.type === 'mismatch' && !!correction.evidence?.trim()
-                && normalizedTranscript.includes(collapseWhitespace(correction.evidence));
-        if (!supported) continue;
-        let changed = false;
-        for (let i = 0; i < parts.length; i += 2) {
-            if (parts[i].includes(find)) {
-                parts[i] = parts[i].split(find).join(replace);
-                changed = true;
-            }
+        const supported = replace.length <= find.length * 3 + 20 && (
+            correction.type === 'asr'
+                ? normalizedTranscript.includes(normalizeForMatch(find))
+                : correction.type === 'mismatch'
+                    ? !!correction.evidence?.trim() && normalizedTranscript.includes(normalizeForMatch(correction.evidence))
+                    // A bare number or short token could also match
+                    // unrelated text elsewhere in the note.
+                    : correction.type === 'knowledge' && find.trim().length >= 4 && !!correction.reason?.trim()
+        );
+        if (!supported) {
+            rejected.push(correction);
+            continue;
         }
-        if (changed) applied.push(correction);
+        for (let i = 0; i < parts.length; i += 2) {
+            parts[i] = parts[i].split(find).join(replace);
+        }
+        applied.push(correction);
     }
-    return { note: parts.join(''), applied };
+    return { note: parts.join(''), applied, rejected };
 };
 
 const buildProofreadSection = (applied: ProofreadCorrection[], flags: ProofreadFlag[], language: 'zh' | 'en'): string => {
@@ -261,14 +283,19 @@ const buildProofreadSection = (applied: ProofreadCorrection[], flags: ProofreadF
     const lines = [`## ${en ? PROOFREAD_HEADING.en : PROOFREAD_HEADING.zh}`];
     if (applied.length > 0) {
         lines.push('', `### ${en ? 'Corrected' : '已修正'}`);
-        for (const { find, replace, reason } of applied) {
-            lines.push(en ? `- "${find}" → "${replace}" (${reason})` : `- 「${find}」→「${replace}」（${reason}）`);
+        for (const { find, replace, reason, type } of applied) {
+            // A fix from general knowledge changes what was said, so say so.
+            const why = type === 'knowledge' ? (en ? `standard fact: ${reason}` : `依公認知識：${reason}`) : reason;
+            lines.push(en ? `- "${find}" → "${replace}" (${why})` : `- 「${find}」→「${replace}」（${why}）`);
         }
     }
     if (flags.length > 0) {
         lines.push('', `### ${en ? 'Please check' : '需人工確認'}`);
-        for (const { text, reason } of flags) {
-            lines.push(en ? `- "${text}": ${reason}` : `- 「${text}」：${reason}`);
+        for (const { text, reason, suggestion } of flags) {
+            const suggested = suggestion?.trim() && suggestion !== text
+                ? (en ? ` Suggested: "${suggestion}".` : `建議改為「${suggestion}」。`)
+                : '';
+            lines.push(en ? `- "${text}": ${reason}${suggested}` : `- 「${text}」：${reason}${suggested ? `；${suggested}` : ''}`);
         }
     }
     return lines.join('\n');
@@ -292,10 +319,11 @@ export const proofreadNote = async (note: string, transcript: string, apiKey: st
 
 Speech recognition often turns terminology, names, product names, English acronyms and formula symbols into words that sound the same or similar but are wrong (e.g. "machine leaning" for "machine learning").
 1. "asr" corrections: recognition errors carried into the note, especially proper nouns and technical terms. Only when the context makes the correct term clear.
-2. "mismatch" corrections: places where the note contradicts the transcript (misread meaning, wrongly copied numbers or formulas, reversed cause-and-effect or comparisons). "evidence" must be an exact, verbatim quote copied from the transcript that proves the correction.
-3. "find" must be copied exactly from the note and be just long enough to be unambiguous (a term or short phrase); "replace" is its corrected form. Do not add new information, explanations or content that is missing from the note.
-4. "flags": statements that clearly conflict with well-established knowledge, transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so are a code parameter value already marked with a "# Supplement" comment and a standard formula already marked "(Supplement)", so do not flag any of these. List flags with the reason; do not correct them.
-5. If there is nothing to report, return empty lists. Write "reason" in English.
+2. "mismatch" corrections: places where the note contradicts the transcript (misread meaning, wrongly copied numbers or formulas, reversed cause-and-effect or comparisons). "evidence" must be an exact, verbatim quote copied from the transcript that proves the correction. Where the speaker clearly misspoke a standard fact (e.g. said "H2O2" for water) and the note already gives the correct standard value (H2O), the note is right: never change it back to what was said.
+3. "knowledge" corrections: a fact the note gets wrong, whether the speaker misspoke or recognition garbled it, only when the correct value is certain and fixed by definition, the same regardless of time, version, region or school of thought: a scientific constant, chemical formula, mathematical formula or theorem, standard name or abbreviation, the year of a well-known historical event, a protocol's standard port. Examples: "the chemical formula of water, H2O2" → "the chemical formula of water, H2O"; "the speed of light, about 3×10^5 m/s" → "the speed of light, about 3×10^8 m/s"; "IMAP port 1143" → "IMAP port 143". "find" must include the surrounding term, not just the number. "reason" states the standard fact and what the note originally said. Never use a "knowledge" correction for: the speaker's own settings, assumptions, examples or choices (e.g. "here we set the SSH port to 2222" stays 2222); viewpoints, interpretations or arguments; anything that changes over time or differs by version or region (law article numbers, regulations, drug dosages and medical guidelines, statistics, prices, software defaults); or any figure or rule in medical, legal or financial content. Those go to "flags" when they seem wrong.
+4. "find" must be copied exactly from the note and be just long enough to be unambiguous (a term or short phrase); "replace" is its corrected form, written as plain note text, never commentary about the transcript, the note or what the speaker said. Do not add new information, explanations or content that is missing from the note.
+5. "flags": statements that conflict with well-established knowledge but are not certain or standard enough for a "knowledge" correction (including anything rule 3 excludes), transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so are a standard value the note correctly uses in place of the speaker's obvious slip, a code parameter value already marked with a "# Supplement" comment and a standard formula already marked "(Supplement)", so do not flag any of these. List flags with the reason, and put the likely correct wording in "suggestion" when there is one; do not correct them.
+6. If there is nothing to report, return empty lists. Write "reason" in English.
 
 BEGIN NOTE
 ${note}
@@ -308,10 +336,11 @@ END TRANSCRIPT`
 
 語音辨識常把專有名詞、學術術語、人名、產品名稱、英文縮寫與公式符號，轉成發音相同或相近但寫錯的字（例如把「機器學習」辨識成「機氣學習」）。
 1. 「asr」修正：被帶進筆記的辨識錯誤，特別是專有名詞與術語。只有在上下文能明確判斷正確用詞時才列出。
-2. 「mismatch」修正：筆記與逐字稿不符之處（誤解原意、數字或公式抄錯、因果或比較關係顛倒）。「evidence」必須是從逐字稿逐字複製、能證明此修正的原文片段。
-3. 「find」必須從筆記中逐字複製，長度只要足以辨識即可（一個詞或短語）；「replace」是修正後的寫法。不得加入筆記沒有的新資訊、解釋或內容。
-4. 「flags」：明顯與公認知識不符的說法、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，程式碼中已用「# 補充」註解標示的參數值、開頭已標示「（補充）」的標準公式也不算，都不要列出。列出並說明原因，不要修正。
-5. 若沒有任何問題，回傳空清單。「reason」使用繁體中文。
+2. 「mismatch」修正：筆記與逐字稿不符之處（誤解原意、數字或公式抄錯、因果或比較關係顛倒）。「evidence」必須是從逐字稿逐字複製、能證明此修正的原文片段。若講者明顯把標準事實說錯（例如把水的化學式說成「H2O2」），而筆記已寫成正確的標準值（H2O），筆記是對的，絕對不要改回講者的說法。
+3. 「knowledge」修正：筆記中寫錯的事實，不論是講者口誤或辨識錯誤，只有在正確值毫無疑問、且由定義決定、不因時間、版本、地區或學派而改變時才列出：科學常數、化學式、數學公式或定理、標準名稱或縮寫、知名歷史事件的年份、通訊協定的標準埠號等。例如：「水的化學式 H2O2」→「水的化學式 H2O」、「光速約 3×10^5 公尺／秒」→「光速約 3×10^8 公尺／秒」、「IMAP 埠號 1143」→「IMAP 埠號 143」。「find」必須連同前後的名詞一起複製，不能只有數字。「reason」寫出標準事實與筆記原本的寫法。以下一律不得用「knowledge」修正：講者自己的設定、假設、舉例或選擇（例如「我們這裡把 SSH 埠號設成 2222」就維持 2222）；觀點、詮釋或論述；會隨時間改變或因版本、地區而不同的內容（法條條號、法規、藥物劑量與醫療指引、統計數據、價格、軟體預設值）；以及醫療、法律、財務內容中的任何數字或規定。這些若看起來有誤，請列入「flags」。
+4. 「find」必須從筆記中逐字複製，長度只要足以辨識即可（一個詞或短語）；「replace」是修正後的寫法，只能是筆記本身的文字，不得寫入關於逐字稿、筆記或講者說法的註解。不得加入筆記沒有的新資訊、解釋或內容。
+5. 「flags」：與公認知識不符、但不夠確定或不屬於標準事實而不適合用「knowledge」修正的說法（包括第 3 點排除的內容）、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，筆記已把講者明顯口誤改成正確標準值的地方、程式碼中已用「# 補充」註解標示的參數值、開頭已標示「（補充）」的標準公式也不算，都不要列出。列出並說明原因，有可能的正確寫法時填入「suggestion」，不要修正。
+6. 若沒有任何問題，回傳空清單。「reason」使用繁體中文。
 
 筆記開始
 ${note}
@@ -343,7 +372,14 @@ ${transcript}
                 const flags: ProofreadFlag[] = (Array.isArray(parsed?.flags) ? parsed.flags : [])
                     .filter((flag: ProofreadFlag) => flag?.text?.trim() && flag?.reason?.trim());
                 const result = applyProofreadCorrections(note, transcript, corrections);
-                const section = buildProofreadSection(result.applied, flags, language);
+                // A correction that couldn't be verified still points at a
+                // likely problem: show it for review with its suggested fix.
+                const unverified = result.rejected.map(({ find, replace, reason }) => ({
+                    text: find,
+                    reason: language === 'en' ? `${reason} (not verified, left unchanged)` : `${reason}（未能驗證，未自動修改）`,
+                    suggestion: replace,
+                }));
+                const section = buildProofreadSection(result.applied, [...unverified, ...flags], language);
                 return section ? `${result.note.trimEnd()}\n\n${section}` : result.note;
             } catch (error) {
                 if (error instanceof ApiError && error.status === 503) continue;

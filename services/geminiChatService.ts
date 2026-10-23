@@ -363,7 +363,13 @@ const buildProofreadSection = (
     if (flags.length > 0) {
         lines.push('', `### ${en ? 'Please check' : '需人工確認'}`);
         for (const { text, reason, suggestion } of flags) {
-            const suggested = suggestion?.trim() && suggestion !== text ? suggestion.trim() : '';
+            // A suggestion should be wording for the note; one that talks
+            // about the transcript or the note is an explanation, which the
+            // reason already gives.
+            const suggested = suggestion?.trim() && suggestion !== text
+                && !(PROOFREAD_COMMENTARY_REGEX.test(suggestion) && !PROOFREAD_COMMENTARY_REGEX.test(text))
+                ? suggestion.trim()
+                : '';
             if (!suggested) {
                 lines.push(en ? `- "${text}": ${reason}` : `- 「${text}」：${reason}`);
                 continue;

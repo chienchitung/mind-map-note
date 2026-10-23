@@ -219,6 +219,7 @@ const PROOFREAD_SCHEMA = {
 const normalizeForMatch = (text: string) =>
     text.replace(/\[\d{1,2}(?::\d{2}){1,2}\]/g, '').replace(/\s+/g, '');
 
+const PROOFREAD_COMMENTARY_REGEX = /逐字稿|筆記|口誤|講者|transcript|the note|misspoke|speaker/i;
 /**
  * Applies the proofreader's corrections to the note in code, so the model
  * can never rewrite, drop or add content beyond the exact spans it names.
@@ -248,6 +249,11 @@ export const applyProofreadCorrections = (
         if (find.trim().length < 2 || find === replace) continue;
         if (/<!--|-->/.test(find + replace)) continue;
         if (!parts.some((part, i) => i % 2 === 0 && part.includes(find))) continue;
+        // A replacement that talks about the transcript, the note or what the
+        // speaker said (e.g. "Port 143 (or 1143 as misspoken)") is commentary
+        // written into the note, not a fix.
+        if (PROOFREAD_COMMENTARY_REGEX.test(replace.replace(find, ''))
+            && !PROOFREAD_COMMENTARY_REGEX.test(find)) continue;
         // A correction swaps a wrong term for a right one; anything much
         // longer than what it replaces is new content, not a fix.
         const supported = replace.length <= find.length * 3 + 20 && (
@@ -313,10 +319,10 @@ export const proofreadNote = async (note: string, transcript: string, apiKey: st
 
 Speech recognition often turns terminology, names, product names, English acronyms and formula symbols into words that sound the same or similar but are wrong (e.g. "machine leaning" for "machine learning").
 1. "asr" corrections: recognition errors carried into the note, especially proper nouns and technical terms. Only when the context makes the correct term clear.
-2. "mismatch" corrections: places where the note contradicts the transcript (misread meaning, wrongly copied numbers or formulas, reversed cause-and-effect or comparisons). "evidence" must be an exact, verbatim quote copied from the transcript that proves the correction.
+2. "mismatch" corrections: places where the note contradicts the transcript (misread meaning, wrongly copied numbers or formulas, reversed cause-and-effect or comparisons). "evidence" must be an exact, verbatim quote copied from the transcript that proves the correction. Where the speaker clearly misspoke a standard fact (e.g. said "IMAP 1143") and the note already gives the correct standard value (143), the note is right: never change it back to what was said.
 3. "knowledge" corrections: standard, verifiable facts the note gets wrong, whether the speaker misspoke or recognition garbled them, and only when the correct value is certain (e.g. a well-known port number, protocol or standard name, unit, or constant in a standard formula: "IMAP port 1143" → "IMAP port 143", "RTP 3389" → "RDP 3389"). "find" must include the surrounding term, not just the number. "reason" states the standard fact and what the note originally said.
-4. "find" must be copied exactly from the note and be just long enough to be unambiguous (a term or short phrase); "replace" is its corrected form. Do not add new information, explanations or content that is missing from the note.
-5. "flags": statements that conflict with well-established knowledge but are not certain or standard enough for a "knowledge" correction, transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so are a code parameter value already marked with a "# Supplement" comment and a standard formula already marked "(Supplement)", so do not flag any of these. List flags with the reason, and put the likely correct wording in "suggestion" when there is one; do not correct them.
+4. "find" must be copied exactly from the note and be just long enough to be unambiguous (a term or short phrase); "replace" is its corrected form, written as plain note text, never commentary about the transcript, the note or what the speaker said. Do not add new information, explanations or content that is missing from the note.
+5. "flags": statements that conflict with well-established knowledge but are not certain or standard enough for a "knowledge" correction, transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so are a standard value the note correctly uses in place of the speaker's obvious slip, a code parameter value already marked with a "# Supplement" comment and a standard formula already marked "(Supplement)", so do not flag any of these. List flags with the reason, and put the likely correct wording in "suggestion" when there is one; do not correct them.
 6. If there is nothing to report, return empty lists. Write "reason" in English.
 
 BEGIN NOTE
@@ -330,10 +336,10 @@ END TRANSCRIPT`
 
 語音辨識常把專有名詞、學術術語、人名、產品名稱、英文縮寫與公式符號，轉成發音相同或相近但寫錯的字（例如把「機器學習」辨識成「機氣學習」）。
 1. 「asr」修正：被帶進筆記的辨識錯誤，特別是專有名詞與術語。只有在上下文能明確判斷正確用詞時才列出。
-2. 「mismatch」修正：筆記與逐字稿不符之處（誤解原意、數字或公式抄錯、因果或比較關係顛倒）。「evidence」必須是從逐字稿逐字複製、能證明此修正的原文片段。
+2. 「mismatch」修正：筆記與逐字稿不符之處（誤解原意、數字或公式抄錯、因果或比較關係顛倒）。「evidence」必須是從逐字稿逐字複製、能證明此修正的原文片段。若講者明顯把標準事實說錯（例如說成「IMAP 1143」），而筆記已寫成正確的標準值（143），筆記是對的，絕對不要改回講者的說法。
 3. 「knowledge」修正：筆記中與公認、可查證的標準事實不符之處，不論是講者口誤或辨識錯誤，且正確值毫無疑問時才列出（例如常見的埠號、協定或標準名稱、單位、標準公式中的常數：「IMAP 埠號 1143」→「IMAP 埠號 143」、「RTP 3389」→「RDP 3389」）。「find」必須連同前後的名詞一起複製，不能只有數字。「reason」寫出標準事實與筆記原本的寫法。
-4. 「find」必須從筆記中逐字複製，長度只要足以辨識即可（一個詞或短語）；「replace」是修正後的寫法。不得加入筆記沒有的新資訊、解釋或內容。
-5. 「flags」：與公認知識不符、但不夠確定或不屬於標準事實而不適合用「knowledge」修正的說法、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，程式碼中已用「# 補充」註解標示的參數值、開頭已標示「（補充）」的標準公式也不算，都不要列出。列出並說明原因，有可能的正確寫法時填入「suggestion」，不要修正。
+4. 「find」必須從筆記中逐字複製，長度只要足以辨識即可（一個詞或短語）；「replace」是修正後的寫法，只能是筆記本身的文字，不得寫入關於逐字稿、筆記或講者說法的註解。不得加入筆記沒有的新資訊、解釋或內容。
+5. 「flags」：與公認知識不符、但不夠確定或不屬於標準事實而不適合用「knowledge」修正的說法、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，筆記已把講者明顯口誤改成正確標準值的地方、程式碼中已用「# 補充」註解標示的參數值、開頭已標示「（補充）」的標準公式也不算，都不要列出。列出並說明原因，有可能的正確寫法時填入「suggestion」，不要修正。
 6. 若沒有任何問題，回傳空清單。「reason」使用繁體中文。
 
 筆記開始

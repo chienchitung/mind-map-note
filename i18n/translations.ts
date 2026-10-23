@@ -416,6 +416,7 @@ const zh = {
   'gemini.unknownError': '發生未知的錯誤。',
   'gemini.emptyTranscript': '逐字稿是空的，無法生成筆記。',
   'gemini.noteGenerationFailed': 'AI 未能從逐字稿生成筆記內容，請再試一次。',
+  'gemini.proofreadFailed': '自動校對未完成，筆記中的數字與事實尚未核對，請自行對照逐字稿確認。',
   'gemini.noteTruncated': '筆記已達 AI 輸出長度上限，後段內容可能被截斷。請對照逐字稿補齊結尾，或將錄音分段後重新生成。',
 } as const;
 
@@ -836,6 +837,7 @@ const en: Record<TranslationKey, string> = {
   'gemini.unknownError': 'An unknown error occurred.',
   'gemini.emptyTranscript': 'The transcript is empty — a note cannot be generated.',
   'gemini.noteGenerationFailed': 'AI was unable to generate a note from the transcript — please try again.',
+  'gemini.proofreadFailed': 'Automatic proofreading did not finish, so the numbers and facts in this note have not been checked. Please verify them against the transcript.',
   'gemini.noteTruncated': 'This note reached the AI output length limit, so the last part may be cut off. Check the end against the transcript, or split the recording and generate again.',
 };
 

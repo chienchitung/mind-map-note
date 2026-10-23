@@ -200,6 +200,16 @@ interface ProofreadCorrection {
     evidence?: string;
 }
 
+// A standard fact the note already gives correctly although the transcript
+// says otherwise (the speaker misspoke or recognition garbled it): nothing
+// to change, but listed so the reader knows the note differs from what
+// was said.
+interface ProofreadAlreadyFixed {
+    said: string;
+    written: string;
+    reason: string;
+}
+
 interface ProofreadFlag {
     text: string;
     reason: string;
@@ -223,6 +233,18 @@ const PROOFREAD_SCHEMA = {
                 required: ['find', 'replace', 'type', 'reason'],
             },
         },
+        alreadyFixed: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    said: { type: Type.STRING },
+                    written: { type: Type.STRING },
+                    reason: { type: Type.STRING },
+                },
+                required: ['said', 'written', 'reason'],
+            },
+        },
         flags: {
             type: Type.ARRAY,
             items: {
@@ -236,7 +258,7 @@ const PROOFREAD_SCHEMA = {
             },
         },
     },
-    required: ['corrections', 'flags'],
+    required: ['corrections', 'alreadyFixed', 'flags'],
 };
 
 // For checking that a quote comes from the transcript: drops the
@@ -303,29 +325,52 @@ export const applyProofreadCorrections = (
     return { note: parts.join(''), applied, rejected };
 };
 
-const buildProofreadSection = (applied: ProofreadCorrection[], flags: ProofreadFlag[], language: 'zh' | 'en'): string => {
-    if (applied.length === 0 && flags.length === 0) return '';
+// A "suggestion" that only says to leave the text as it is.
+const NO_CHANGE_SUGGESTION_REGEX = /^(維持|保持|不需|無需|不用|不必)|^(keep|leave|no change)/i;
+
+const buildProofreadSection = (
+    applied: ProofreadCorrection[],
+    alreadyFixed: ProofreadAlreadyFixed[],
+    flags: ProofreadFlag[],
+    language: 'zh' | 'en',
+): string => {
+    if (applied.length === 0 && alreadyFixed.length === 0 && flags.length === 0) return '';
     const en = language === 'en';
     const lines = [`## ${en ? PROOFREAD_HEADING.en : PROOFREAD_HEADING.zh}`];
-    if (applied.length > 0) {
+    if (applied.length > 0 || alreadyFixed.length > 0) {
         lines.push('', `### ${en ? 'Corrected' : '已修正'}`);
         for (const { find, replace, reason, type } of applied) {
             // A fix from general knowledge changes what was said, so say so.
             const why = type === 'knowledge' ? (en ? `standard fact: ${reason}` : `依公認知識：${reason}`) : reason;
             lines.push(en ? `- "${find}" → "${replace}" (${why})` : `- 「${find}」→「${replace}」（${why}）`);
         }
+        for (const { said, written, reason } of alreadyFixed) {
+            lines.push(en
+                ? `- "${said}" → "${written}" (fixed when the note was written: ${reason})`
+                : `- 「${said}」→「${written}」（生成筆記時已修正：${reason}）`);
+        }
     }
     if (flags.length > 0) {
         lines.push('', `### ${en ? 'Please check' : '需人工確認'}`);
         for (const { text, reason, suggestion } of flags) {
-            const suggested = suggestion?.trim() && suggestion !== text
-                ? (en ? ` Suggested: "${suggestion}".` : `建議改為「${suggestion}」。`)
-                : '';
-            lines.push(en ? `- "${text}": ${reason}${suggested}` : `- 「${text}」：${reason}${suggested ? `；${suggested}` : ''}`);
+            const suggested = suggestion?.trim() && suggestion !== text ? suggestion.trim() : '';
+            if (!suggested) {
+                lines.push(en ? `- "${text}": ${reason}` : `- 「${text}」：${reason}`);
+                continue;
+            }
+            const trimmedReason = reason.trim().replace(/[。．.]+$/, '');
+            lines.push(en
+                ? `- "${text}": ${trimmedReason}. Suggested: "${suggested}".`
+                : `- 「${text}」：${trimmedReason}；建議改為「${suggested}」。`);
         }
     }
     return lines.join('\n');
 };
+
+// Shown when proofreading could not run, so the reader knows no check of
+// the note against the transcript happened.
+const withProofreadFailedNotice = (note: string) =>
+    `${note.trimEnd()}\n\n> ⚠️ ${translate('gemini.proofreadFailed')}`;
 
 /**
  * Second pass over a freshly generated note, checked against its transcript.
@@ -336,11 +381,6 @@ const buildProofreadSection = (applied: ProofreadCorrection[], flags: ProofreadF
  * to review. Never throws: on any failure the original note is returned
  * unchanged, since a note without proofreading still beats none.
  */
-// The note writes numbers and facts as the transcript gives them and leaves
-// fixing them to proofreading, so a note that missed proofreading says so.
-const withProofreadFailedNotice = (note: string) =>
-    `${note.trimEnd()}\n\n> ⚠️ ${translate('gemini.proofreadFailed')}`;
-
 export const proofreadNote = async (note: string, transcript: string, apiKey: string): Promise<string> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
@@ -351,10 +391,11 @@ export const proofreadNote = async (note: string, transcript: string, apiKey: st
 Speech recognition often turns terminology, names, product names, English acronyms and formula symbols into words that sound the same or similar but are wrong (e.g. "machine leaning" for "machine learning").
 1. "asr" corrections: recognition errors carried into the note, especially proper nouns and technical terms. Only when the context makes the correct term clear.
 2. "mismatch" corrections: places where the note contradicts the transcript (misread meaning, wrongly copied numbers or formulas, reversed cause-and-effect or comparisons). "evidence" must be an exact, verbatim quote copied from the transcript that proves the correction. Where the speaker clearly misspoke a standard fact (e.g. said "H2O2" for water) and the note already gives the correct standard value (H2O), the note is right: never change it back to what was said.
-3. "knowledge" corrections: a fact the note gets wrong, whether the speaker misspoke or recognition garbled it, only when the correct value is certain and fixed by definition, the same regardless of time, version, region or school of thought: a scientific constant, chemical formula, mathematical formula or theorem, standard name or abbreviation, the year of a well-known historical event, a protocol's standard port. Examples: "the chemical formula of water, H2O2" → "the chemical formula of water, H2O"; "the speed of light, about 3×10^5 m/s" → "the speed of light, about 3×10^8 m/s"; "IMAP port 1143" → "IMAP port 143". "find" must include the surrounding term, not just the number. "reason" states the standard fact and what the note originally said. Never use a "knowledge" correction for: the speaker's own settings, assumptions, examples or choices (e.g. "here we set the SSH port to 2222" stays 2222); viewpoints, interpretations or arguments; anything that changes over time or differs by version or region (law article numbers, regulations, drug dosages and medical guidelines, statistics, prices, software defaults); or any figure or rule in medical, legal or financial content. Those go to "flags" when they seem wrong.
-4. "find" must be copied exactly from the note and be just long enough to be unambiguous (a term or short phrase); "replace" is its corrected form, written as plain note text, never commentary about the transcript, the note or what the speaker said. Do not add new information, explanations or content that is missing from the note.
-5. "flags": statements that conflict with well-established knowledge but are not certain or standard enough for a "knowledge" correction (including anything rule 3 excludes), transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so are a standard value the note correctly uses in place of the speaker's obvious slip, a code parameter value already marked with a "# Supplement" comment and a standard formula already marked "(Supplement)", so do not flag any of these. List flags with the reason, and put the likely correct wording in "suggestion" when there is one; do not correct them.
-6. If there is nothing to report, return empty lists. Write "reason" in English.
+3. "alreadyFixed": places where the note already gives the correct standard fact although the transcript says something else, because the speaker misspoke or recognition garbled it (e.g. the transcript says "IMAP uses 1143" and the note says "IMAP: Port 143"). These need no change; list them so the reader knows. "said" is copied exactly from the transcript (e.g. "1143"), "written" exactly from the note (e.g. "Port 143"), and "reason" states the standard fact. Only for numbers, names and standard facts, not ordinary wording that recognition got wrong.
+4. "knowledge" corrections: a fact the note gets wrong, whether the speaker misspoke or recognition garbled it, only when the correct value is certain and fixed by definition, the same regardless of time, version, region or school of thought: a scientific constant, chemical formula, mathematical formula or theorem, standard name or abbreviation, the year of a well-known historical event, a protocol's standard port. Examples: "the chemical formula of water, H2O2" → "the chemical formula of water, H2O"; "the speed of light, about 3×10^5 m/s" → "the speed of light, about 3×10^8 m/s"; "IMAP port 1143" → "IMAP port 143". "find" must include the surrounding term, not just the number. "reason" states the standard fact and what the note originally said. Never use a "knowledge" correction for: the speaker's own settings, assumptions, examples or choices (e.g. "here we set the SSH port to 2222" stays 2222); viewpoints, interpretations or arguments; anything that changes over time or differs by version or region (law article numbers, regulations, drug dosages and medical guidelines, statistics, prices, software defaults); or any figure or rule in medical, legal or financial content. Those go to "flags" when they seem wrong.
+5. "find" must be copied exactly from the note and be just long enough to be unambiguous (a term or short phrase); "replace" is its corrected form, written as plain note text, never commentary about the transcript, the note or what the speaker said. Do not add new information, explanations or content that is missing from the note.
+6. "flags": statements that conflict with well-established knowledge but are not certain or standard enough for a "knowledge" correction (including anything rule 4 excludes), transcript passages too unclear to be sure, and specific names, organizations, products, tools, numbers or settings in the note that have no basis in the transcript (reason: not found in the transcript). An English term that simply translates something the speaker said is supported, and so are a standard value the note correctly uses in place of the speaker's obvious slip (that goes in "alreadyFixed"), a standard value marked "(Supplement: ...)", a code parameter value already marked with a "# Supplement" comment and a standard formula already marked "(Supplement)", so do not flag any of these. List flags with the reason, and put the likely correct wording in "suggestion" when there is one (leave it empty rather than writing something like "keep as is"); do not correct them.
+7. If there is nothing to report, return empty lists. Write "reason" in English.
 
 BEGIN NOTE
 ${note}
@@ -368,10 +409,11 @@ END TRANSCRIPT`
 語音辨識常把專有名詞、學術術語、人名、產品名稱、英文縮寫與公式符號，轉成發音相同或相近但寫錯的字（例如把「機器學習」辨識成「機氣學習」）。
 1. 「asr」修正：被帶進筆記的辨識錯誤，特別是專有名詞與術語。只有在上下文能明確判斷正確用詞時才列出。
 2. 「mismatch」修正：筆記與逐字稿不符之處（誤解原意、數字或公式抄錯、因果或比較關係顛倒）。「evidence」必須是從逐字稿逐字複製、能證明此修正的原文片段。若講者明顯把標準事實說錯（例如把水的化學式說成「H2O2」），而筆記已寫成正確的標準值（H2O），筆記是對的，絕對不要改回講者的說法。
-3. 「knowledge」修正：筆記中寫錯的事實，不論是講者口誤或辨識錯誤，只有在正確值毫無疑問、且由定義決定、不因時間、版本、地區或學派而改變時才列出：科學常數、化學式、數學公式或定理、標準名稱或縮寫、知名歷史事件的年份、通訊協定的標準埠號等。例如：「水的化學式 H2O2」→「水的化學式 H2O」、「光速約 3×10^5 公尺／秒」→「光速約 3×10^8 公尺／秒」、「IMAP 埠號 1143」→「IMAP 埠號 143」。「find」必須連同前後的名詞一起複製，不能只有數字。「reason」寫出標準事實與筆記原本的寫法。以下一律不得用「knowledge」修正：講者自己的設定、假設、舉例或選擇（例如「我們這裡把 SSH 埠號設成 2222」就維持 2222）；觀點、詮釋或論述；會隨時間改變或因版本、地區而不同的內容（法條條號、法規、藥物劑量與醫療指引、統計數據、價格、軟體預設值）；以及醫療、法律、財務內容中的任何數字或規定。這些若看起來有誤，請列入「flags」。
-4. 「find」必須從筆記中逐字複製，長度只要足以辨識即可（一個詞或短語）；「replace」是修正後的寫法，只能是筆記本身的文字，不得寫入關於逐字稿、筆記或講者說法的註解。不得加入筆記沒有的新資訊、解釋或內容。
-5. 「flags」：與公認知識不符、但不夠確定或不屬於標準事實而不適合用「knowledge」修正的說法（包括第 3 點排除的內容）、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，筆記已把講者明顯口誤改成正確標準值的地方、程式碼中已用「# 補充」註解標示的參數值、開頭已標示「（補充）」的標準公式也不算，都不要列出。列出並說明原因，有可能的正確寫法時填入「suggestion」，不要修正。
-6. 若沒有任何問題，回傳空清單。「reason」使用繁體中文。
+3. 「alreadyFixed」：筆記已寫成正確的標準事實，但逐字稿的說法不同之處（講者口誤或辨識錯誤，例如逐字稿說「IMAP 用 1143」，筆記寫「IMAP：Port 143」）。這些不需修改，列出來讓讀者知道。「said」從逐字稿逐字複製（例如「1143」），「written」從筆記逐字複製（例如「Port 143」），「reason」寫出標準事實。只限數字、名稱與標準事實，一般被辨識錯的用詞不算。
+4. 「knowledge」修正：筆記中寫錯的事實，不論是講者口誤或辨識錯誤，只有在正確值毫無疑問、且由定義決定、不因時間、版本、地區或學派而改變時才列出：科學常數、化學式、數學公式或定理、標準名稱或縮寫、知名歷史事件的年份、通訊協定的標準埠號等。例如：「水的化學式 H2O2」→「水的化學式 H2O」、「光速約 3×10^5 公尺／秒」→「光速約 3×10^8 公尺／秒」、「IMAP 埠號 1143」→「IMAP 埠號 143」。「find」必須連同前後的名詞一起複製，不能只有數字。「reason」寫出標準事實與筆記原本的寫法。以下一律不得用「knowledge」修正：講者自己的設定、假設、舉例或選擇（例如「我們這裡把 SSH 埠號設成 2222」就維持 2222）；觀點、詮釋或論述；會隨時間改變或因版本、地區而不同的內容（法條條號、法規、藥物劑量與醫療指引、統計數據、價格、軟體預設值）；以及醫療、法律、財務內容中的任何數字或規定。這些若看起來有誤，請列入「flags」。
+5. 「find」必須從筆記中逐字複製，長度只要足以辨識即可（一個詞或短語）；「replace」是修正後的寫法，只能是筆記本身的文字，不得寫入關於逐字稿、筆記或講者說法的註解。不得加入筆記沒有的新資訊、解釋或內容。
+6. 「flags」：與公認知識不符、但不夠確定或不屬於標準事實而不適合用「knowledge」修正的說法（包括第 4 點排除的內容）、逐字稿太模糊而無法確定的地方，以及筆記中在逐字稿找不到依據的具體人名、機構、產品、工具、數字或設定（原因寫「逐字稿中找不到」）。只是把講者說的中文翻成英文術語的不算，筆記已把講者明顯口誤改成正確標準值的地方（列入「alreadyFixed」）、以「（補充：…）」標示的標準值、程式碼中已用「# 補充」註解標示的參數值、開頭已標示「（補充）」的標準公式也不算，都不要列出。列出並說明原因，有可能的正確寫法時填入「suggestion」（沒有就留空，不要寫「維持現狀」之類），不要修正。
+7. 若沒有任何問題，回傳空清單。「reason」使用繁體中文。
 
 筆記開始
 ${note}
@@ -400,9 +442,20 @@ ${transcript}
                 });
                 const parsed = JSON.parse(response.text ?? '{}');
                 const corrections: ProofreadCorrection[] = Array.isArray(parsed?.corrections) ? parsed.corrections : [];
+                // A flag whose own suggestion is to leave the text as it is
+                // needs nothing from the reader, so it isn't listed.
                 const flags: ProofreadFlag[] = (Array.isArray(parsed?.flags) ? parsed.flags : [])
-                    .filter((flag: ProofreadFlag) => flag?.text?.trim() && flag?.reason?.trim());
+                    .filter((flag: ProofreadFlag) => flag?.text?.trim() && flag?.reason?.trim()
+                        && !NO_CHANGE_SUGGESTION_REGEX.test(flag.suggestion?.trim() ?? ''));
                 const result = applyProofreadCorrections(note, transcript, corrections);
+                // Listed only when both halves check out: the wording really is
+                // in the transcript, and the note really says the fixed value.
+                const normalizedTranscript = normalizeForMatch(transcript);
+                const alreadyFixed: ProofreadAlreadyFixed[] = (Array.isArray(parsed?.alreadyFixed) ? parsed.alreadyFixed : [])
+                    .filter((item: ProofreadAlreadyFixed) => item?.said?.trim() && item?.written?.trim() && item?.reason?.trim()
+                        && item.said !== item.written
+                        && normalizedTranscript.includes(normalizeForMatch(item.said))
+                        && result.note.includes(item.written));
                 // A correction that couldn't be verified still points at a
                 // likely problem: show it for review with its suggested fix.
                 const unverified = result.rejected.map(({ find, replace, reason }) => ({
@@ -410,7 +463,7 @@ ${transcript}
                     reason: language === 'en' ? `${reason} (not verified, left unchanged)` : `${reason}（未能驗證，未自動修改）`,
                     suggestion: replace,
                 }));
-                const section = buildProofreadSection(result.applied, [...unverified, ...flags], language);
+                const section = buildProofreadSection(result.applied, alreadyFixed, [...unverified, ...flags], language);
                 return section ? `${result.note.trimEnd()}\n\n${section}` : result.note;
             } catch (error) {
                 if (error instanceof ApiError && error.status === 503) continue;
@@ -461,7 +514,7 @@ export const generateNoteFromTranscript = async (
 Requirements:
 1. Cover every substantive point in the transcript. Preserve definitions, explanations, arguments, cause-and-effect relationships, comparisons, conditions, exceptions, ordered steps, examples, names, terminology, numbers, dates, conclusions, action items, and unresolved questions when present. In particular, keep every example the speaker works through, every calculation with its intermediate steps and specific numbers (e.g. how a parameter count or output size is derived), every analogy, and every practical or implementation step — these are often the most valuable parts of a lecture, so never reduce them to a one-line mention. If the content includes decisions or action items (e.g. a meeting), collect them at the end of the note under a separate "## Decisions and action items" section, noting the owner and deadline of each action item where stated.
 2. Remove only speech filler, false starts, exact repetition, clearly off-topic conversation, and transcription noise (garbled fragments or passages in an unrelated language that the speaker clearly did not say). If repeated passages add a new detail, retain that detail.
-3. Use the transcript as the only factual source. Do not add outside facts, inferred conclusions, invented examples, or corrections. If a short explanation that the speaker did not give is truly needed to make a point understandable, start that sentence or bullet with "(Supplement)" so it can be told apart from the lecture content. Mark genuinely unclear source content as "[unclear in transcript]" instead of guessing. Never turn a vague or garbled passage into specific names, products, tools, numbers or settings the transcript does not contain (parameter values in code are the exception; follow the code rule in item 5).
+3. Use the transcript as the only factual source. Do not add outside facts, inferred conclusions, invented examples, or corrections. If a short explanation that the speaker did not give is truly needed to make a point understandable, start that sentence or bullet with "(Supplement)" so it can be told apart from the lecture content. Mark genuinely unclear source content as "[unclear in transcript]" instead of guessing. Exception: when the transcript is unclear about or leaves out a value that is a well-established standard fact fixed by definition (e.g. a protocol's standard port, a scientific constant, a chemical formula), write the correct value and mark it right after with "(Supplement: reason)", e.g. "NTP: Port 123 (Supplement: port not stated in the transcript; this is the standard port)". Otherwise, never turn a vague or garbled passage into specific names, products, tools, numbers or settings the transcript does not contain (parameter values in code are the exception; follow the code rule in item 5), and never fill in the speaker's own settings or examples, or figures and rules in medical, legal or financial content.
    - Odd or nonsensical words in the transcript are almost always speech recognition errors, not the speaker's mistakes. When the context makes the intended term clear, write the correct term directly; otherwise mark it "[unclear in transcript]". Never describe such words as the speaker misspeaking.
 4. Keep related details together and preserve the speaker's intended sequence where order matters. Distinguish the speaker's opinions or proposals from established statements when the transcript makes that distinction.
 5. Produce readable Markdown suitable for both a note and a mind map, structured "overview first, details below":
@@ -469,7 +522,7 @@ Requirements:
    - The first level of bullets under each topic is the overview: one line per item, written as "Name: one-sentence explanation", so a reader can grasp the key points from the first level alone.
    - Put calculations, examples, analogies and cases one level below the item they belong to; start examples with "e.g.". Use at most two levels of bullet indentation.
    - One bullet covers one idea; if it takes more than one sentence, split it into two bullets.
-   - No parenthetical asides (such as comments on how the speaker phrased something or how precise a number is).
+   - No parenthetical asides (such as comments on how the speaker phrased something or how precise a number is), except the "(Supplement: ...)" marks from item 3.
    - When there is little content, do not force it into an overview and details.
    - Numbered lists for procedures, steps or ordered items; plain-text arrows for simple relationships (A → B).
    - No Markdown tables and no horizontal-rule dividers.
@@ -493,7 +546,7 @@ END TRANSCRIPT`
 整理要求：
 1. 涵蓋逐字稿中的每個實質重點。若原文有提到，必須保留定義、解釋、論點、因果關係、比較、適用條件、例外、先後步驟、舉例、人名、專有名詞、數字、日期、結論、待辦事項與尚未解決的問題。尤其要完整保留講者實際講解的每個範例、每個計算過程（含中間步驟與具體數字，例如參數數量或輸出尺寸如何算出）、每個比喻，以及每個實作或操作步驟——這些往往是課程中最有價值的部分，不得只用一句話帶過。若內容包含決議或待辦事項（例如會議），在筆記最後以「## 決議與待辦事項」獨立整理，待辦事項盡量註明負責人與期限。
 2. 只刪除口語贅字、說話停頓、語句重啟、完全相同的重複內容、明顯離題對話，以及轉錄雜訊（亂碼片段，或講者顯然沒有說的其他語言段落）。若重複段落帶有新的細節，仍須保留該細節。
-3. 逐字稿是唯一事實來源。不得加入外部知識、推測性結論、自創案例或自行更正內容。若確實需要補一小段講者沒說的解釋才能看懂，該句或該項目開頭必須標示「（補充）」，讓讀者能和課堂內容區分。來源確實無法辨識時，請標示「[逐字稿內容不清楚]」，不要猜測。不得把含糊或亂碼的段落補成逐字稿中沒有的具體人名、機構、產品、工具、數字或設定（程式碼中的參數值例外，依第 5 點的程式碼規則處理）。
+3. 逐字稿是唯一事實來源。不得加入外部知識、推測性結論、自創案例或自行更正內容。若確實需要補一小段講者沒說的解釋才能看懂，該句或該項目開頭必須標示「（補充）」，讓讀者能和課堂內容區分。來源確實無法辨識時，請標示「[逐字稿內容不清楚]」，不要猜測。例外：逐字稿含糊或沒有說出，但正確值是公認且由定義決定的標準事實時（例如通訊協定的標準埠號、科學常數、化學式），直接補上正確值，並緊接著標註「（補充：原因）」，例如「NTP：Port 123（補充：逐字稿未說出埠號，此為標準埠號）」。除此之外，不得把含糊或亂碼的段落補成逐字稿中沒有的具體人名、機構、產品、工具、數字或設定（程式碼中的參數值例外，依第 5 點的程式碼規則處理）；講者自己的設定與舉例，以及醫療、法律、財務的數字與規定，也不得自行補上。
    - 逐字稿中奇怪或不通順的詞，幾乎都是語音辨識錯誤，而不是講者說錯。若上下文能判斷原本的用詞，直接寫出正確用詞；無法判斷時標示「[逐字稿內容不清楚]」。不得寫成「講者口誤」或「課堂口誤」。
 4. 將相關細節放在一起；當順序具有意義時，保留講者原本的順序。若原文有區分個人意見、建議與既定事實，筆記也要清楚區分。
 5. 輸出適合一般筆記與心智圖解析的 Markdown，採「先總覽、後細節」的結構：
@@ -501,7 +554,7 @@ END TRANSCRIPT`
    - 每個主題的第一層列點是總覽：每項一行，寫成「名稱：一句話說明」，讓讀者只看第一層就能掌握重點。
    - 計算過程、範例、比喻、案例等細節，放在對應項目的下一層；範例以「例：」開頭。列點最多兩層縮排。
    - 一個列點只講一件事；一句話講不完就拆成兩項。
-   - 不寫括號旁白（例如對講者說法或數值精確度的評論）。
+   - 不寫括號旁白（例如對講者說法或數值精確度的評論）；第 3 點的「（補充：…）」標註除外。
    - 內容很少時不必硬拆成總覽與細節。
    - 流程、步驟或有順序的項目使用編號列表；單純關係使用文字箭頭（A → B）。
    - 不使用 Markdown 表格，也不插入水平分隔線。

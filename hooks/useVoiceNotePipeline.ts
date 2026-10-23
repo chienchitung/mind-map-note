@@ -19,7 +19,8 @@ import { transcribeViaBackend, MAX_BACKEND_UPLOAD_BYTES, type BackendTranscribeP
 // here would also wipe the in-memory transcript this step depends on.
 import { generateNoteFromTranscript, proofreadNote, MissingApiKeyError, isRetryableGeminiError, extractGeminiErrorMessage } from '../services/geminiChatService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
-import { extractTimeAnnotations, placeScreenshotsByTimestamp } from '../utils/screenshotPlacement';
+import { extractShotMarkers, insertScreenshots } from '../utils/screenshotPlacement';
+import { grabVideoFrames, isSameScreen } from '../utils/videoFrames';
 import { downloadBlob } from '../utils/downloadBlob';
 import { translate } from '../i18n/translations';
 import useLocalStorage from './useLocalStorage';
@@ -34,7 +35,7 @@ const MICROPHONE_DEVICE_ID_STORAGE_KEY = 'voice-note-microphone-device-id';
 
 export type VoiceNoteStage = 'idle' | 'recording' | 'processing' | 'error';
 export type VoiceNoteInputMode = 'record' | 'upload';
-export type VoiceNoteProcessingPhase = 'uploading' | 'normalizing' | 'transcribing' | 'generating' | 'proofreading';
+export type VoiceNoteProcessingPhase = 'uploading' | 'normalizing' | 'transcribing' | 'generating' | 'proofreading' | 'capturing';
 
 export interface VoiceNoteState {
   stage: VoiceNoteStage;
@@ -88,10 +89,6 @@ export interface VoiceNoteState {
   // that finishes generating faster than the user reacts. Always false for
   // audio-only sessions and uploads.
   awaitingVideoReview: boolean;
-  // How many screenshots have been auto-captured from the shared screen so
-  // far this session — see startScreenshotCapture. Always 0 unless the
-  // current recording kept a video track (captureVideo).
-  screenshotCount: number;
 }
 
 export interface VoiceRecordingData {
@@ -122,7 +119,7 @@ interface UseVoiceNotePipelineOptions {
   onError?: (message: string) => void;
   // Hands a captured screenshot's data URL to the note's own image store
   // (the same one the rich-text editor's paste-image flow uses) and returns
-  // the id it was stored under — see appendScreenshotsSection, which embeds
+  // the id it was stored under — see finalizeAndGenerate, which embeds
   // `image://<id>` references for each into the generated note.
   insertImage: (dataUrl: string) => string;
 }
@@ -134,9 +131,9 @@ export interface StartRecordingOptions {
   captureTabAudio?: boolean;
   // Only meaningful alongside captureTabAudio: keep the shared video track
   // too. It's recorded in parallel for preview/download (never sent for
-  // transcription — audio is transcribed on its own), and also drives
-  // startScreenshotCapture, which periodically grabs a frame whenever the
-  // shared screen changes meaningfully and embeds it in the generated note.
+  // transcription — audio is transcribed on its own), and is where the
+  // note's screenshots are taken from once it's written (see
+  // finalizeAndGenerate).
   captureVideo?: boolean;
 }
 
@@ -182,33 +179,12 @@ const pickSupportedVideoMimeType = (): string | undefined => {
   return VIDEO_MIME_CANDIDATES.find(type => MediaRecorder.isTypeSupported?.(type));
 };
 
-// --- Screen-capture screenshots (see startScreenshotCapture) ---
-// How often to sample the shared screen and check whether it changed enough
-// to be worth a screenshot (a slide advancing, a new window, etc.) — cheap
-// enough to run continuously for a whole recording.
-const SCREENSHOT_CHECK_INTERVAL_MS = 8000;
-// Never take two screenshots closer together than this, even if the screen
-// keeps changing (e.g. a video playing in the shared window) — a note full
-// of near-duplicate frames a few seconds apart isn't useful.
-const MIN_SCREENSHOT_GAP_MS = 5000;
-// Hard cap so an hours-long recording can't embed dozens of images into one
-// note (each one adds to the note's stored size — see useFileSystem's
-// `images` store, which persists images as base64 in localStorage).
-const MAX_SCREENSHOTS_PER_SESSION = 15;
-// Downscaled frame size used only for the cheap change-detection compare —
-// never saved anywhere, just diffed against the previous tick's pixels.
-const SCREENSHOT_COMPARE_WIDTH = 160;
-const SCREENSHOT_COMPARE_HEIGHT = 90;
-// Average per-channel brightness difference (0-255 scale) across the
-// downscaled comparison frame needed to call the screen "changed" — tuned
-// to catch a slide change or window switch while ignoring a mouse cursor
-// blinking or minor video-call self-view movement. Empirically chosen, not
-// derived from anything rigorous — reasonable starting point to tune later.
-const SCREENSHOT_DIFF_THRESHOLD = 18;
-// A saved screenshot is downscaled to at most this wide (tall side follows
-// the source aspect ratio) — a shared 1080p/4K screen doesn't need to be
-// saved at full resolution to be readable in a note.
-const SCREENSHOT_MAX_WIDTH = 1280;
+// Most screenshots one note can get, however many moments the note marks —
+// each is stored as an image alongside the note.
+const MAX_SCREENSHOTS_PER_NOTE = 40;
+// Frames are taken a moment after the marked second: by the time the
+// speaker is explaining a slide it's fully shown, past any transition.
+const SCREENSHOT_OFFSET_SECONDS = 1;
 
 // Maps a recorded/uploaded Blob's mimeType to a download filename extension.
 // Deliberately different from extensionForMimeType (which picks an
@@ -263,7 +239,6 @@ const initialState: VoiceNoteState = {
   canDownload: false,
   previewUrl: null,
   awaitingVideoReview: false,
-  screenshotCount: 0,
 };
 
 export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated, onError, insertImage }: UseVoiceNotePipelineOptions) => {
@@ -350,18 +325,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
   // video recording stops — see awaitingVideoReview on VoiceNoteState.
   const videoReviewPendingRef = useRef(false);
 
-  // Screenshots auto-captured from a shared screen this session — see
-  // startScreenshotCapture/stopScreenshotCapture. Never touches
-  // transcription; only read once, in finalizeAndGenerate's
-  // appendScreenshotsSection, after note generation succeeds.
-  const screenshotsRef = useRef<{ timeSeconds: number; dataUrl: string }[]>([]);
-  const screenshotVideoElRef = useRef<HTMLVideoElement | null>(null);
-  const screenshotCaptureCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const screenshotCompareCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const screenshotIntervalRef = useRef<number | null>(null);
-  const lastComparisonFrameRef = useRef<Uint8ClampedArray | null>(null);
-  const lastScreenshotAtRef = useRef(0);
-
   useEffect(() => {
     if (state.stage !== 'processing' || state.awaitingVideoReview) {
       processingStartedAtRef.current = null;
@@ -401,99 +364,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - recordingStartedAtRef.current) / 1000));
     setState(s => s.elapsedSeconds === elapsedSeconds ? s : { ...s, elapsedSeconds });
   }, []);
-  // Tears down the hidden <video>/interval used to sample the shared screen
-  // for screenshots — safe to call even if screenshot capture was never
-  // started (e.g. an audio-only session). Never touches screenshotsRef
-  // itself: those already-captured screenshots are still needed afterward,
-  // by finalizeAndGenerate's appendScreenshotsSection.
-  const stopScreenshotCapture = () => {
-    if (screenshotIntervalRef.current !== null) {
-      window.clearInterval(screenshotIntervalRef.current);
-      screenshotIntervalRef.current = null;
-    }
-    if (screenshotVideoElRef.current) {
-      screenshotVideoElRef.current.srcObject = null;
-      screenshotVideoElRef.current = null;
-    }
-    screenshotCaptureCanvasRef.current = null;
-    screenshotCompareCanvasRef.current = null;
-    lastComparisonFrameRef.current = null;
-  };
-
-  // Periodically samples the shared-screen video track and saves a
-  // screenshot whenever the screen changes meaningfully (a slide advancing,
-  // a window switch) — see the SCREENSHOT_* constants for the tuning knobs.
-  // Runs entirely off a hidden <video> element playing the *live* track, not
-  // the download recorder's blob — that blob only exists after the
-  // recording stops, and by then the frames themselves are gone.
-  const startScreenshotCapture = (videoTrack: MediaStreamTrack) => {
-    const videoEl = document.createElement('video');
-    videoEl.muted = true;
-    videoEl.playsInline = true;
-    videoEl.srcObject = new MediaStream([videoTrack]);
-    void videoEl.play().catch(error => {
-      console.warn('Could not start screenshot capture from the shared screen:', error);
-    });
-    screenshotVideoElRef.current = videoEl;
-
-    const compareCanvas = document.createElement('canvas');
-    compareCanvas.width = SCREENSHOT_COMPARE_WIDTH;
-    compareCanvas.height = SCREENSHOT_COMPARE_HEIGHT;
-    screenshotCompareCanvasRef.current = compareCanvas;
-    screenshotCaptureCanvasRef.current = document.createElement('canvas');
-
-    screenshotIntervalRef.current = window.setInterval(() => {
-      if (screenshotsRef.current.length >= MAX_SCREENSHOTS_PER_SESSION) return;
-      const video = screenshotVideoElRef.current;
-      const compare = screenshotCompareCanvasRef.current;
-      if (!video || !compare || video.readyState < 2 || video.videoWidth === 0) return;
-
-      const compareCtx = compare.getContext('2d', { willReadFrequently: true });
-      if (!compareCtx) return;
-      compareCtx.drawImage(video, 0, 0, compare.width, compare.height);
-      const frame = compareCtx.getImageData(0, 0, compare.width, compare.height).data;
-
-      const previousFrame = lastComparisonFrameRef.current;
-      // No previous frame to compare against yet — treat the very first
-      // sample as "changed" so a shared screen always gets at least one
-      // screenshot near the start, rather than waiting for the first
-      // detected change.
-      let changed = previousFrame === null;
-      if (previousFrame && previousFrame.length === frame.length) {
-        let diffSum = 0;
-        // Sampling every 4th pixel (16 bytes: RGBA × 4) keeps this cheap
-        // enough to run every tick without a real diff library.
-        for (let i = 0; i < frame.length; i += 16) {
-          diffSum += Math.abs(frame[i] - previousFrame[i]);
-        }
-        const sampledPixelCount = Math.ceil(frame.length / 16);
-        changed = (diffSum / sampledPixelCount) > SCREENSHOT_DIFF_THRESHOLD;
-      }
-      lastComparisonFrameRef.current = frame;
-
-      const now = Date.now();
-      if (!changed || now - lastScreenshotAtRef.current < MIN_SCREENSHOT_GAP_MS) return;
-      lastScreenshotAtRef.current = now;
-
-      const capture = screenshotCaptureCanvasRef.current;
-      const captureCtx = capture?.getContext('2d');
-      if (!capture || !captureCtx) return;
-      const scale = Math.min(1, SCREENSHOT_MAX_WIDTH / video.videoWidth);
-      capture.width = Math.max(1, Math.round(video.videoWidth * scale));
-      capture.height = Math.max(1, Math.round(video.videoHeight * scale));
-      captureCtx.drawImage(video, 0, 0, capture.width, capture.height);
-      const dataUrl = capture.toDataURL('image/jpeg', 0.75);
-      const timeSeconds = recordingStartedAtRef.current !== null
-        ? Math.max(0, Math.floor((now - recordingStartedAtRef.current) / 1000))
-        : 0;
-      screenshotsRef.current.push({ timeSeconds, dataUrl });
-      setState(s => ({ ...s, screenshotCount: screenshotsRef.current.length }));
-    }, SCREENSHOT_CHECK_INTERVAL_MS);
-  };
-
   const releaseStream = () => {
     clearMicrophoneMuteTimer();
-    stopScreenshotCapture();
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
     micStreamRef.current?.getTracks().forEach(track => {
@@ -563,7 +435,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     hasVideoRef.current = false;
     videoReviewPendingRef.current = false;
     revokePreviewUrl();
-    screenshotsRef.current = [];
     setState(s => ({
       ...s,
       stage: 'idle',
@@ -581,7 +452,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       canDownload: false,
       previewUrl: null,
       awaitingVideoReview: false,
-      screenshotCount: 0,
     }));
   }, []);
 
@@ -647,6 +517,38 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     setState(s => ({ ...s, generationRetrySeconds: null }));
   }, []);
 
+  // Replaces the note's `<!--shot:SECONDS-->` markers with frames taken
+  // from the video at those moments. A frame showing the same screen as
+  // one already used is skipped, so a slide discussed in several places
+  // appears once. Never fails the note: without a video, or if frames
+  // can't be read, the markers are just removed.
+  const addScreenshots = async (markdown: string, videoSource: Blob | null): Promise<string> => {
+    const { markdown: cleaned, shots } = extractShotMarkers(markdown);
+    if (!videoSource || shots.length === 0) return cleaned;
+    const ordered = [...shots].sort((a, b) => a.lineIndex - b.lineIndex).slice(0, MAX_SCREENSHOTS_PER_NOTE);
+    setState(s => ({ ...s, processingPhase: 'capturing', totalSegments: ordered.length, completedSegments: 0 }));
+    let frames;
+    try {
+      frames = await grabVideoFrames(
+        videoSource,
+        ordered.map(shot => shot.seconds + SCREENSHOT_OFFSET_SECONDS),
+        (done, total) => setState(s => ({ ...s, totalSegments: total, completedSegments: done })),
+      );
+    } catch (error) {
+      console.warn('Could not take screenshots from the video:', error);
+      return cleaned;
+    }
+    const kept: Uint8ClampedArray[] = [];
+    const placements: { lineIndex: number; dataUrl: string }[] = [];
+    ordered.forEach((shot, i) => {
+      const frame = frames[i];
+      if (!frame || kept.some(thumb => isSameScreen(thumb, frame.thumb))) return;
+      kept.push(frame.thumb);
+      placements.push({ lineIndex: shot.lineIndex, dataUrl: frame.dataUrl });
+    });
+    return insertScreenshots(cleaned, placements, insertImageRef.current, translate('voiceNote.screenshotAlt'));
+  };
+
   const finalizeAndGenerate = useCallback(async () => {
     if (cancelledRef.current) return;
     const combinedTranscript = transcriptPartsRef.current.join('\n\n');
@@ -654,17 +556,14 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       handlePipelineError(new Error(translate('pipeline.noSpeechDetected')));
       return;
     }
-    // A recording with screenshots gets the timestamped transcript instead
-    // of the plain one, and asks Gemini to tag each block with a hidden
-    // time-range marker (see generateNoteFromTranscript's
-    // withScreenshotAnchors) — extractTimeAnnotations/placeScreenshotsByTimestamp
-    // below then use those markers to insert each screenshot right after
-    // whichever block actually discusses that moment, deterministically,
-    // rather than leaving placement to the model. Sessions with no
-    // screenshots are unaffected: no markers get requested, so
-    // extractTimeAnnotations finds none and placeScreenshotsByTimestamp is
-    // a no-op (screenshots.length === 0).
-    const hasScreenshots = screenshotsRef.current.length > 0;
+    // With a video to take frames from (a recording that kept the shared
+    // screen, or an uploaded video file), Gemini gets the timestamped
+    // transcript and marks the moments worth a screenshot (see
+    // generateNoteFromTranscript's withScreenshotAnchors); addScreenshots
+    // then takes those frames from the video. Audio-only sessions are
+    // unaffected: no markers are requested.
+    const videoSource = hasVideoRef.current ? (rawRecordingBlobRef.current ?? uploadedFileRef.current) : null;
+    const hasScreenshots = videoSource !== null;
     const transcriptForGeneration = hasScreenshots
       ? timestampedTranscriptPartsRef.current.join('\n')
       : combinedTranscript;
@@ -683,15 +582,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
           setState(s => ({ ...s, processingPhase: 'proofreading' }));
           const noteMarkdown = await proofreadNote(draftMarkdown, transcriptForGeneration, geminiApiKeyRef.current);
           if (cancelledRef.current) return;
-          const { markdown: cleanedMarkdown, annotations } = extractTimeAnnotations(normalizeAiMarkdown(noteMarkdown));
-          const finalMarkdown = placeScreenshotsByTimestamp(
-            cleanedMarkdown,
-            annotations,
-            screenshotsRef.current,
-            insertImageRef.current,
-            translate('voiceNote.screenshotsHeading'),
-            translate('voiceNote.screenshotAlt')
-          );
+          const finalMarkdown = await addScreenshots(normalizeAiMarkdown(noteMarkdown), videoSource);
+          if (cancelledRef.current) return;
           onNoteGeneratedRef.current(finalMarkdown, {
             transcript: combinedTranscript,
             timestampedTranscript: timestampedTranscriptPartsRef.current.join('\n'),
@@ -1110,8 +1002,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       uploadedFileRef.current = null;
       hasVideoRef.current = !!videoTrack;
       revokePreviewUrl();
-      screenshotsRef.current = [];
-      lastScreenshotAtRef.current = 0;
 
       setState(s => ({
         ...s,
@@ -1128,7 +1018,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
         hasVideo: !!videoTrack,
         canDownload: false,
         previewUrl: null,
-        screenshotCount: 0,
       }));
 
       const mimeType = pickSupportedMimeType();
@@ -1174,7 +1063,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       }
       if (videoTrack) {
         startDownloadRecorder(mixedAudioStream, videoTrack);
-        startScreenshotCapture(videoTrack);
       }
       elapsedTimerRef.current = window.setInterval(() => {
         updateElapsedFromClock();
@@ -1305,7 +1193,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
     hasVideoRef.current = false;
     videoReviewPendingRef.current = false;
     revokePreviewUrl();
-    screenshotsRef.current = [];
     // Resets the visible UI state but deliberately does NOT flip
     // cancelledRef back to false the way resetToIdle() does — the abort()
     // call above doesn't reject its in-flight request synchronously, so
@@ -1333,7 +1220,6 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
       canDownload: false,
       previewUrl: null,
       awaitingVideoReview: false,
-      screenshotCount: 0,
     }));
   }, []);
 

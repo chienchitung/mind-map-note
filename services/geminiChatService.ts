@@ -228,7 +228,7 @@ export const applyProofreadCorrections = (
 ): { note: string; applied: ProofreadCorrection[] } => {
     const normalizedTranscript = collapseWhitespace(transcript);
     // Odd indexes are the markers themselves, left out of every replacement.
-    const parts = note.split(/(<!--t:\d+-\d+-->)/);
+    const parts = note.split(/(<!--shot:\d+-->)/);
     const applied: ProofreadCorrection[] = [];
     for (const correction of corrections) {
         const find = correction.find ?? '';
@@ -386,8 +386,8 @@ export const generateNoteFromTranscript = async (
         // time-range marker the caller uses to place the matching
         // screenshot right after it, then strips before showing the note.
         const screenshotAnchorInstruction = !withScreenshotAnchors ? '' : (language === 'en'
-            ? `\n9. The transcript below has a "[MM:SS]" timestamp at the start of each source line — these mark real moments in a screen-shared recording that also has screenshots attached to it, which will be placed into the note automatically after you finish. For EVERY "#"/"##"/"###" heading and EVERY top-level "-"/"1." list item (not nested sub-items) you write, append a hidden marker at the very end of that same line: \`<!--t:START-END-->\`, where START and END are the integer-second range of the source timestamps that heading or bullet's content was drawn from (e.g. \`<!--t:125-180-->\`). Never omit this marker, never mention timestamps anywhere in the visible note text, and never describe or reference the screenshots themselves — the marker is the only place time information belongs.`
-            : `\n9. 以下逐字稿每行開頭都有「[MM:SS]」時間戳——這些標記著這份錄音在畫面分享時實際發生的時間點，錄音同時也附有螢幕截圖，稍後會由程式自動安插進筆記。你寫的每一個「#」「##」「###」標題，以及每一個最上層的「-」或「1.」列表項目（不含巢狀子項目），都必須在該行最後面加上一個隱藏標記：\`<!--t:START-END-->\`，START、END 是整數秒，代表這個標題或項目內容取材自逐字稿的哪個時間範圍（例如 \`<!--t:125-180-->\`）。這個標記一定要加，絕對不要在筆記正文中提到任何時間戳，也不要描述或提及截圖本身——時間資訊只能出現在這個標記裡。`);
+            ? `\n9. This lecture was recorded together with the shared screen, and the transcript below starts each line with a "[MM:SS]" timestamp. Wherever seeing the screen would genuinely help understand the content — a slide being explained, code, a formula or diagram on screen, a demo or interface steps — add a hidden marker on its own line directly below that heading or bullet: \`<!--shot:SECONDS-->\`, where SECONDS is the integer second (taken from the transcript's timestamps) when that visual was on screen and being explained, e.g. \`<!--shot:754-->\` for 12:34. The program replaces each marker with a screenshot of that moment. Add a marker for every distinct slide or screen the speaker walks through, but not for small talk, and at most one per bullet. Never mention timestamps or screenshots in the visible note text.`
+            : `\n9. 這份錄音同時錄下了分享的畫面，以下逐字稿每行開頭有「[MM:SS]」時間戳。凡是看到畫面能真正幫助理解的內容——正在講解的投影片、程式碼、畫面上的公式或圖表、操作示範或介面步驟——就在該標題或列點的下一行，單獨加上一個隱藏標記：\`<!--shot:秒數-->\`。秒數是整數秒，取自逐字稿的時間戳，代表講解這個畫面的時間點（例如 12:34 寫成 \`<!--shot:754-->\`）。程式會把每個標記換成那個時間點的畫面截圖。講者講解的每一張不同投影片或畫面都要加，閒聊不要加，每個列點最多一個。筆記正文中不要提到時間戳或截圖。`);
         const contents = language === 'en'
             ? `Create a comprehensive study note from the speech transcript below. This is a faithful reconstruction task, not a short summary.
 

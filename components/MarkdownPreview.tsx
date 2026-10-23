@@ -57,6 +57,14 @@ const extractMath = (text: string): { text: string; mathHtml: Record<string, str
     return { text: processedText, mathHtml };
 };
 
+const openLinksInNewTab = (node: Element) => {
+    if (node.tagName !== 'A') return;
+    const href = node.getAttribute('href');
+    if (!href || href.startsWith('#')) return;
+    node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer');
+};
+
 interface MarkdownPreviewProps {
     markdown: string;
     images: Images;
@@ -99,7 +107,15 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ markdown, images, scr
 
         // Notes may contain content pasted from untrusted sources, so the rendered
         // HTML must be sanitized before it is injected into the DOM.
-        return DOMPurify.sanitize(rawHtml, { ADD_ATTR: ['target'] });
+        // Links open in a new tab: following one in this tab would unload the
+        // app, cutting off an AI reply or voice note still being generated.
+        // In-page "#" links stay as they are.
+        DOMPurify.addHook('afterSanitizeAttributes', openLinksInNewTab);
+        try {
+            return DOMPurify.sanitize(rawHtml, { ADD_ATTR: ['target'] });
+        } finally {
+            DOMPurify.removeHook('afterSanitizeAttributes', openLinksInNewTab);
+        }
     }, [markdown, images]);
 
     // Jumps to the ordinal-th heading/list-item in the rendered HTML — see

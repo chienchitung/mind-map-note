@@ -79,7 +79,7 @@ export const extractGeminiErrorMessage = (error: unknown): string => {
  *   this systemInstruction back on every call, not just rely on it being
  *   set once at creation time.
  */
-const CHAT_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash'] as const;
+const CHAT_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'] as const;
 // Note generation and proofreading.
 const NOTE_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash'] as const;
 
@@ -461,10 +461,8 @@ export const generateNoteFromTranscript = async (
 Requirements:
 1. Cover every substantive point in the transcript. Preserve definitions, explanations, arguments, cause-and-effect relationships, comparisons, conditions, exceptions, ordered steps, examples, names, terminology, numbers, dates, conclusions, action items, and unresolved questions when present. In particular, keep every example the speaker works through, every calculation with its intermediate steps and specific numbers (e.g. how a parameter count or output size is derived), every analogy, and every practical or implementation step — these are often the most valuable parts of a lecture, so never reduce them to a one-line mention. If the content includes decisions or action items (e.g. a meeting), collect them at the end of the note under a separate "## Decisions and action items" section, noting the owner and deadline of each action item where stated.
 2. Remove only speech filler, false starts, exact repetition, clearly off-topic conversation, and transcription noise (garbled fragments or passages in an unrelated language that the speaker clearly did not say). If repeated passages add a new detail, retain that detail.
-3. Use the transcript as the only factual source. Do not add outside facts, inferred conclusions or invented examples. If a short explanation that the speaker did not give is truly needed to make a point understandable, start that sentence or bullet with "(Supplement)" so it can be told apart from the lecture content. Mark genuinely unclear source content as "[unclear in transcript]" instead of guessing. Never turn a vague or garbled passage into specific names, products, tools, numbers or settings the transcript does not contain (parameter values in code are the exception; follow the code rule in item 5).
-   - Misrecognized wording: odd or nonsensical words in the transcript (same-sounding wrong words, misspelled English terms or acronyms) are almost always speech recognition errors. When the context makes the intended term clear, write the correct term directly; otherwise mark it "[unclear in transcript]".
-   - Numbers and facts as stated: write numbers, values, years, values in formulas, and statements that conflict with well-established knowledge exactly as the transcript gives them, and never correct them from outside knowledge (e.g. if the transcript says "IMAP uses 1143", the note says 1143). A later proofreading step checks and corrects these and lists the original wording for the reader. The speaker's own settings, assumptions and examples are also written as stated.
-   - Never describe anything as the speaker misspeaking, and do not comment in the note on whether a value is correct.
+3. Use the transcript as the only factual source. Do not add outside facts, inferred conclusions, invented examples, or corrections. If a short explanation that the speaker did not give is truly needed to make a point understandable, start that sentence or bullet with "(Supplement)" so it can be told apart from the lecture content. Mark genuinely unclear source content as "[unclear in transcript]" instead of guessing. Never turn a vague or garbled passage into specific names, products, tools, numbers or settings the transcript does not contain (parameter values in code are the exception; follow the code rule in item 5).
+   - Odd or nonsensical words in the transcript are almost always speech recognition errors, not the speaker's mistakes. When the context makes the intended term clear, write the correct term directly; otherwise mark it "[unclear in transcript]". Never describe such words as the speaker misspeaking.
 4. Keep related details together and preserve the speaker's intended sequence where order matters. Distinguish the speaker's opinions or proposals from established statements when the transcript makes that distinction.
 5. Produce readable Markdown suitable for both a note and a mind map, structured "overview first, details below":
    - One descriptive "#" title based on the central topic; "##" headings for major topics and "###" for subtopics.
@@ -495,10 +493,8 @@ END TRANSCRIPT`
 整理要求：
 1. 涵蓋逐字稿中的每個實質重點。若原文有提到，必須保留定義、解釋、論點、因果關係、比較、適用條件、例外、先後步驟、舉例、人名、專有名詞、數字、日期、結論、待辦事項與尚未解決的問題。尤其要完整保留講者實際講解的每個範例、每個計算過程（含中間步驟與具體數字，例如參數數量或輸出尺寸如何算出）、每個比喻，以及每個實作或操作步驟——這些往往是課程中最有價值的部分，不得只用一句話帶過。若內容包含決議或待辦事項（例如會議），在筆記最後以「## 決議與待辦事項」獨立整理，待辦事項盡量註明負責人與期限。
 2. 只刪除口語贅字、說話停頓、語句重啟、完全相同的重複內容、明顯離題對話，以及轉錄雜訊（亂碼片段，或講者顯然沒有說的其他語言段落）。若重複段落帶有新的細節，仍須保留該細節。
-3. 逐字稿是唯一事實來源。不得加入外部知識、推測性結論或自創案例。若確實需要補一小段講者沒說的解釋才能看懂，該句或該項目開頭必須標示「（補充）」，讓讀者能和課堂內容區分。來源確實無法辨識時，請標示「[逐字稿內容不清楚]」，不要猜測。不得把含糊或亂碼的段落補成逐字稿中沒有的具體人名、機構、產品、工具、數字或設定（程式碼中的參數值例外，依第 5 點的程式碼規則處理）。
-   - 用詞被辨識錯：逐字稿中奇怪或不通順的詞（同音錯字、拼錯的英文術語或縮寫），幾乎都是語音辨識錯誤。若上下文能判斷原本的用詞，直接寫出正確用詞；無法判斷時標示「[逐字稿內容不清楚]」。
-   - 數字與事實照寫：數字、數值、年份、公式中的值，以及與公認知識不符的說法，一律照逐字稿的內容寫，不得依外部知識自行改正（例如逐字稿說「IMAP 用 1143」，筆記就寫 1143）。之後的校對步驟會統一檢查並修正，同時列出原本的寫法供讀者核對。講者自己的設定、假設與舉例也照實寫。
-   - 不得寫成「講者口誤」或「課堂口誤」，也不要在正文評論數值是否正確。
+3. 逐字稿是唯一事實來源。不得加入外部知識、推測性結論、自創案例或自行更正內容。若確實需要補一小段講者沒說的解釋才能看懂，該句或該項目開頭必須標示「（補充）」，讓讀者能和課堂內容區分。來源確實無法辨識時，請標示「[逐字稿內容不清楚]」，不要猜測。不得把含糊或亂碼的段落補成逐字稿中沒有的具體人名、機構、產品、工具、數字或設定（程式碼中的參數值例外，依第 5 點的程式碼規則處理）。
+   - 逐字稿中奇怪或不通順的詞，幾乎都是語音辨識錯誤，而不是講者說錯。若上下文能判斷原本的用詞，直接寫出正確用詞；無法判斷時標示「[逐字稿內容不清楚]」。不得寫成「講者口誤」或「課堂口誤」。
 4. 將相關細節放在一起；當順序具有意義時，保留講者原本的順序。若原文有區分個人意見、建議與既定事實，筆記也要清楚區分。
 5. 輸出適合一般筆記與心智圖解析的 Markdown，採「先總覽、後細節」的結構：
    - 依核心主題建立一個具體的「#」標題；主要主題使用「##」，子主題使用「###」。

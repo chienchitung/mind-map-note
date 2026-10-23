@@ -82,7 +82,7 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
   const {
     inputMode, elapsedSeconds, processingElapsedSeconds, processingPhase, totalSegments, completedSegments,
     errorMessage, rateLimitRetrySeconds, generationRetrySeconds, backendWakingUp,
-    microphoneStatus, hasVideo, canDownload, previewUrl, awaitingVideoReview, screenshotCount,
+    microphoneStatus, hasVideo, canDownload, previewUrl, awaitingVideoReview,
   } = state;
   const isBusy = stage === 'recording' || stage === 'processing';
   const kind = hasVideo ? t('voiceNote.kindVideo') : t('voiceNote.kindAudio');
@@ -266,9 +266,6 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
               </p>
             )}
             {hasVideo && <p className="text-xs text-text-secondary mb-1">{t('voiceNote.recordingVideoHint')}</p>}
-            {screenshotCount > 0 && (
-              <p className="text-xs text-text-secondary mb-1">{t('voiceNote.screenshotsCaptured', { count: screenshotCount })}</p>
-            )}
             <button
               onClick={() => actions.stopRecording()}
               className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center shadow-apple-md hover:opacity-90 active:scale-95 transition-all duration-150 ease-apple mt-2"
@@ -333,11 +330,16 @@ const VoiceNoteModal: React.FC<VoiceNoteModalProps> = ({ isOpen, onClose, state,
           );
         }
 
-        const showSegmentProgress = processingPhase === 'transcribing' && totalSegments > 1;
+        const showSegmentProgress = (processingPhase === 'transcribing' || processingPhase === 'capturing') && totalSegments > 1;
         const segmentFraction = totalSegments > 0 ? completedSegments / totalSegments : 0;
 
         let label = t('voiceNote.generatingLabel');
         if (processingPhase === 'proofreading') label = t('voiceNote.proofreadingLabel');
+        else if (processingPhase === 'capturing') {
+          label = totalSegments > 0
+            ? t('voiceNote.capturingScreenshotsProgress', { completed: completedSegments, total: totalSegments })
+            : t('voiceNote.capturingScreenshots');
+        }
         else if (processingPhase === 'normalizing') label = hasVideo ? t('voiceNote.extractingAudio') : t('voiceNote.normalizingAudio');
         else if (processingPhase === 'uploading') label = t('voiceNote.uploadingAudio');
         else if (processingPhase === 'transcribing') {

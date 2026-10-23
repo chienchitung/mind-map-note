@@ -40,6 +40,8 @@ const VoiceNoteStatusPill: React.FC<VoiceNoteStatusPillProps> = ({ state, onClic
       label = t('voicePill.generating');
     } else if (processingPhase === 'proofreading') {
       label = t('voicePill.proofreading');
+    } else if (processingPhase === 'capturing') {
+      label = t('voicePill.capturing');
     }
     if (!awaitingVideoReview && rateLimitRetrySeconds !== null) {
       label = t('voicePill.rateLimited', { seconds: rateLimitRetrySeconds });

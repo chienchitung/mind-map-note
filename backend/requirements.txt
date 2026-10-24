@@ -4,4 +4,7 @@ uvicorn==0.39.0
 python-multipart==0.0.32
 python-dotenv==1.2.4
 httpx==0.28.1
+# CA bundle httpx verifies HTTPS with. 2026.10.19 distrusts the compromised
+# eMudhra intermediates; left as a floor so each rebuild picks up newer bundles.
+certifi>=2026.10.19
 opencc-python-reimplemented==0.1.7

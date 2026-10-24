@@ -11,4 +11,4 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false
       - key: PYTHON_VERSION
-        value: 3.11.15
+        value: 3.11.17

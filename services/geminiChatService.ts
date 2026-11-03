@@ -25,19 +25,21 @@ export class MissingApiKeyError extends Error {
  */
 export const isRetryableGeminiError = (error: unknown): boolean =>
     (error instanceof ApiError && (error.status === 503 || error.status === 429))
-    || error instanceof GeminiTimeoutError;
+    || error instanceof GeminiNoReplyError;
 
 /**
- * Thrown when a Gemini reply stops arriving. An overloaded model can accept
- * a request and then never answer it; with no limit, the note step waited
- * on such a request indefinitely, stuck on "organizing your note" with
- * nothing else on screen. Treated like an overload: the next model is
+ * Thrown when a Gemini reply never arrives in full, either because it went
+ * silent (an overloaded model can accept a request and then never answer
+ * it; with no limit, the note step waited on such a request indefinitely)
+ * or because the connection broke off partway through the stream (the SDK
+ * reports this as e.g. "Incomplete JSON segment at the end"). Both are
+ * transient, so they are treated like an overload: the next model is
  * tried, then the usual timed retry.
  */
-export class GeminiTimeoutError extends Error {
-    constructor(model: string) {
-        super(`${model} stopped responding.`);
-        this.name = 'GeminiTimeoutError';
+export class GeminiNoReplyError extends Error {
+    constructor(model: string, readonly kind: 'silent' | 'broken', cause?: unknown) {
+        super(kind === 'silent' ? `${model} stopped responding.` : `${model}'s reply broke off.`, { cause });
+        this.name = 'GeminiNoReplyError';
     }
 }
 
@@ -78,8 +80,11 @@ const streamWithIdleTimeout = async (
         }
         return { text, finishReason };
     } catch (error) {
-        if (timedOut) throw new GeminiTimeoutError(params.model);
-        throw error;
+        if (timedOut) throw new GeminiNoReplyError(params.model, 'silent');
+        // An API error (bad request, key, quota, overload) is reported as is;
+        // anything else failed while reading the stream itself.
+        if (error instanceof ApiError) throw error;
+        throw new GeminiNoReplyError(params.model, 'broken', error);
     } finally {
         clearTimeout(timer);
     }
@@ -568,11 +573,11 @@ ${transcript}
                     const section = buildProofreadSection(result.applied, alreadyFixed, [...unverified, ...flags], language);
                     return section ? `${result.note.trimEnd()}\n\n${section}` : result.note;
                 } catch (error) {
-                    // Overloaded (503), rate-limited (429) or gone silent:
-                    // try the next model.
-                    if (error instanceof GeminiTimeoutError) {
-                        console.warn(`Proofreading with ${model} stopped responding; trying the next model if available.`);
-                        timedOut = true;
+                    // Overloaded (503), rate-limited (429), gone silent or
+                    // broken off: try the next model.
+                    if (error instanceof GeminiNoReplyError) {
+                        console.warn(`Proofreading with ${model} failed (${error.message}); trying the next model if available.`);
+                        if (error.kind === 'silent') timedOut = true;
                         continue;
                     }
                     if (isRetryableGeminiError(error)) continue;
@@ -715,7 +720,7 @@ ${transcript}
         // complete notes, so if both are overloaded the hook's timed retry
         // waits for capacity instead.
         const models = NOTE_MODELS;
-        let overloadError: ApiError | GeminiTimeoutError | null = null;
+        let overloadError: ApiError | GeminiNoReplyError | null = null;
         for (const model of models) {
             try {
                 const response = await generate(model);
@@ -729,10 +734,10 @@ ${transcript}
                 }
                 return noteMarkdown;
             } catch (error) {
-                if ((error instanceof ApiError && error.status === 503) || error instanceof GeminiTimeoutError) {
+                if ((error instanceof ApiError && error.status === 503) || error instanceof GeminiNoReplyError) {
                     overloadError ??= error;
-                    console.warn(error instanceof GeminiTimeoutError
-                        ? `Model ${model} stopped responding; trying the next note model if available.`
+                    console.warn(error instanceof GeminiNoReplyError
+                        ? `${error.message} Trying the next note model if available.`
                         : `Model ${model} is overloaded; trying the next note model if available.`);
                     continue;
                 }

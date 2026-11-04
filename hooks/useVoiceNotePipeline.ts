@@ -19,10 +19,11 @@ import { transcribeViaBackend, MAX_BACKEND_UPLOAD_BYTES, type BackendTranscribeP
 // here would also wipe the in-memory transcript this step depends on.
 import { generateNoteFromTranscript, proofreadNote, MissingApiKeyError, isRetryableGeminiError, extractGeminiErrorMessage } from '../services/geminiChatService';
 import { normalizeAiMarkdown } from '../utils/normalizeAiMarkdown';
+import { tablesToLists } from '../utils/markdownTables';
 import { extractShotMarkers, insertScreenshots } from '../utils/screenshotPlacement';
 import { grabVideoFrames, isSameScreen } from '../utils/videoFrames';
 import { downloadBlob } from '../utils/downloadBlob';
-import { translate } from '../i18n/translations';
+import { translate, getCurrentLanguage } from '../i18n/translations';
 import useLocalStorage from './useLocalStorage';
 
 // Persists the user's explicit microphone choice (a deviceId from
@@ -582,7 +583,8 @@ export const useVoiceNotePipeline = ({ groqApiKey, geminiApiKey, onNoteGenerated
           setState(s => ({ ...s, processingPhase: 'proofreading' }));
           const noteMarkdown = await proofreadNote(draftMarkdown, transcriptForGeneration, geminiApiKeyRef.current);
           if (cancelledRef.current) return;
-          const finalMarkdown = await addScreenshots(normalizeAiMarkdown(noteMarkdown), videoSource);
+          const listsOnly = tablesToLists(normalizeAiMarkdown(noteMarkdown), getCurrentLanguage() === 'en' ? ': ' : '：');
+          const finalMarkdown = await addScreenshots(listsOnly, videoSource);
           if (cancelledRef.current) return;
           onNoteGeneratedRef.current(finalMarkdown, {
             transcript: combinedTranscript,

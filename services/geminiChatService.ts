@@ -715,10 +715,10 @@ ${transcript}
             },
         }, NOTE_IDLE_TIMEOUT_MS);
 
-        // Capacity errors are model-specific, so an overloaded 3.8 falls back
-        // to 3.6. Nothing smaller: lighter models write noticeably less
-        // complete notes, so if both are overloaded the hook's timed retry
-        // waits for capacity instead.
+        // Capacity errors are model-specific, so an overloaded or
+        // rate-limited 3.8 falls back to 3.6. Nothing smaller: lighter
+        // models write noticeably less complete notes, so if both are busy
+        // the hook's timed retry waits for capacity instead.
         const models = NOTE_MODELS;
         let overloadError: ApiError | GeminiNoReplyError | null = null;
         for (const model of models) {
@@ -734,15 +734,21 @@ ${transcript}
                 }
                 return noteMarkdown;
             } catch (error) {
-                if ((error instanceof ApiError && error.status === 503) || error instanceof GeminiNoReplyError) {
-                    overloadError ??= error;
+                // Overload (503) and rate limits (429) are counted per model:
+                // on the free tier a newer model's quota can run out while
+                // the backup still has room, so both move on to the next
+                // model rather than waiting to retry the same one.
+                if (isRetryableGeminiError(error)) {
+                    overloadError ??= error as ApiError | GeminiNoReplyError;
                     console.warn(error instanceof GeminiNoReplyError
                         ? `${error.message} Trying the next note model if available.`
-                        : `Model ${model} is overloaded; trying the next note model if available.`);
+                        : error instanceof ApiError && error.status === 429
+                            ? `Model ${model} is rate-limited; trying the next note model if available.`
+                            : `Model ${model} is overloaded; trying the next note model if available.`);
                     continue;
                 }
                 // A backup model may be unavailable to this API key. Keep
-                // trying the remaining models, then retry the original 503.
+                // trying the remaining models, then retry the original error.
                 if (overloadError && error instanceof ApiError && (error.status === 403 || error.status === 404)) {
                     continue;
                 }
